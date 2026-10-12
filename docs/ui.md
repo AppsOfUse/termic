@@ -549,7 +549,14 @@ keep the runs whole:
 - Restore copies `subgroup` from `persisted_tabs` and gathers the runs, so
   a task file a bad write left split still comes back whole.
 - `reorderTab` itself NEVER touches membership (`reseatAtPinBoundary`
-  calls it too). The two drags settle it on drop instead (below).
+  calls it too). The two drags settle it on drop instead (below), and
+  on EVERY way a started drag ends, not only a release: their reorder is
+  live, so an end that skipped the settle would leave the order the live
+  reorder tore (a loose tab between two members), and `syncDurableTabs`
+  would persist it. The tab strip settles on a release in the strip, on a
+  release over a pane or split target (after that move; a no-op when the
+  store took the tab out of the strip, the repair when it refused), on
+  `pointercancel`, and when the strip unmounts mid-drag.
 
 Drawing: a block at the run's position, `data-tab-subgroup-id` on the
 wrapper and `data-collapsed` on wrapper and caption. The caption copies a
@@ -584,8 +591,9 @@ Joining a folded subgroup opens it; a pinned row never joins; no drag
 creates a subgroup. The drop (`dropTabInSubgroup`) commits the membership
 where the row is and gathers the runs in ONE tabs write.
 
-Drag, tab strip: position decides membership, applied once on drop
-(`useTabStripDrag`'s `onDropInStrip`, main strip only, `stripMembership`).
+Drag, tab strip: position decides membership, applied once when the drag
+ends however it ends (`useTabStripDrag`'s `onDropInStrip`, main strip
+only, `stripMembership`).
 Landing between two members of one subgroup joins it; a member still
 touching its run stays; a member dropped away from its run leaves; a loose
 tab at the edge of a run stays loose, so dragging past a block never
