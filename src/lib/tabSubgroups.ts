@@ -23,7 +23,7 @@ export const isStripRow = (t: Tab): t is TerminalTab =>
 
 /** The subgroup a tab counts as being in. A pinned tab never does, whatever
  *  a bad write left on it. */
-const memberOf = (t: Tab): TabSubgroup | null =>
+export const memberOf = (t: Tab): TabSubgroup | null =>
   isStripRow(t) && !t.pinned ? t.subgroup ?? null : null;
 
 export const sameSubgroup = (a: TabSubgroup | null | undefined, b: TabSubgroup | null | undefined): boolean =>
@@ -144,8 +144,10 @@ export function reseatForSubgroup<T extends Tab>(all: T[], tabId: string, g: Tab
   }
   if (at < 0 && tab.pinned && g) {
     // Unpinned by joining: first slot after the main strip's pinned block.
+    // Every main-strip pill can be pinned (an edit or diff tab too), so the
+    // block ends after the last pinned tab of ANY type outside a split pane.
     let pinEnd = 0;
-    without.forEach((t, i) => { if (isStripRow(t) && t.pinned) pinEnd = i + 1; });
+    without.forEach((t, i) => { if (!t.paneId && t.pinned) pinEnd = i + 1; });
     at = pinEnd;
   }
   if (at < 0) return all.map(t => (t.id === tabId ? moved : t));

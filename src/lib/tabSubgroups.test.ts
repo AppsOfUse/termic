@@ -125,6 +125,15 @@ describe("reseatForSubgroup", () => {
     expect((next[1] as TerminalTab).pinned).toBeUndefined();
   });
 
+  it("a pinned tab joining steps past a pinned EDIT tab too (every pill can be pinned)", () => {
+    const pe = { ...edit("pe"), pinned: true } as Tab;
+    const all = [term("pt", { pinned: true }), pe, term("u")];
+    const next = reseatForSubgroup(all, "pt", B);
+    expect(ids(next)).toEqual(["pe", "pt", "u"]);
+    expect(next[0].pinned).toBe(true);
+    expect((next[1] as TerminalTab).pinned).toBeUndefined();
+  });
+
   it("returns the same array when nothing changes", () => {
     const all = base();
     expect(reseatForSubgroup(all, "a", A)).toBe(all);
