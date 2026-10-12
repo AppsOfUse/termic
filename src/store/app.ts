@@ -2494,14 +2494,16 @@ export const useApp = create<AppState>((set, get) => ({
 
   pinTab: (taskId, tabId) => {
     // A pinned tab is never a subgroup member (the pinned block heads the
-    // strip, a subgroup is a run after it). Dropped in the same write.
+    // strip, a subgroup is a run after it), so the membership is dropped in
+    // the same write that sets the flag: no render ever sees a pinned
+    // member or a loose, still-unpinned tab. The move to the pin boundary
+    // is a second write (`reorderTab`), as it is for `unpinTab`.
+    // `withSubgroup` REMOVES the key (absent is the only ungrouped state).
     set(s => {
       const list = s.tabs[taskId];
-      const tab = list?.find(t => t.id === tabId) as TerminalTab | undefined;
-      if (!list || !tab?.subgroup) return s;
-      return { tabs: { ...s.tabs, [taskId]: list.map(t => (t.id === tabId ? withSubgroup(t, null) : t)) } };
+      if (!list?.some(t => t.id === tabId)) return s;
+      return { tabs: { ...s.tabs, [taskId]: list.map(t => (t.id === tabId ? { ...withSubgroup(t, null), pinned: true } : t)) } };
     });
-    get().patchTab(taskId, tabId, { pinned: true });
     reseatAtPinBoundary(set, get, taskId, tabId);
   },
 

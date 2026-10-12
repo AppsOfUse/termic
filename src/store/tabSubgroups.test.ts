@@ -195,6 +195,19 @@ describe("contiguity on the other paths", () => {
     expect(lastPersisted().find(p => p.id === "b")?.subgroup).toBeUndefined();
   });
 
+  it("pinning drops the membership in the same write that sets the flag", () => {
+    seed({ id: "a", subgroup: A }, { id: "b", subgroup: A });
+    const seen: string[] = [];
+    const unsub = useApp.subscribe(s => {
+      const b = s.tabs.ws1?.find(t => t.id === "b") as TerminalTab | undefined;
+      seen.push(`${b?.pinned ? "P" : "-"}${b?.subgroup ? "A" : "-"}`);
+    });
+    useApp.getState().pinTab("ws1", "b");
+    unsub();
+    // Never a loose-but-unpinned (or pinned member) intermediate state.
+    expect(seen.every(x => x === "P-")).toBe(true);
+  });
+
   it("moving a member into a split clears its subgroup, and it comes back loose", () => {
     seed({ id: "a", subgroup: A }, { id: "b", subgroup: A }, { id: "c", subgroup: A });
     useApp.getState().moveTabToSplit("ws1", "b", null, "right");
