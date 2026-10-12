@@ -4,6 +4,89 @@ All notable changes to Termic, newest first. This file is the human-authored
 source of truth: the in-app Update card and the /changelog page on termic.dev
 are generated from it. See the `release` skill for how entries are added.
 
+## [1.15.0] - 2026-10-12
+
+Shared scratchpads, Ghostty and Warp themes, markdown review comments, pinned folders, and a Linux pass.
+
+### Features
+- **Scratchpads for a project, a profile, and everything.** Beside a task's
+  own scratchpad there are now three shared ones, each a folder of files
+  rather than a single note: per project, per profile, and global. They have
+  their own panel on the right, where you can create, rename, delete and
+  reveal files, or copy one into the task's worktree. ⌘S on an untitled note
+  asks which one to save it to. The CLI and the MCP tools take a scope
+  (`task`, `project`, `profile`, `global`), and config sync carries them
+  between machines. Thanks to [@nvkvin](https://github.com/nvkvin).
+- **Your Ghostty and Warp themes are in the theme list.** Themes found on
+  disk show up beside the built-in ones, with a live preview as you arrow
+  through them. Picking one saves a copy in Termic's own format, so it keeps
+  working if the original goes away. The sidebar's theme icon opens the list.
+  Thanks to [@wagoodman](https://github.com/wagoodman).
+- **Comment on rendered markdown.** Select anything in a markdown preview and
+  a Comment pill opens the same composer as the code side: send now or add to
+  the pending batch. The comment also shows beside its source in the editor.
+  Thanks to [@wagoodman](https://github.com/wagoodman).
+- **Markdown split view scrolls together.** Scroll the source or the preview
+  and the other follows, smoothly through tall images and long paragraphs.
+  Thanks to [@wagoodman](https://github.com/wagoodman).
+- **Pin folders in the file tree.** Pin a folder from its menu or the pin on
+  its row, and a Pinned section at the top of All files jumps to it. Pins
+  belong to the project, so every task in it sees them. Thanks to
+  [@lymanzhao](https://github.com/lymanzhao).
+- **"From a PR" works on GitLab, and can list every open PR.** New Task now
+  lists your merge requests and the ones waiting for your review on GitLab,
+  and takes a pasted MR number. Two chips switch the list between For you
+  and All open (the newest 50) on GitHub, GitLab and Azure DevOps. Thanks to
+  [@nvkvin](https://github.com/nvkvin).
+
+### Improvements
+- **"From an issue" filters to yours on GitLab and Azure DevOps.** The
+  Assigned to you chip in New Task was GitHub only. Thanks to
+  [@nvkvin](https://github.com/nvkvin).
+- **The sidebar's status chips are a total and its parts.** Tasks in action
+  comes first and counts everything that is not in the backlog; Working,
+  Needs you, In review and the new Settled chip say where those tasks are,
+  and always add up to it. The Done chip left the row (`status:done` still
+  works in the filter), and the filter's "1 of 10 tasks" count moved to the
+  foot of the list. Thanks to [@nvkvin](https://github.com/nvkvin).
+- **The Status section folds.** Its header is a bar with a count; click it to
+  collapse the section, and the marks of the tasks inside stay visible on the
+  folded header. Thanks to [@nvkvin](https://github.com/nvkvin).
+- **The task finder shows each task's status** and searches by it: type
+  `working` or `review`, combine it with a name, or use `status:working`.
+  Thanks to [@nvkvin](https://github.com/nvkvin).
+- **Shortcut names in Chinese.** With the UI in Chinese, the rows of the
+  Shortcuts settings page and the ⌘/ sheet are now translated too. Thanks to
+  [@lymanzhao](https://github.com/lymanzhao).
+- **Linux: the app's bar is the title bar.** No separate native title bar,
+  with minimize, maximize and close on the app's own bar, as on Windows.
+- **Linux: Super works as Cmd**, including from inside a terminal, and
+  shortcut chips are drawn in the order Linux writes them.
+- **The approved tick sits left of the PR number** in the sidebar, so the
+  numbers keep one right edge down the list.
+
+### Bug fixes
+- Linux: in the AppImage, scripts starting with `#!/usr/bin/env` and common
+  commands failed in a Termic terminal on recent Ubuntu, because the app's
+  bundled libraries leaked into every child process.
+- Linux: Ctrl+Shift+V pasted nothing into a terminal.
+- Linux: the `termic` command was a dead link whenever the app was closed.
+- Linux: "Install system-wide" now asks for your password, as it says.
+- Linux: Ctrl+Alt shortcuts (pane left and the rest), Ctrl+Shift+Tab and
+  previous / next tab did nothing from inside a terminal.
+- Linux: the dock showed a generic icon instead of Termic's.
+- Windows: the MCP endpoint could stop binding its port after a restart and
+  blame another process. An unset port now comes from a range Windows does
+  not reserve, and Settings says why a bind was refused.
+- A typed MCP port that could not be bound was retried even after you
+  cleared the field.
+- An agent that exited in the middle of a turn could keep its working
+  spinner under the exited banner.
+- Windows: fast Korean input followed by Enter could reach the agent out of
+  order.
+- Renaming a file from the file tree's menu could cancel itself before you
+  typed anything.
+
 ## [1.14.4] - 2026-10-09
 
 A sidebar filter bar and status chips, HTML preview, and review requests in New Task.
