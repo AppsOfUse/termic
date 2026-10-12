@@ -1,4 +1,4 @@
-// "Save Scratchpad" picker opened by ⌘S on an untitled scratchpad (GH #244, common-scratchpad).
+// "Save Scratchpad" picker opened by ⌘S on an untitled scratchpad (GH #244, #385).
 //
 // Users can choose to save the buffer into:
 // 1. Project Scratchpad: scoped to the current project, shared across tasks.

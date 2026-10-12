@@ -1,4 +1,4 @@
-// Dedicated Scratchpad panel for the Right Panel (GH common-scratchpad).
+// Dedicated Scratchpad panel for the Right Panel (GH #385).
 //
 // Shows two distinct collapsible trees:
 // 1. Project Scratchpad: scoped to the current project, shared across all its tasks.

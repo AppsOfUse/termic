@@ -427,10 +427,6 @@ specs and get an issue at the same time. That is the whole promotion path:
   ([#296](https://github.com/simion/termic/issues/296)) A third cage beside
   the Seatbelt profile and Docker mode, using macOS's own `container`
   runtime, so a sandboxed task on Apple Silicon needs no Docker Desktop.
-- **Import Warp and Ghostty themes.** Termic has a native JSON theme format,
-  but two large theme ecosystems already exist and neither is ours. Scan
-  both directories, translate, and let people pick from the library they
-  already collected.
 - **Linear integration.** GitHub and GitLab already ship: start a task from
   an issue, open the PR from the app, watch its checks and reviews from the
   right panel. Linear is the same shape and is not built.

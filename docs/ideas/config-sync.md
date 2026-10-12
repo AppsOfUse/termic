@@ -212,7 +212,7 @@ team config already travels with the repo it belongs to.
 | Agents | `id`, name, `command`, `args`, `yolo_args`, icon and color, capabilities, `sandbox_allowed_hosts`, account NAMES, `default_account`, `extends`, `kind` | `adopted_account` (the login that already existed on THIS machine), `disabled` (often hides a CLI not installed here), `sandbox_allowed_paths`, and `env` / `docker_env` (never, see below) |
 | `localStorage` | fonts and sizes, editor and terminal themes, theme mode, shortcuts, the prompt library, folder colors, indicators, confirm-before prompts, branch prefix, language, sounds | collapse state, recent tasks, split and panel sizes, last New Task mode, `terminalRenderer` and GPU (hardware), `uiScale` (display), `openWithApp` (an app installed here) |
 | `~/.config/termic/themes/` | all of it | |
-| Never | | `tasks/`, `scratch/`, `logins/`, `docker-agents/`, `docker-forge/`, the CLI token, window state, `servers/`, `backups/` |
+| Never | | `tasks/`, a task's own scratchpads (`scratch/<task_id>/`; the project, profile and global ones do sync, see above), `logins/`, `docker-agents/`, `docker-forge/`, the CLI token, window state, `servers/`, `backups/` |
 
 The `localStorage` row is a summary. The per-key answer, including the
 keys the table does not name, is `src/lib/prefsRegistry.ts`.
