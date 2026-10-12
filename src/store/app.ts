@@ -631,8 +631,10 @@ function durablePersistedTabs(tabs: Tab[] | undefined): PersistedTab[] {
       // The store is the ONLY writer of tab properties (GH #358), so the
       // full list rides every sync and the disk copy simply follows it.
       ...(t.props?.length ? { props: t.props } : {}),
-      // Main pane only (Rust drops it for split-pane tabs too). Absent, never
-      // null, when ungrouped: Rust skips `None`.
+      // Main pane only. This guard is the ONLY one: `task_set_tabs` merges
+      // with `keep_pane`, so Rust would keep a copy sent on a split-pane
+      // tab (it drops `subgroup` only for the right panel's tabs). Absent,
+      // never null, when ungrouped: Rust skips `None`.
       ...(t.subgroup && !t.paneId ? { subgroup: t.subgroup } : {}),
     }));
 }
@@ -654,9 +656,9 @@ function canonicalJson(v: unknown): string {
 /** Carry each record's `scheduled` over from `prior` by tab id. The durable
  *  tab list is built from live tabs, which know nothing of what is on disk;
  *  `scheduled` is written only by syncScheduledMessages, so the in-memory
- *  mirror must keep the value that write left, not re-derive it. Appended
- *  last and only when non-empty, which is how Rust serializes it, so a record
- *  read back from disk still compares equal. */
+ *  mirror must keep the value that write left, not re-derive it. Set only
+ *  when non-empty, so a record read back from disk still compares equal
+ *  under `canonicalJson` (key order does not matter there). */
 function withPriorScheduled(next: PersistedTab[], prior: PersistedTab[]): PersistedTab[] {
   const byId = new Map(prior.filter(p => p.scheduled?.length).map(p => [p.id, p.scheduled!]));
   if (!byId.size) return next;

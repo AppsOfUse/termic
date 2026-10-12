@@ -147,6 +147,19 @@ describe("rename / recolour / dissolve", () => {
     expect(groupsOf("ws1")).toBe("---B");
   });
 
+  it("a closed member resumed comes back loose; resumed below a member, it joins", () => {
+    // The closed-tab entry keeps no membership (docs/ui.md "Tab subgroups").
+    seed({ id: "a", subgroup: A }, { id: "b", subgroup: A }, { id: "x" });
+    const entry = (tabId: string) => ({ id: `e-${tabId}`, tabId, title: "Claude", cli: "claude", closedAt: new Date().toISOString() });
+    useApp.setState(s => ({ closedTabs: { ...s.closedTabs, ws1: [entry("r1"), entry("r2")] as never } }));
+    useApp.getState().resumeClosedTab("ws1", "e-r1");
+    expect(ids("ws1")).toEqual(["a", "b", "x", "r1"]);
+    expect("subgroup" in tabOf("r1")).toBe(false);
+    useApp.getState().resumeClosedTab("ws1", "e-r2", { afterTabId: "a" });
+    expect(ids("ws1")).toEqual(["a", "r2", "b", "x", "r1"]);
+    expect(tabOf("r2").subgroup).toEqual(A);
+  });
+
   it("closing the last member removes the subgroup", () => {
     seed({ id: "x" }, { id: "a", subgroup: A });
     useApp.getState().closeTab("ws1", "a");

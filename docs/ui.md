@@ -414,9 +414,12 @@ The drag works on store state alone, so it reorders an inactive or
 unmounted task's tabs without activating it. The hook
 (`useSidebarTabDrag`) runs once per task row with no store subscription,
 and writes the follow-the-cursor transform to the row element directly:
-only the id of the lifted row is React state, so a pointermove does not
-re-render the task row, and the row must not take a React `style` prop,
-which would overwrite the transform. The post-reorder re-anchor keys on
+only the id of the lifted row is React state, so a pointermove that
+crosses no midpoint (most of them) does not re-render the task row, and
+the row must not take a React `style` prop, which would overwrite the
+transform. A move that DOES reorder writes `tabs` and re-renders the task
+row, as does one that changes the subgroup the lifted row wears (its
+`subDrag` state): once per crossing, not per pointermove. The post-reorder re-anchor keys on
 the joined id string, never the rows array (the #127 loop, see
 `useTabStripDrag`); it is the DRAWN order, subgroup blocks included,
 because a subgroup override moves the lifted row between blocks without
@@ -545,6 +548,10 @@ keep the runs whole:
   accent (`nextSubgroupColor`, task groups' founding order) and opens the
   caption's rename at once.
 - New below on a member creates the tab inside the same subgroup.
+- A closed member brought back with Resume (the close toast's action, or
+  the closed-tab list in a "+" menu) comes back LOOSE at the end of the
+  strip: the closed-tab entry keeps no membership. Resumed from a
+  member's New below, it joins that member's subgroup like any New below.
 - Moving a tab into a split pane clears its subgroup; a tab coming back to
   main is loose and the runs are gathered, so it never splits one.
 - Restore copies `subgroup` from `persisted_tabs` and gathers the runs, so
