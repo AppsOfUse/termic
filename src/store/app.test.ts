@@ -847,6 +847,17 @@ describe("addTab afterTabId", () => {
     expect(ids("ws1")).toEqual(["p0", "p1", "new", "t0"]);
   });
 
+  it("steps past a split-pane tab that sits inside the pinned block", () => {
+    // A pane tab keeps its array slot, so [A(P), X(pane), C(P)] is a real
+    // state (pin A, move X to a split, pin C). "Below A" must still land
+    // after C, never between two pinned tabs of the main strip.
+    addTab("ws1", makeTermTab({ id: "A", pinned: true }));
+    addTab("ws1", makeTermTab({ id: "X", paneId: "L1" }));
+    addTab("ws1", makeTermTab({ id: "C", pinned: true }));
+    useApp.getState().addTab("ws1", makeTermTab({ id: "new" }), { afterTabId: "A" });
+    expect(ids("ws1")).toEqual(["A", "X", "C", "new"]);
+  });
+
   it("persists the inserted order, so it survives a relaunch", () => {
     useApp.setState({ tasks: [makeTask({ id: "ws1" })] } as never);
     for (const id of ["t0", "t1"]) addTab("ws1", makeTermTab({ id, cli: "claude" }));

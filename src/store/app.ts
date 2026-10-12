@@ -31,7 +31,7 @@ import { unreadClearsOnSight } from "@/lib/taskWorkState";
 import { scoped } from "@/lib/profileScope";
 import { i18n } from "@/lib/i18n";
 import {
-  gatherSubgroupRuns, isStripRow, nextSubgroupColor, reseatForSubgroup, sameSubgroup,
+  gatherSubgroupRuns, isStripRow, memberOf, nextSubgroupColor, reseatForSubgroup, sameSubgroup,
   stripMembership, subgroupIdsIn, withSubgroup,
 } from "@/lib/tabSubgroups";
 import { pruneMemberSets } from "@/components/dialogs/memberModes";
@@ -663,30 +663,36 @@ function withPriorScheduled(next: PersistedTab[], prior: PersistedTab[]): Persis
   return next.map(t => byId.has(t.id) ? { ...t, scheduled: byId.get(t.id) } : t);
 }
 
-/**
- * Move `tabId` to its strip's pin boundary and persist. Shared by `pinTab` and
- * `unpinTab`: both send the tab to the SAME index, so this reads the flag that
- * was just written rather than being told which way it went.
- */
 /** `list` with `tab` added: right after `afterTabId` when that tab is in
  *  the list, else at the end. An unpinned tab never lands inside the pinned
  *  block at the front of the main strip (the invariant `reseatAtPinBoundary`
- *  keeps), so "below" a pinned tab means the first slot after the block. */
+ *  keeps), so "below" a pinned tab means the first slot after the block. The
+ *  block ends after the LAST pinned main-strip tab, not at the first tab that
+ *  is not one: a split-pane tab keeps its array slot and can sit between two
+ *  pinned tabs ([A(P), X(pane), C(P)]), and stopping there would put the new
+ *  tab between A and C in the strip. The `sidebarTabMoveIndex` rule. */
 function insertTab(list: Tab[], tab: Tab, afterTabId?: string): Tab[] {
   const anchor = afterTabId ? list.findIndex(t => t.id === afterTabId) : -1;
   if (anchor < 0) return [...list, tab];
   let at = anchor + 1;
   if (!tab.pinned) {
-    while (at < list.length && list[at].pinned && !(list[at] as TerminalTab).paneId) at++;
+    let pinEnd = 0;
+    list.forEach((t, i) => { if (t.pinned && !t.paneId) pinEnd = i + 1; });
+    at = Math.max(at, pinEnd);
   }
   // New below on a subgroup member lands inside the same subgroup: right
   // after a member is inside (or at the tail of) its run, so the run stays
   // contiguous. A tab that is not a strip row, or is pinned, never joins.
-  const sg = (list[anchor] as TerminalTab).subgroup;
-  const inherit = sg && isStripRow(list[anchor]) && !list[anchor].pinned && isStripRow(tab) && !tab.pinned;
+  const sg = memberOf(list[anchor]);
+  const inherit = sg && isStripRow(tab) && !tab.pinned;
   return [...list.slice(0, at), inherit ? withSubgroup(tab, sg) : tab, ...list.slice(at)];
 }
 
+/**
+ * Move `tabId` to its strip's pin boundary and persist. Shared by `pinTab` and
+ * `unpinTab`: both send the tab to the SAME index, so this reads the flag that
+ * was just written rather than being told which way it went.
+ */
 function reseatAtPinBoundary(
   set: (partial: Partial<AppState>) => void,
   get: () => AppState,
