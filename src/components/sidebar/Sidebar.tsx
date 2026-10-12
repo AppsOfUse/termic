@@ -1273,23 +1273,19 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
           onMenuOpenChange={setFilterMenuOpen}
         />
       )}
-      {/* One row under the bar: the status chips, then the filter's count at
-          the far end. The count shares their line so turning a filter on
-          never pushes the chips out from under the pointer. The chips stand
+      {/* One row under the bar: the status chips, and nothing else. The
+          filter's count used to share this line, and with six chips it did
+          not fit: the row scrolled and the count covered the last chip, which
+          is the one a click had just turned on. The count is at the foot of
+          the tree now, with the note about hidden projects. The chips stand
           in for the STATUS section while it is off; with it on they would
           count the same buckets the section lists. `empty:hidden` drops the
-          row when neither has anything to say (the section is on and no
-          filter is set); with the chips it is always there, at one height,
-          so the tree below never shifts. No rule under it: one was tried and
-          read as too harsh against the sidebar. */}
+          row when the section is on; with the chips it is always there, at
+          one height, so the tree below never shifts. No rule under it: one
+          was tried and read as too harsh against the sidebar. */}
       {!compact && (
         <div className="flex shrink-0 items-center gap-2 px-2 empty:hidden">
           {!showStatusSection && <StatusChips />}
-          {queryOn && (
-            <span data-testid="sidebar-filter-count" className="ml-auto shrink-0 text-[11.5px] tabular-nums text-[var(--color-fg-faint)]">
-              {t("filterBar.count", { shown: queryMatchIds?.size ?? 0, total: queryLiveTasks.length })}
-            </span>
-          )}
         </div>
       )}
       </div>
@@ -2445,9 +2441,19 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                   >{t("filterBar.clear")}</button>
                 </div>
               )}
-              {queryOn && activeProjects.length > 0 && projects.length > activeProjects.length && (
-                <div data-testid="sidebar-filter-hidden" className="px-2 pt-1.5 text-[11.5px] tabular-nums text-[var(--color-fg-faint)]">
-                  {t("filterBar.hidden", { count: projects.length - activeProjects.length })}
+              {/* How much of the list the filter left, and how many projects
+                  it folded away. Down here rather than beside the chips: see
+                  the note on the chips row. */}
+              {queryOn && activeProjects.length > 0 && (
+                <div className="flex flex-col gap-0.5 px-2 pt-1.5 text-[11.5px] tabular-nums text-[var(--color-fg-faint)]">
+                  <span data-testid="sidebar-filter-count">
+                    {t("filterBar.count", { shown: queryMatchIds?.size ?? 0, total: queryLiveTasks.length })}
+                  </span>
+                  {projects.length > activeProjects.length && (
+                    <span data-testid="sidebar-filter-hidden">
+                      {t("filterBar.hidden", { count: projects.length - activeProjects.length })}
+                    </span>
+                  )}
                 </div>
               )}
             </>

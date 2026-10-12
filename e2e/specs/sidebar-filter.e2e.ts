@@ -731,12 +731,24 @@ describe("sidebar filter bar", () => {
         count: el.querySelector('[data-testid="status-chip-count"]')?.textContent ?? null,
       })));
     const all = await chips();
-    expect(all.map(c => c.chip)).toEqual(["action", "working", "attention", "done", "review", "settled"]);
+    expect(all.map(c => c.chip)).toEqual(["action", "working", "attention", "review", "settled"]);
     // The fixture has no PR, so In review is the chip that is certainly empty.
     const review = all.find(c => c.chip === "review")!;
     expect(review).toEqual({ chip: "review", empty: true, disabled: "true", count: "0" });
     // Every chip agrees with itself: empty exactly when it is disabled.
     for (const c of all) expect(c.disabled === "true").toBe(c.empty);
+    // The rule the row is built on: the first chip is a total and the four
+    // after the rule are the columns it splits into, so they add up to it.
+    // With a Done chip in the row one task was counted on three chips.
+    const n = (chip: string) => Number(all.find(c => c.chip === chip)!.count);
+    expect(n("working") + n("attention") + n("review") + n("settled")).toBe(n("action"));
+    expect(await browser.execute(() => {
+      const row = document.querySelector('[data-testid="status-chips"]')!;
+      const rule = row.querySelector('[data-testid="status-chips-rule"]');
+      const kids = [...row.children];
+      // Right after the total, before the first column.
+      return !!rule && kids.indexOf(rule) === 1;
+    })).toBe(true);
 
     // The row's box is what must not move: same top and height with one chip
     // counting as with none. `a` still carries the attention seeded above.

@@ -138,7 +138,6 @@ export interface TaskQuery {
    *  `status:` clauses are dropped, so each status chip answers for its own
    *  column whichever chip is on. Needs columns. */
   columnCount: (column: BoardColumn) => number;
-  doneCount: () => { shown: number; total: number };
   actionCount: () => { shown: number; total: number };
   /** A project's folder accent, for chips and the board's headers. */
   projectAccent: (p: Project | undefined) => string | undefined;
@@ -239,21 +238,6 @@ export function useTaskQuery({ text, menuOpen, live, archived, workPrefs, always
     for (const w of live) if (columnOf.get(w.id) === column && boardTaskMatches(w, matchCtx(w), rest)) n++;
     return n;
   }, [query, live, columnOf, matchCtx]);
-  // The Done chip's two numbers, the same pair a column chip gets: what the
-  // rest of the query lets through, and the unfiltered total that decides
-  // whether the chip is empty.
-  const doneCount = useCallback((): { shown: number; total: number } => {
-    const rest = dropBoardClauses(query, "status");
-    let shown = 0, total = 0;
-    for (const w of live) {
-      const ctx = matchCtx(w);
-      if (!ctx.done) continue;
-      total++;
-      if (boardTaskMatches(w, ctx, rest)) shown++;
-    }
-    return { shown, total };
-  }, [query, live, matchCtx]);
-
   // The Action chip's numbers: all non-backlog tasks (attention, working, review, settled).
   const actionCount = useCallback((): { shown: number; total: number } => {
     const rest = dropBoardClauses(query, "status");
@@ -391,5 +375,5 @@ export function useTaskQuery({ text, menuOpen, live, archived, workPrefs, always
     ];
   }, [menuOpen, text, live, archived, matchCtx, valuesFor, projects, projectAccent, agents, t]);
 
-  return { query, filtering, matches, sections, valuesFor, columnOf, columnCount, doneCount, actionCount, projectAccent };
+  return { query, filtering, matches, sections, valuesFor, columnOf, columnCount, actionCount, projectAccent };
 }

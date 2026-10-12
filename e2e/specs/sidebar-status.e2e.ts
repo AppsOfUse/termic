@@ -494,9 +494,12 @@ describe("sidebar status section", () => {
     // Not `[aria-expanded]`: the list-options menu button in the same header
     // carries one of its own.
     expect(await present(`${projHeader} [role="button"]`)).toBe(false);
+    // Compared with what was there, not with null: a machine that ran the
+    // suite while PROJECTS still folded keeps that old key in localStorage.
+    const before = await stored("projectsSectionCollapsed");
     await click(projHeader);
     expect(await present(`[data-project-id="${projectId}"]`)).toBe(true);
-    expect(await stored("projectsSectionCollapsed")).toBe(null);
+    expect(await stored("projectsSectionCollapsed")).toBe(before);
 
     await click(HEADER);
     expect(await ariaExpanded(HEADER)).toBe("false");

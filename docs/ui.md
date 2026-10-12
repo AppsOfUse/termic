@@ -929,8 +929,9 @@ go" has an answer on both surfaces.
 
 ## The sidebar's status chips
 
-Under the filter bar, a row of chips counts the tasks in action, working,
-needing you, finished unread, in review, and settled (`sidebar/StatusChips.tsx`).
+Under the filter bar, a row of chips counts the tasks in action and, after
+a thin rule, where each of them is: working, needing you, in review, settled
+(`sidebar/StatusChips.tsx`).
 A chip toggles its status clause in the sidebar's query, so clicking one
 narrows the tree to those tasks and the bar shows the clause it wrote: the
 board's lane-click idea, applied to the sidebar.
@@ -957,34 +958,40 @@ the count, and the list is one click away in the tree.
 - **A chip is its glyph and its count,** on one line at any sidebar width.
   Its name is in the tooltip and the accessible label: with the words the
   row wrapped to two lines in a narrow sidebar.
+- **The row holds the chips and nothing else.** The filter's "N of M
+  tasks" count used to sit at its far end. With the chips it has now that did not fit
+  a default-width sidebar: the row scrolled, and the count covered the last
+  chip, which was the one just clicked. The count is at the foot of the
+  tree (`sidebar-filter-count`), above the note about hidden projects.
 - **In review is the PR glyph in the text colour,** not green. The column
   means "has an open or draft PR, agent idle", and green on a row's PR
   badge is a PR state, so a green chip read as "checks passed". An eye was
   tried and dropped: the PR glyph is what the board's review column uses.
-- **Six chips across the full active lifecycle:** Tasks in action (`action`),
-  Working (`working`), Needs you (`attention`), Done (`done`), In review (`review`),
-  and Settled (`settled`). Not started (backlog) remains available via the query
-  language and filter menu.
-- **Tasks in action is the umbrella chip:** it counts all non-backlog tasks and
-  toggles `-status:backlog` into the query. Clicking it clears granular status
-  clauses so all tasks in action (working, attention, review, settled) appear in the
-  tree at once. Clicking a granular chip while Tasks in action is on replaces
-  `-status:backlog` with that specific status filter.
-- **Settled completes the lifecycle:** it writes `status:settled` and wears a check
-  mark in the settled colour (`STATUS_MARK_COLOR.settled`, `var(--color-info)`).
-- **Done is the one chip that is not a column.** It counts the rows showing
-  the blue dot: a turn finished and nobody has looked. The board files those
-  under Settled with everything that finished last week (or under In review
-  when the task has a PR), so the second most actionable state had no count
-  anywhere. It writes `status:done`, an overlay the matcher answers from the
-  `done` fact (`BoardMatchCtx.done`, `BoardTaskFacts.done`), not from the
-  column, so a task can count under Done and In review at once and the
-  chips no longer sum to a partition. Attention wins over it, as on the
-  row's badge: a tab that asks for you is also written `done`, and a blocked
-  task must not count under both the bell and the dot. Session state, like the dot: opening
-  the task clears it, a relaunch clears all of them, and `settledHighlight`
-  off empties it. The board's filter menu does not list it (its status
-  chips are the columns); typing `status:done` works there too.
+- **A total and its parts.** Tasks in action (`action`) comes first, then a
+  1px rule (`status-chips-rule`), then the four board columns a started task
+  can be in: Working (`working`), Needs you (`attention`), In review
+  (`review`) and Settled (`settled`). A task is in exactly one column, so
+  the four always add up to the first, and the spec asserts that sum. Not
+  started (backlog) is the rest of the list; it stays in the query language
+  and the filter menu.
+- **Tasks in action is the total:** it counts all non-backlog tasks and
+  toggles `-status:backlog` into the query. Clicking it clears granular
+  status clauses, so every started task shows at once. Clicking a column
+  chip while it is on replaces `-status:backlog` with that status.
+- **Settled wears a check mark** in the settled colour
+  (`STATUS_MARK_COLOR.settled`, `var(--color-info)`) and writes
+  `status:settled`.
+- **There is no Done chip, on purpose.** Done (the blue dot: a turn finished
+  and nobody has looked) is not a column, it cuts across them: such a task
+  is in Settled, or In review with a PR. The row had one through 1.14.4,
+  when it had no Settled and no total, and the overlap did not show. With
+  all three, one finished task read 1 on Tasks in action, 1 on Done and 1 on
+  Settled. Taking Settled out instead left 1, 0, 0, 0, 0, a total with no
+  part saying where the task was. The row keeps the set that partitions.
+  `status:done` is still an overlay the matcher answers from the `done` fact
+  (`BoardMatchCtx.done`, `BoardTaskFacts.done`), typed or from the bar's
+  menu, and the title bar's waiting pill (`lib/waitingAgents.ts`) is where
+  unread work is counted. The board's filter menu does not list it either.
 - **Every chip is always drawn.** An empty one is disabled
   (`aria-disabled`, faint, glyph uncoloured, spinner held still, click does
   nothing) rather than hidden. Hidden, the row appeared with the first

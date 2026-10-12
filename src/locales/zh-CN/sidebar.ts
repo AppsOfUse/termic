@@ -33,7 +33,6 @@ export default {
   statusChips: {
     action: "活动中任务",
     attention: "需要你",
-    done: "已完成，未读",
     working: "进行中",
     review: "审查中",
     settled: "已完成",
