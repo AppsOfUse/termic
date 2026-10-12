@@ -8780,9 +8780,10 @@ fn task_set_tabs(id: String, tabs: Vec<PersistedTabInput>) -> Result<(), String>
     let mut list = load_tasks_all();
     let w = list.iter_mut().find(|w| w.id == id).ok_or("no such task")?;
     let next = merge_persisted_tabs(&w.persisted_tabs, tabs, true);
-    // No-op when nothing actually changed (compare the serialized shape;
-    // session_id lives outside the input so equal metadata + preserved
-    // uuids means an identical record).
+    // No-op when nothing actually changed (`same_persisted_tabs` compares
+    // every persisted field, one by one; session_id lives outside the
+    // input, so equal metadata + preserved uuids means an identical
+    // record).
     let same = same_persisted_tabs(&next, &w.persisted_tabs);
     if same {
         return Ok(());
@@ -29896,6 +29897,26 @@ mod tests {
         // The identical list still is one.
         let mut same = input("a", "a");
         same.subgroup = Some(subgroup(None));
+        assert!(same_persisted_tabs(&merge_persisted_tabs(&next, vec![same], true), &next));
+    }
+
+    // `same_persisted_tabs` compares `agent_args` too (main's inline check
+    // did not): a tab whose only change is its argv still reaches disk, so
+    // a resumed agent comes back with the flags it was last given.
+    #[test]
+    fn an_agent_args_only_change_is_not_a_no_op() {
+        let prior = merge_persisted_tabs(&[], vec![input("a", "a")], true);
+        let mut inp = input("a", "a");
+        inp.agent_args = vec!["--model".into(), "opus".into()];
+        let next = merge_persisted_tabs(&prior, vec![inp], true);
+        assert_eq!(next[0].agent_args, vec!["--model".to_string(), "opus".to_string()]);
+        assert!(!same_persisted_tabs(&next, &prior));
+        // A different argv is a change; the identical one is not.
+        let mut other = input("a", "a");
+        other.agent_args = vec!["--model".into(), "sonnet".into()];
+        assert!(!same_persisted_tabs(&merge_persisted_tabs(&next, vec![other], true), &next));
+        let mut same = input("a", "a");
+        same.agent_args = vec!["--model".into(), "opus".into()];
         assert!(same_persisted_tabs(&merge_persisted_tabs(&next, vec![same], true), &next));
     }
 
