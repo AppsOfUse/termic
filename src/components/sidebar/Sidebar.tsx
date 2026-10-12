@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { logWorkState } from "@/lib/workStateLog";
 import { useApp, useActiveTabId } from "@/store/app";
-import { useRowTabs, useSidebarTabFacts } from "@/store/sidebarTabs";
+import { createCollapsedSubgroupsSelector, useRowTabs, useSidebarTabFacts } from "@/store/sidebarTabs";
 import { usePrefs, scheduledNavVisible, taskLocationIconShown } from "@/store/prefs";
 import { Button } from "@/components/ui/Button";
 import { Tip } from "@/components/ui/Tooltip";
@@ -2909,9 +2909,7 @@ function TaskRow({ w, compact, dragging = false, dragTy = 0, onDragPointerDown, 
   // Fold state for THIS task's subgroups through one selector returning a
   // string, so a fold elsewhere renders no other row (bear trap 5).
   const subgroupIdsKey = taskSubgroups(terminalTabs).map(g => g.id).join(" ");
-  const collapsedSubKey = useApp(s => subgroupIdsKey
-    ? subgroupIdsKey.split(" ").filter(id => s.collapsedTabSubgroups[id]).join(" ")
-    : "");
+  const collapsedSubKey = useApp(useMemo(() => createCollapsedSubgroupsSelector(subgroupIdsKey), [subgroupIdsKey]));
   const collapsedSubs = new Set(collapsedSubKey ? collapsedSubKey.split(" ") : []);
   // A sidebar filter or query matching a tab title inside a COLLAPSED
   // subgroup shows that row while filtering. Selected as the ids it matches,

@@ -42,7 +42,7 @@ vi.mock("@/lib/tabFocus", () => ({
 import { useApp, selectTaskTabs, selectActiveTabId, EMPTY_TABS } from "@/store/app";
 import { useAgentUsage, usageKey } from "@/store/agentUsage";
 import {
-  createSidebarFactsSelector, createRowTabsSelector, tabRenderEqual, tabListRenderEqual,
+  createSidebarFactsSelector, createRowTabsSelector, createCollapsedSubgroupsSelector, tabRenderEqual, tabListRenderEqual,
   createStatusFactsSelector, createBoardFilterFactsSelector, selectStatusRowBadge, selectStatusRowDelegated,
   selectStatusRowTabCount, selectStatusRowActiveChild, selectRollupMarks,
 } from "@/store/sidebarTabs";
@@ -591,18 +591,19 @@ describe("sidebar under streaming output (bear traps 5, 8)", () => {
     expect(src).not.toMatch(/=>\s*s\.tabs\s*\)/);
     expect(src).toMatch(/useSidebarTabFacts\(\)/);
     expect(src).toMatch(/useRowTabs\(w\.id\)/);
+    // The fold selector the subgroup cases below measure is the one rows use.
+    expect(src).toMatch(/createCollapsedSubgroupsSelector\(subgroupIdsKey\)/);
   });
 });
 
 describe("tab subgroups (bear traps 5, 8)", () => {
   // Every task has a subgroup of two tabs. A TaskRow subscribes with its
   // row tabs plus ONE fold selector over its own subgroup ids (Sidebar.tsx,
-  // `collapsedSubKey`), modelled here exactly.
+  // `collapsedSubKey`): the real factory, not a copy of it.
   const TASKS = 16;
   const ids = Array.from({ length: TASKS }, (_, i) => `task-${i}`);
   const sg = (id: string) => ({ id: `sg-${id}`, name: "Group", color: "blue" });
-  const foldSelector = (id: string) => (s: AppState) =>
-    [`sg-${id}`].filter(g => s.collapsedTabSubgroups[g]).join(" ");
+  const foldSelector = (id: string) => createCollapsedSubgroupsSelector(`sg-${id}`);
 
   beforeEach(() => {
     useApp.setState({
