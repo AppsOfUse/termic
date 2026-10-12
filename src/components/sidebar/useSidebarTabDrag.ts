@@ -8,6 +8,14 @@
 // `reorderTab`, so the tab strip (which reads the same `tabs[taskId]`) moves
 // with it and the order persists through `syncDurableTabs`.
 //
+// Tab subgroups (docs/ui.md "Tab subgroups") ride on two hooks the caller
+// passes: `onMove` runs after each move's reorder (TaskRow hit-tests the
+// subgroup blocks there and sets a transient membership override, so a block
+// grows and shrinks under the cursor), and `onDrop` runs once when a started
+// drag ends, where TaskRow commits membership and gathers the runs in one
+// store update. Both are read through a ref at call time, so the listeners
+// registered on press always reach the CURRENT render's closures.
+//
 // The follow-the-cursor transform is applied to the row element directly,
 // never through React state: pointermove fires far faster than a TaskRow
 // needs to render, and the only thing the row's markup has to know is WHICH
@@ -39,15 +47,29 @@ interface Armed {
 const rowEl = (list: HTMLElement, id: string) =>
   list.querySelector<HTMLElement>(`[data-sidebar-tab-id="${CSS.escape(id)}"]`);
 
+export interface SidebarTabDragHooks {
+  /** After each pointermove's reorder of a started drag. `list` is the
+   *  task's `[data-sidebar-task-row]` wrapper: hit tests stay inside it. */
+  onMove?: (tabId: string, clientY: number, list: HTMLElement) => void;
+  /** Once when a started drag ends (release or cancel), before the lifted
+   *  state clears. */
+  onDrop?: (tabId: string) => void;
+}
+
 /**
- * @param orderKey the task's tab-row ids joined into one string. The
- *   re-anchor effect keys on it, NOT on the rows array, which is a fresh
- *   `.filter()` every render and would make the effect re-run on the render
- *   its own measurement triggers (the #127 loop, see useTabStripDrag).
+ * @param orderKey the task's tab rows in DRAWN order (subgroup blocks
+ *   included), joined into one string. The re-anchor effect keys on it, NOT
+ *   on the rows array, which is a fresh `.filter()` every render and would
+ *   make the effect re-run on the render its own measurement triggers (the
+ *   #127 loop, see useTabStripDrag). Drawn order, not store order: a
+ *   membership override moves the lifted row between blocks with no reorder
+ *   at all, and the row has to be re-anchored then too.
  */
-export function useSidebarTabDrag(taskId: string, orderKey: string) {
+export function useSidebarTabDrag(taskId: string, orderKey: string, hooks?: SidebarTabDragHooks) {
   const [dragTabId, setDragTabId] = useState<string | null>(null);
   const armedRef = useRef<Armed | null>(null);
+  const hooksRef = useRef(hooks);
+  hooksRef.current = hooks;
   // The click that trails a drop lands on the row it released over. Set on
   // drop, read + cleared by the row's onClick, and cleared on a 0ms timer
   // regardless, because a release over another element fires its click on a
@@ -91,6 +113,7 @@ export function useSidebarTabDrag(taskId: string, orderKey: string) {
     const st = useApp.getState();
     const idx = sidebarTabMoveIndex(st.tabs[taskId] ?? [], a.id, beforeId);
     if (idx !== null) st.reorderTab(taskId, a.id, idx);
+    hooksRef.current?.onMove?.(a.id, e.clientY, a.list);
   };
 
   // The exact functions registered on press. Each render builds new
@@ -113,6 +136,7 @@ export function useSidebarTabDrag(taskId: string, orderKey: string) {
     const a = armedRef.current;
     armedRef.current = null;
     if (!a?.started) return;
+    hooksRef.current?.onDrop?.(a.id);
     const el = rowEl(a.list, a.id);
     if (el) el.style.transform = "";
     setDragTabId(null);

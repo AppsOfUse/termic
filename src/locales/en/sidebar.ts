@@ -155,6 +155,16 @@ export default {
     delegatedPartialTip: "Some delegated work came back",
     delegatedPartialAria: "Partially done",
   },
+  tabSubgroup: {
+    defaultName: "Subgroup",
+    expand: "Expand subgroup",
+    collapse: "Collapse subgroup",
+    renamePlaceholder: "Subgroup name",
+    ungroupTabs: "Ungroup tabs",
+    moveToSubgroup: "Move to subgroup",
+    newSubgroup: "New subgroup…",
+    removeFromSubgroup: "Remove from subgroup",
+  },
   taskFilter: {
     tip: "Filter tasks",
     tipActive: "Filtering tasks",

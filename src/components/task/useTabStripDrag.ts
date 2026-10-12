@@ -31,8 +31,13 @@ export function useTabStripDrag(opts: {
   onDropToPane?: (tabId: string, toPaneId: string) => void;
   /** Called on an edge drop: split the target pane (null = main) in half. */
   onDropToSplit?: (tabId: string, toPaneId: string | null, zone: "left" | "right" | "top" | "bottom") => void;
+  /** Called once when a drag ends as a plain reorder WITHIN this strip (no
+   *  pane or split target). The main strip settles tab-subgroup membership
+   *  by position here (docs/ui.md "Tab subgroups"), and only here: the
+   *  live reorder runs through `reorderTab`, which must never touch it. */
+  onDropInStrip?: (tabId: string) => void;
 }) {
-  const { taskId, stripRef, stripTabs, allTabs, reorderTab, currentPaneId, onDropToPane, onDropToSplit } = opts;
+  const { taskId, stripRef, stripTabs, allTabs, reorderTab, currentPaneId, onDropToPane, onDropToSplit, onDropInStrip } = opts;
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragTx, setDragTx] = useState(0);
   const suppressClickRef = useRef(false);
@@ -176,6 +181,8 @@ export function useTabStripDrag(opts: {
         } else if (target.toPaneId && onDropToPane) {
           onDropToPane(d.id, target.toPaneId);
         }
+      } else {
+        onDropInStrip?.(d.id);
       }
       suppressClickRef.current = true;
       setTimeout(() => { suppressClickRef.current = false; }, 0);

@@ -594,6 +594,63 @@ describe("sidebar under streaming output (bear traps 5, 8)", () => {
   });
 });
 
+describe("tab subgroups (bear traps 5, 8)", () => {
+  // Every task has a subgroup of two tabs. A TaskRow subscribes with its
+  // row tabs plus ONE fold selector over its own subgroup ids (Sidebar.tsx,
+  // `collapsedSubKey`), modelled here exactly.
+  const TASKS = 16;
+  const ids = Array.from({ length: TASKS }, (_, i) => `task-${i}`);
+  const sg = (id: string) => ({ id: `sg-${id}`, name: "Group", color: "blue" });
+  const foldSelector = (id: string) => (s: AppState) =>
+    [`sg-${id}`].filter(g => s.collapsedTabSubgroups[g]).join(" ");
+
+  beforeEach(() => {
+    useApp.setState({
+      tasks: [],
+      collapsedTabSubgroups: {},
+      tabs: Object.fromEntries(ids.map(id => [id, [
+        { ...tab(`${id}-a`), subgroup: sg(id) } as Tab,
+        { ...tab(`${id}-b`), subgroup: sg(id) } as Tab,
+        tab(`${id}-c`),
+      ]])),
+    });
+  });
+
+  const mountRows = () => [
+    createSidebarFactsSelector(),
+    ...ids.flatMap(id => [createRowTabsSelector(id), foldSelector(id)]),
+  ];
+  const OWNER = 5;
+  const owner = ids[OWNER];
+  /** perSub[0] is the body; then a (tabs, fold) pair per row. */
+  const reached = (r: FanoutResult) => ({
+    body: r.perSub[0],
+    rows: ids.map((_, i) => r.perSub[1 + 2 * i] + r.perSub[2 + 2 * i]),
+  });
+
+  it("renaming a subgroup in one task renders no other TaskRow, and not the body", () => {
+    const r = reached(measureFanout(mountRows(), 1, () =>
+      useApp.getState().renameTabSubgroup(owner, `sg-${owner}`, "Backend")));
+    expect(r.body).toBe(0);
+    expect(r.rows).toEqual(ids.map((_, i) => (i === OWNER ? 1 : 0)));
+  });
+
+  it("folding a subgroup reaches only its own row's fold selector", () => {
+    const r = reached(measureFanout(mountRows(), 1, () =>
+      useApp.getState().setTabSubgroupCollapsed(`sg-${owner}`, true)));
+    expect(r.body).toBe(0);
+    expect(r.rows).toEqual(ids.map((_, i) => (i === OWNER ? 1 : 0)));
+  });
+
+  it("a rename to the same name and a no-op fold notify nobody (bear trap 8)", () => {
+    const r = measureFanout(mountRows(), 1, () => {
+      useApp.getState().renameTabSubgroup(owner, `sg-${owner}`, "Group");
+      useApp.getState().setTabSubgroupCollapsed(`sg-${owner}`, false);
+    });
+    expect(r.selectorRuns).toBe(0);
+  });
+});
+
 describe("collapsed project and folder marks (bear traps 5, 8)", () => {
   // The tree's folded headers (RollupMarks): two collapsed projects of eight
   // tasks each, inside one collapsed folder that holds all sixteen.

@@ -155,6 +155,16 @@ export default {
     delegatedPartialTip: "有委托的工作已返回",
     delegatedPartialAria: "部分完成",
   },
+  tabSubgroup: {
+    defaultName: "子分组",
+    expand: "展开子分组",
+    collapse: "折叠子分组",
+    renamePlaceholder: "子分组名称",
+    ungroupTabs: "取消标签页分组",
+    moveToSubgroup: "移动到子分组",
+    newSubgroup: "新建子分组…",
+    removeFromSubgroup: "从子分组移除",
+  },
   taskFilter: {
     tip: "筛选任务",
     tipActive: "正在筛选任务",
