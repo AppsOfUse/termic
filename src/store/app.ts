@@ -376,8 +376,10 @@ export interface AppState {
    *  sidebar row. The schedule runner is the only caller. */
   setTaskSchedule: (taskId: string, schedule: TaskSchedule | null) => void;
   /** `opts.focus` (default true) — pass false to add the tab without
-   *  activating or stealing keyboard focus (e.g. a background setup run). */
-  addTab: (taskId: string, tab: Tab, opts?: { focus?: boolean }) => void;
+   *  activating or stealing keyboard focus (e.g. a background setup run).
+   *  `opts.afterTabId` inserts right after that tab instead of appending
+   *  (the sidebar tab row's "New below"); an unknown id appends. */
+  addTab: (taskId: string, tab: Tab, opts?: { focus?: boolean; afterTabId?: string }) => void;
   /** Add a terminal tab to whichever pane is active: the focused split pane
    *  (wired into its tab strip) or the main pane. Used by the Run pop-out
    *  (GH #54) so the run terminal lands where the user is looking.
@@ -397,7 +399,7 @@ export interface AppState {
    *  `sessionId` so the agent resumes via `--resume <uuid>` (see
    *  `decideResume` in TerminalPane) instead of starting a new
    *  conversation. Removes the entry from `closedTabs` once reopened. */
-  resumeClosedTab: (taskId: string, entryId: string) => void;
+  resumeClosedTab: (taskId: string, entryId: string, opts?: { afterTabId?: string }) => void;
   setActiveTabId: (taskId: string, tabId: string) => void;
   /** Show a place WITHOUT treating it as a visit — see the implementation. */
   previewPlace: (taskId: string, tabId: string) => void;
@@ -610,6 +612,20 @@ function withPriorScheduled(next: PersistedTab[], prior: PersistedTab[]): Persis
  * `unpinTab`: both send the tab to the SAME index, so this reads the flag that
  * was just written rather than being told which way it went.
  */
+/** `list` with `tab` added: right after `afterTabId` when that tab is in
+ *  the list, else at the end. An unpinned tab never lands inside the pinned
+ *  block at the front of the main strip (the invariant `reseatAtPinBoundary`
+ *  keeps), so "below" a pinned tab means the first slot after the block. */
+function insertTab(list: Tab[], tab: Tab, afterTabId?: string): Tab[] {
+  const anchor = afterTabId ? list.findIndex(t => t.id === afterTabId) : -1;
+  if (anchor < 0) return [...list, tab];
+  let at = anchor + 1;
+  if (!tab.pinned) {
+    while (at < list.length && list[at].pinned && !(list[at] as TerminalTab).paneId) at++;
+  }
+  return [...list.slice(0, at), tab, ...list.slice(at)];
+}
+
 function reseatAtPinBoundary(
   set: (partial: Partial<AppState>) => void,
   get: () => AppState,
@@ -2193,7 +2209,7 @@ export const useApp = create<AppState>((set, get) => ({
   addTab: (taskId, tab, opts) => {
     const focus = opts?.focus ?? true;
     set(s => {
-      const next = [...(s.tabs[taskId] || []), tab];
+      const next = insertTab(s.tabs[taskId] || [], tab, opts?.afterTabId);
       return {
         tabs: { ...s.tabs, [taskId]: next },
         ...(focus ? { activeTab: { ...s.activeTab, [taskId]: tab.id } } : {}),
@@ -2380,7 +2396,7 @@ export const useApp = create<AppState>((set, get) => ({
    }
   },
 
-  resumeClosedTab: (taskId, entryId) => {
+  resumeClosedTab: (taskId, entryId, opts) => {
     const entry = (get().closedTabs[taskId] ?? []).find(e => e.id === entryId);
     if (!entry) return;
     set(s => ({
@@ -2406,7 +2422,7 @@ export const useApp = create<AppState>((set, get) => ({
       sessionId: entry.sessionId ?? undefined,
       agentArgs: entry.agentArgs,
     };
-    get().addTab(taskId, tab);
+    get().addTab(taskId, tab, { afterTabId: opts?.afterTabId });
   },
 
   setActiveTabId: (taskId, tabId) => set(s => {
