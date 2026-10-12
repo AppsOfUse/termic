@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pinBoundary, closableSiblings, sidebarTabMoveIndex, type StripTab, type SidebarStripTab } from "./tabActions";
+import { pinBoundary, closableSiblings, sidebarDropBeforeId, sidebarTabMoveIndex, type StripTab, type SidebarStripTab } from "./tabActions";
 
 const strip = (...spec: string[]): StripTab[] =>
   spec.map(s => (s.endsWith("*") ? { id: s.slice(0, -1), pinned: true } : { id: s }));
@@ -206,5 +206,40 @@ describe("sidebarTabMoveIndex", () => {
       // Every tab other than the dragged one keeps its relative order.
       expect(after.filter(id => id !== dragged)).toEqual(all.map(t => t.id).filter(id => id !== dragged));
     }
+  });
+});
+
+describe("sidebarDropBeforeId", () => {
+  const row = (id: string, top: number) => ({ kind: "row" as const, id, top, bottom: top + 20 });
+  const block = (subgroupId: string, top: number, h: number) => ({ kind: "block" as const, subgroupId, top, bottom: top + h });
+  const first = (m: Record<string, string>) => (sg: string) => m[sg] ?? null;
+
+  it("picks the first row whose midpoint is below the cursor, skipping the dragged one", () => {
+    const c = [row("a", 0), row("x", 20), row("b", 40)];
+    expect(sidebarDropBeforeId(c, 25, "x", first({}))).toBe("b");
+    expect(sidebarDropBeforeId(c, 5, "x", first({}))).toBe("a");
+    expect(sidebarDropBeforeId(c, 55, "x", first({}))).toBeNull();
+  });
+
+  it("a block wholly below the cursor anchors on its first member, not the row it shows", () => {
+    // Folded, showing only its last member m3.
+    const c = [row("y", 0), block("A", 20, 40), row("m3", 40), row("x", 60)];
+    expect(sidebarDropBeforeId(c, 15, "x", first({ A: "m1" }))).toBe("m1");
+  });
+
+  it("a folded block with no visible member anchors on its first member too", () => {
+    const c = [row("y", 0), block("A", 20, 20), row("x", 40)];
+    expect(sidebarDropBeforeId(c, 15, "x", first({ A: "m1" }))).toBe("m1");
+  });
+
+  it("inside a block the rows inside decide", () => {
+    const c = [row("y", 0), block("A", 20, 40), row("m3", 40), row("x", 60)];
+    expect(sidebarDropBeforeId(c, 45, "x", first({ A: "m1" }))).toBe("m3");
+    expect(sidebarDropBeforeId(c, 25, "x", first({ A: "m1" }))).toBe("m3");
+  });
+
+  it("a block holding only the dragged row falls through to the rows", () => {
+    const c = [row("y", 0), block("A", 20, 40), row("x", 40), row("z", 60)];
+    expect(sidebarDropBeforeId(c, 15, "x", first({}))).toBe("z");
   });
 });

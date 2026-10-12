@@ -73,3 +73,41 @@ export function sidebarTabMoveIndex(
   fullW.forEach((t, i) => { if (t.pinned && !t.paneId) pinEnd = i + 1; });
   return pinned ? Math.min(idx, pinEnd) : Math.max(idx, pinEnd);
 }
+
+/** One hit-test candidate of the sidebar tab-row drag, in DOM order: a tab
+ *  row, or a tab subgroup's block (its wrapper, caption included). */
+export type SidebarDropCandidate =
+  | { kind: "row"; id: string; top: number; bottom: number }
+  | { kind: "block"; subgroupId: string; top: number; bottom: number };
+
+/**
+ * The row the sidebar tab-row drag drops BEFORE (null: after the last row):
+ * the first row whose midpoint is below the cursor, except that a subgroup
+ * block lying wholly below the cursor anchors on that subgroup's FIRST member
+ * in store order (`firstMember`, which skips the dragged tab).
+ *
+ * Why the block counts: a folded block still draws its active member's row,
+ * which can be its LAST member, or no member at all. Anchoring on the first
+ * row drawn below the cursor then put the tab between two members (or past
+ * the whole run) in store order, and the drop's gather moved it below the
+ * block, so the slot directly above a folded block was unreachable. With the
+ * cursor INSIDE a block, the rows inside it decide as before.
+ */
+export function sidebarDropBeforeId(
+  cands: readonly SidebarDropCandidate[],
+  clientY: number,
+  dragId: string,
+  firstMember: (subgroupId: string) => string | null,
+): string | null {
+  for (const c of cands) {
+    if (c.kind === "block") {
+      if (clientY >= c.top) continue;
+      const first = firstMember(c.subgroupId);
+      if (first) return first;
+      continue;
+    }
+    if (c.id === dragId) continue;
+    if (clientY < (c.top + c.bottom) / 2) return c.id;
+  }
+  return null;
+}

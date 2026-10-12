@@ -24,7 +24,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useApp } from "@/store/app";
-import { sidebarTabMoveIndex } from "@/lib/tabActions";
+import { sidebarDropBeforeId, sidebarTabMoveIndex, type SidebarDropCandidate } from "@/lib/tabActions";
+import { memberOf } from "@/lib/tabSubgroups";
 
 /** Same squared-distance threshold as the task-row drag: under it, the press
  *  is still a click. */
@@ -102,16 +103,24 @@ export function useSidebarTabDrag(taskId: string, orderKey: string, hooks?: Side
 
     // First sibling whose midpoint is below the cursor. None = past the last
     // row, so the row lands at the bottom of its own list; above the first
-    // it lands at the top. Rows outside `a.list` are never looked at, which
-    // is what refuses a drop onto another task: the row just clamps.
-    let beforeId: string | null = null;
-    for (const el of Array.from(a.list.querySelectorAll<HTMLElement>("[data-sidebar-tab-id]"))) {
-      if (el.dataset.sidebarTabId === a.id) continue;
-      const r = el.getBoundingClientRect();
-      if (e.clientY < (r.top + r.bottom) / 2) { beforeId = el.dataset.sidebarTabId!; break; }
-    }
+    // it lands at the top. A subgroup block wholly below the cursor anchors
+    // on its first member instead (`sidebarDropBeforeId`: a folded block may
+    // show only its last member, or none). Rows outside `a.list` are never
+    // looked at, which is what refuses a drop onto another task: the row
+    // just clamps.
     const st = useApp.getState();
-    const idx = sidebarTabMoveIndex(st.tabs[taskId] ?? [], a.id, beforeId);
+    const all = st.tabs[taskId] ?? [];
+    const cands: SidebarDropCandidate[] = [];
+    for (const el of Array.from(a.list.querySelectorAll<HTMLElement>("[data-sidebar-tab-id], [data-tab-subgroup-id]"))) {
+      const r = el.getBoundingClientRect();
+      const row = el.dataset.sidebarTabId;
+      cands.push(row !== undefined
+        ? { kind: "row", id: row, top: r.top, bottom: r.bottom }
+        : { kind: "block", subgroupId: el.dataset.tabSubgroupId!, top: r.top, bottom: r.bottom });
+    }
+    const beforeId = sidebarDropBeforeId(cands, e.clientY, a.id,
+      sg => all.find(t => t.id !== a.id && memberOf(t)?.id === sg)?.id ?? null);
+    const idx = sidebarTabMoveIndex(all, a.id, beforeId);
     if (idx !== null) st.reorderTab(taskId, a.id, idx);
     hooksRef.current?.onMove?.(a.id, e.clientY, a.list);
   };

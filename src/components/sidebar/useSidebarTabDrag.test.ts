@@ -143,3 +143,72 @@ describe("useSidebarTabDrag commits however the drag ends", () => {
     expect(onDrop).not.toHaveBeenCalled();
   });
 });
+
+// A folded subgroup still draws its ACTIVE member's row (by design), so the
+// first row below the gap above the block can be the block's LAST member.
+// Anchoring the drop on it put the tab between two members in store order,
+// and the drop's gather then moved it below the block: the slot directly
+// above a folded block was unreachable.
+describe("useSidebarTabDrag over a folded subgroup", () => {
+  function FoldedHarness({ visible }: { visible: string[] }) {
+    api = useSidebarTabDrag("ws1", `y [A ${visible.join(" ")}] x`, { onDrop });
+    return createElement("div", { "data-sidebar-task-row": "" },
+      createElement("div", { key: "y", "data-sidebar-tab-id": "y" }),
+      createElement("div", { key: "A", "data-tab-subgroup-id": "A" },
+        createElement("div", { "data-caption": "" }),
+        ...visible.map(id => createElement("div", { key: id, "data-sidebar-tab-id": id }))),
+      createElement("div", { key: "x", "data-sidebar-tab-id": "x" }));
+  }
+  const rect = (top: number, h: number) => () => ({
+    top, bottom: top + h, height: h, left: 0, right: 200, width: 200, x: 0, y: top, toJSON() { return {}; },
+  }) as DOMRect;
+
+  function mountFolded(visible: string[]) {
+    resetAppStore();
+    useApp.setState({ tasks: [makeTask({ id: "ws1" })] });
+    for (const t of [{ id: "y" }, { id: "m1", subgroup: A }, { id: "m2", subgroup: A }, { id: "m3", subgroup: A }, { id: "x" }] as Partial<TerminalTab>[]) {
+      seedTab("ws1", makeTerminalTab(t));
+    }
+    act(() => { root.render(createElement(FoldedHarness, { visible })); });
+    // y | block [caption, visible rows...] | x, 20px each.
+    const q = (sel: string) => host.querySelector<HTMLElement>(sel)!;
+    q(`[data-sidebar-tab-id="y"]`).getBoundingClientRect = rect(0, ROW_H);
+    q(`[data-tab-subgroup-id="A"]`).getBoundingClientRect = rect(ROW_H, ROW_H * (1 + visible.length));
+    visible.forEach((id, i) => { q(`[data-sidebar-tab-id="${id}"]`).getBoundingClientRect = rect(ROW_H * (2 + i), ROW_H); });
+    const xTop = ROW_H * (2 + visible.length);
+    q(`[data-sidebar-tab-id="x"]`).getBoundingClientRect = rect(xTop, ROW_H);
+    return xTop;
+  }
+  function dragX(fromY: number, toY: number) {
+    const row = host.querySelector<HTMLElement>(`[data-sidebar-tab-id="x"]`)!;
+    act(() => {
+      api!.onRowPointerDown({
+        button: 0, target: row, currentTarget: row, clientX: 10, clientY: fromY,
+      } as unknown as React.PointerEvent, "x");
+    });
+    act(() => { document.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: toY })); });
+  }
+
+  it("the gap above a folded block whose last member shows lands above the block", () => {
+    const xTop = mountFolded(["m3"]);
+    // Lower half of y: past y's midpoint, above the block.
+    dragX(xTop + 10, 15);
+    expect(getTabIds("ws1")).toEqual(["y", "x", "m1", "m2", "m3"]);
+    act(() => { document.dispatchEvent(new PointerEvent("pointerup")); });
+    expect(getTabIds("ws1")).toEqual(["y", "x", "m1", "m2", "m3"]);
+    expect(groupsOf()).toBe("--AAA");
+  });
+
+  it("the gap above a folded block with NO visible member lands above it too", () => {
+    const xTop = mountFolded([]);
+    dragX(xTop + 10, 15);
+    expect(getTabIds("ws1")).toEqual(["y", "x", "m1", "m2", "m3"]);
+  });
+
+  it("over the block itself the rows inside still decide (a visible member)", () => {
+    const xTop = mountFolded(["m3"]);
+    // Upper half of m3's row: inside the block, before m3.
+    dragX(xTop + 10, ROW_H * 2 + 5);
+    expect(getTabIds("ws1")).toEqual(["y", "m1", "m2", "x", "m3"]);
+  });
+});

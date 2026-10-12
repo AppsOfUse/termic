@@ -594,7 +594,13 @@ block grows and shrinks under it before anything is written. Inside a
 block joins, outside every block leaves, inside another block moves.
 Joining a folded subgroup opens it; a pinned row never joins; no drag
 creates a subgroup. The drop (`dropTabInSubgroup`) commits the membership
-where the row is and gathers the runs in ONE tabs write.
+where the row is and gathers the runs in ONE tabs write. A block lying
+wholly below the cursor anchors the move on its FIRST member
+(`sidebarDropBeforeId` in `src/lib/tabActions.ts`), not on the first row
+drawn below the cursor: a folded block may show only its active member,
+which can be its last one, or none, and anchoring there put the tab inside
+the run in store order, so the gather moved it below the block and the
+slot directly above a folded block could not be reached.
 
 Drag, tab strip: position decides membership, applied once when the drag
 ends however it ends (`useTabStripDrag`'s `onDropInStrip`, main strip
