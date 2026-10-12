@@ -412,7 +412,7 @@ describe("sidebar tab row menu", () => {
     ) as Promise<boolean>, { reopen: () => openTabRowMenu(tabId) });
   }
 
-  it("opens on right-click with New below and Close, and Escape changes nothing", async () => {
+  it("opens on right-click with New below, Move to subgroup and Close, and Escape changes nothing", async () => {
     await waitForAppShell();
     await requireTermicApi();
     taskId = await openTask("e2e-tabrow-menu");
@@ -1043,27 +1043,31 @@ describe("tab subgroups", () => {
     await ensureActiveTask(taskId);
     // Make a1 the only loose tab, at the end: [m, m, m](sg1), a1.
     const order = await tabIds(taskId);
-    expect(order[order.length - 1]).toBe(a1);
-    const [m0, m1] = order;
+    expect(order.length).toBe(4);
+    expect(order[3]).toBe(a1);
+    const [m0, m1, m2] = order;
+    expect(await storeGroups(taskId)).toEqual([sg1, sg1, sg1, "-"]);
     const pill = (t: string) => `[data-task-id="${taskId}"] [data-main-strip] [data-tab-id="${t}"]`;
 
-    // The loose pill dropped between two members joins.
+    // The loose pill dropped between two members joins, exactly there.
+    // Concrete expectations, never read back from the store: a drop that
+    // landed in the wrong slot would agree with itself.
     await pointerDrag(pill(a1), pill(m1), { land: "left" });
     await browser.waitUntil(async () => (await subgroupOf(taskId, a1)) === sg1,
       { timeout: 5_000, timeoutMsg: "a pill dropped between two members did not join" });
-    await expectAgreement(taskId, await tabIds(taskId), await storeGroups(taskId));
+    await expectAgreement(taskId, [m0, a1, m1, m2], [sg1, sg1, sg1, sg1]);
 
     // The first member dragged to the far end of a strip whose last tab is
-    // loose leaves. Make the tail loose first.
+    // loose leaves. Make the tail loose first: leaving lands it right after
+    // the run.
     await browser.execute((i, t) => window.__termic!.useApp.getState().setTabSubgroup(i, t, null), taskId, a1);
-    const before = await tabIds(taskId);
-    expect(before[before.length - 1]).toBe(a1);
+    await expectAgreement(taskId, [m0, m1, m2, a1], [sg1, sg1, sg1, "-"]);
     await pointerDrag(pill(m0), pill(a1), { land: "right" });
     await browser.waitUntil(async () => (await tabIds(taskId)).at(-1) === m0,
       { timeout: 5_000, timeoutMsg: "the pill never reached the end of the strip" });
     await browser.waitUntil(async () => (await subgroupOf(taskId, m0)) === null,
       { timeout: 5_000, timeoutMsg: "a member dragged away from its run did not leave" });
-    await expectAgreement(taskId, await tabIds(taskId), await storeGroups(taskId));
+    await expectAgreement(taskId, [m1, m2, a1, m0], [sg1, sg1, "-", "-"]);
   });
 
   it("an agent-tab subgroup survives a relaunch, a shell-only one does not", async () => {
@@ -1106,6 +1110,12 @@ describe("tab subgroups", () => {
       if (!h) throw new Error(`no caption ${s}`);
       h.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, button: 2, clientX: 40, clientY: (h as HTMLElement).getBoundingClientRect().top + 4 }));
     }, header(sg1));
+    // The caption menu says "subgroup", the word the rest of the feature uses,
+    // not the task groups' "Rename group" it shares the menu body with.
+    await browser.waitUntil(async () => browser.execute(() => {
+      const texts = [...document.querySelectorAll("[role='menuitem']")].map((i) => i.textContent?.trim());
+      return texts.includes("Rename subgroup") && !texts.includes("Rename group");
+    }), { timeout: 5_000, timeoutMsg: "the caption menu did not offer Rename subgroup" });
     await clickMenuItemUntilReady("Ungroup tabs", async () =>
       (await storeGroups(taskId)).every((g) => g === "-"),
     { reopen: async () => {
