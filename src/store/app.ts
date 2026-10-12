@@ -747,13 +747,16 @@ function rewriteSubgroup(
     if (!list) return s;
     // The first member's copy is canonical: a disagreeing member is
     // overwritten with the mapped first copy, which is how a bad write heals.
-    const first = (list.find(t => isStripRow(t) && t.subgroup?.id === subgroupId) as TerminalTab | undefined)?.subgroup;
+    // Members by `memberOf`, like every other helper: a pinned tab with a
+    // stray copy is not one, so it is neither rewritten nor (by joining)
+    // unpinned here.
+    const first = list.map(memberOf).find(g => g?.id === subgroupId);
     if (!first) return s;
     const mapped = map(first);
     let touched = false;
     const next = list.map(t => {
-      if (!isStripRow(t) || t.subgroup?.id !== subgroupId) return t;
-      if (mapped && sameSubgroup(t.subgroup, mapped)) return t;
+      if (memberOf(t)?.id !== subgroupId) return t;
+      if (mapped && sameSubgroup(memberOf(t), mapped)) return t;
       touched = true;
       return withSubgroup(t, mapped);
     });
@@ -766,7 +769,13 @@ function rewriteSubgroup(
 
 /** The drops' commit: give `tabId` the membership `pick` decides for the
  *  current order, in place, then gather every run back to contiguous. One
- *  tabs write. A pinned tab never joins (it keeps no membership either). */
+ *  tabs write. A pinned tab never joins (it keeps no membership either).
+ *
+ *  `pick` may hand back a copy taken at hover time (the sidebar drag), and
+ *  the subgroup can be renamed, recoloured or dissolved while the row is in
+ *  the air. So only its id counts: the copy written is the one the
+ *  subgroup's members carry NOW, and a subgroup nobody carries any more
+ *  (dissolved mid-drag) leaves the tab loose instead of reviving it. */
 function settleMembership(
   set: (fn: (s: AppState) => Partial<AppState> | AppState) => void,
   get: () => AppState,
@@ -779,7 +788,11 @@ function settleMembership(
     const list = s.tabs[taskId];
     const tab = list?.find(t => t.id === tabId);
     if (!list || !tab || !isStripRow(tab)) return s;
-    const want = tab.pinned ? null : pick(list);
+    const picked = tab.pinned ? null : pick(list);
+    const want = picked
+      ? (list.filter(t => t.id !== tabId).map(memberOf).find(g => g?.id === picked.id)
+        ?? (memberOf(tab)?.id === picked.id ? memberOf(tab) : null))
+      : null;
     const placed = sameSubgroup(tab.subgroup, want)
       ? list
       : list.map(t => (t.id === tabId ? withSubgroup(t, want) : t));

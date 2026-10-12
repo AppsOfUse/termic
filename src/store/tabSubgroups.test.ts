@@ -122,6 +122,24 @@ describe("rename / recolour / dissolve", () => {
     expect(lastPersisted().filter(p => p.subgroup).map(p => p.subgroup)).toEqual([sg, sg]);
   });
 
+  it("a stray copy on a pinned tab is neither rewritten nor unpinned", () => {
+    // A pinned tab is never a member (memberOf), whatever a bad write left
+    // on it, so a rename or a dissolve of that subgroup leaves it alone.
+    seed({ id: "p", pinned: true, subgroup: A }, { id: "a", subgroup: A });
+    useApp.getState().renameTabSubgroup("ws1", "A", "Renamed");
+    expect(tabOf("p").pinned).toBe(true);
+    expect(tabOf("p").subgroup).toEqual(A);
+    expect(tabOf("a").subgroup?.name).toBe("Renamed");
+    useApp.getState().dissolveTabSubgroup("ws1", "A");
+    expect(tabOf("p").pinned).toBe(true);
+  });
+
+  it("the first MEMBER's copy is canonical, not a pinned tab's stray one", () => {
+    seed({ id: "p", pinned: true, subgroup: { ...A, color: "red" } }, { id: "a", subgroup: A });
+    useApp.getState().renameTabSubgroup("ws1", "A", "Renamed");
+    expect(tabOf("a").subgroup).toEqual({ ...A, name: "Renamed" });
+  });
+
   it("dissolve clears every member and keeps positions", () => {
     seed({ id: "x" }, { id: "a", subgroup: A }, { id: "b", subgroup: A }, { id: "c", subgroup: B });
     useApp.getState().dissolveTabSubgroup("ws1", "A");
@@ -303,6 +321,25 @@ describe("drops", () => {
     useApp.getState().dropTabInSubgroup("ws1", "y", A);
     expect(ids("ws1")).toEqual(["a", "b", "y", "x"]);
     expect(groupsOf("ws1")).toBe("AAA-");
+  });
+
+  it("the drop takes the subgroup's CURRENT copy, not the one from hover time", () => {
+    seed({ id: "a", subgroup: A }, { id: "b", subgroup: A }, { id: "x" });
+    // Renamed and recoloured while the row was in the air.
+    useApp.getState().renameTabSubgroup("ws1", "A", "Renamed");
+    useApp.getState().recolorTabSubgroup("ws1", "A", "red");
+    useApp.getState().dropTabInSubgroup("ws1", "x", A);
+    expect(tabOf("x").subgroup).toEqual({ id: "A", name: "Renamed", color: "red" });
+    expect(tabOf("a").subgroup).toEqual({ id: "A", name: "Renamed", color: "red" });
+  });
+
+  it("a drop into a subgroup dissolved mid-drag stays loose and does not revive it", () => {
+    seed({ id: "a", subgroup: A }, { id: "b", subgroup: A }, { id: "x" });
+    useApp.getState().dissolveTabSubgroup("ws1", "A");
+    const before = useApp.getState();
+    useApp.getState().dropTabInSubgroup("ws1", "x", A);
+    expect(groupsOf("ws1")).toBe("---");
+    expect(useApp.getState()).toBe(before);
   });
 
   it("a pinned row dropped in a block does not join", () => {
