@@ -422,7 +422,8 @@ the joined id string, never the rows array (the #127 loop, see
 because a subgroup override moves the lifted row between blocks without
 any reorder. The hook takes two optional callbacks, read through a ref
 at call time: `onMove` after each move's reorder and `onDrop` once when a
-started drag ends. Tab subgroups hang their hit test and drop commit on
+started drag ends, however it ends (release, cancel, or the row
+unmounting mid-drag). Tab subgroups hang their hit test and drop commit on
 them. The compact rail and the STATUS section's rows do not drag.
 
 ## Task groups in the sidebar
@@ -556,7 +557,11 @@ keep the runs whole:
   would persist it. The tab strip settles on a release in the strip, on a
   release over a pane or split target (after that move; a no-op when the
   store took the tab out of the strip, the repair when it refused), on
-  `pointercancel`, and when the strip unmounts mid-drag.
+  `pointercancel`, and when the strip unmounts mid-drag. The sidebar drag
+  commits through `onDrop` on a release, on `pointercancel`, and when the
+  task row unmounts mid-drag (the task archived, closed by an agent over
+  the CLI, its project collapsed); the store's drop bails on a task or tab
+  that is gone.
 
 Drawing: a block at the run's position, `data-tab-subgroup-id` on the
 wrapper and `data-collapsed` on wrapper and caption. The caption copies a

@@ -51,8 +51,8 @@ export interface SidebarTabDragHooks {
   /** After each pointermove's reorder of a started drag. `list` is the
    *  task's `[data-sidebar-task-row]` wrapper: hit tests stay inside it. */
   onMove?: (tabId: string, clientY: number, list: HTMLElement) => void;
-  /** Once when a started drag ends (release or cancel), before the lifted
-   *  state clears. */
+  /** Once when a started drag ends (release, cancel, or the hook
+   *  unmounting mid-drag), before the lifted state clears. */
   onDrop?: (tabId: string) => void;
 }
 
@@ -174,6 +174,11 @@ export function useSidebarTabDrag(taskId: string, orderKey: string, hooks?: Side
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderKey]);
 
+  // Unmounted mid-drag (the task archived, closed by an agent over the CLI,
+  // its project collapsed): the live reorder already moved the row, so
+  // commit like a release would, or the run it tore stays torn and is
+  // persisted. The caller's `onDrop` reads the store at call time, and the
+  // store's drop action bails on a task or tab that is gone.
   useEffect(() => () => {
     const a = armedRef.current;
     if (a) {
@@ -182,6 +187,7 @@ export function useSidebarTabDrag(taskId: string, orderKey: string, hooks?: Side
     }
     armedRef.current = null;
     detach();
+    if (a?.started) hooksRef.current?.onDrop?.(a.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
