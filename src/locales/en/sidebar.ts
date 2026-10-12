@@ -161,6 +161,7 @@ export default {
     collapse: "Collapse subgroup",
     renamePlaceholder: "Subgroup name",
     ungroupTabs: "Ungroup tabs",
+    renameSubgroup: "Rename subgroup",
     moveToSubgroup: "Move to subgroup",
     newSubgroup: "New subgroup…",
     removeFromSubgroup: "Remove from subgroup",

@@ -161,6 +161,7 @@ export default {
     collapse: "折叠子分组",
     renamePlaceholder: "子分组名称",
     ungroupTabs: "取消标签页分组",
+    renameSubgroup: "重命名子分组",
     moveToSubgroup: "移动到子分组",
     newSubgroup: "新建子分组…",
     removeFromSubgroup: "从子分组移除",

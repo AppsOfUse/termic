@@ -571,8 +571,8 @@ column; members sit one step further in (ml-12) behind a 1px rail in the
 subgroup's accent under the chevron's centre. The caption itself is
 `GroupCaption`, shared with task groups, so click toggles, double-click
 renames and the rename field moves no text in both. Right-click the
-caption for the swatch row, Rename group and Ungroup tabs
-(`GroupActionsMenuItems`); Ungroup clears every member and keeps
+caption for the swatch row, Rename subgroup and Ungroup tabs
+(`GroupActionsMenuItems`, with the subgroup's own labels); Ungroup clears every member and keeps
 positions.
 
 Collapsed (`collapsedTabSubgroups` in scoped localStorage, keyed by

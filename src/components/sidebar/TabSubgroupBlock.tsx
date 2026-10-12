@@ -89,6 +89,7 @@ export function TabSubgroupBlock({ taskId, subgroup, count, hiddenIds, collapsed
             onRename={() => setRenaming(subgroup.name)}
             onUngroup={() => useApp.getState().dissolveTabSubgroup(taskId, subgroup.id)}
             ungroupLabel={t("tabSubgroup.ungroupTabs")}
+            renameLabel={t("tabSubgroup.renameSubgroup")}
           />
         </ContextMenuContent>
       </ContextMenuRoot>
