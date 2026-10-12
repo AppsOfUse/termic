@@ -4245,9 +4245,19 @@ describe("markdown split: scroll sync and preview comments", () => {
     browser.execute(() => Array.from(window.__mdShown!(".markdown-body").querySelectorAll("mark.tc-md-quote"))
       .map(m => m.textContent).join("").replace(/\s+/g, " "));
   /** Select `phrase` (whitespace-elastic, so it can cross the source's hard
-   *  wrap) inside the paragraph starting `para`, and release the mouse. */
+   *  wrap) inside the paragraph starting `para`, and release the mouse.
+   *
+   *  Blurs first, which is what the mousedown of a real drag does. The split
+   *  opens with the EDITOR focused, and a focused CodeMirror owns the window
+   *  selection: the next time its viewport redraws it writes its own caret
+   *  back, which collapses a selection made anywhere else. The scroll-sync
+   *  cases above leave that viewport still settling, so without the blur the
+   *  pill came up and was gone again before the next command, or never came
+   *  up at all (measured: focused editor + a viewport move collapses the
+   *  preview selection every time, blurred it survives every time). */
   const selectInParagraph = (para: string, phrase: string) =>
     browser.execute((pa, ph) => {
+      (document.activeElement as HTMLElement | null)?.blur();
       const host = window.__mdShown!(".markdown-body");
       const p = Array.from(host.querySelectorAll("p")).find(x => x.textContent!.startsWith(pa))!;
       const node = p.firstChild as Text;
@@ -4263,10 +4273,7 @@ describe("markdown split: scroll sync and preview comments", () => {
   const openComposerFromPill = async (select: () => Promise<unknown>) => {
     await select();
     try {
-      // re-selects while waiting: on the macOS CI runner the first programmatic
-      // selection after the scroll-sync cases does not raise the pill
-      await browser.waitUntil(async () => (await has('[data-testid="md-add-comment"]')) || (await select(), false),
-        { timeout: 5_000, interval: 500 });
+      await browser.waitUntil(() => has('[data-testid="md-add-comment"]'), { timeout: 5_000 });
     } catch {
       const state = await browser.execute(() => ({
         selection: String(window.getSelection()),
