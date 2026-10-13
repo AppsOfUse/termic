@@ -1098,7 +1098,7 @@ const BoardCardFooter = memo(function BoardCardFooter({ task: w }: { task: Task 
               style={{ color }}
             >
               <PrIcon className="h-3 w-3 shrink-0" />
-              <span className={cn("shrink-0 tabular-nums", struck && "line-through")}>{id}</span>
+              <span className={cn("shrink-0 tabular-nums", struck && "tc-pr-struck")}>{id}</span>
               {checkNote && <span className="truncate">· {checkNote}</span>}
             </button>
           )}
@@ -1155,7 +1155,7 @@ function BoardMemberRow({ m }: { m: MemberPrLookup }) {
           style={{ color }}
         >
           <PrIcon className="h-3 w-3 shrink-0" />
-          <span className={cn("shrink-0 tabular-nums", struck && "line-through")}>{id}</span>
+          <span className={cn("shrink-0 tabular-nums", struck && "tc-pr-struck")}>{id}</span>
           {checkNote && <span className="truncate">· {checkNote}</span>}
         </button>
       )}

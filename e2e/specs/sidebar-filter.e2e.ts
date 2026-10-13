@@ -327,10 +327,30 @@ describe("sidebar filter bar", () => {
       const err = getComputedStyle(probe).color;
       probe.remove();
       const num = el.querySelector('[data-testid="task-pr-number"]') as HTMLElement | null;
+      // How far the drawn line sits from the middle of a DIGIT, in px. The
+      // baseline comes off a zero-size inline probe, the digit's height off
+      // the font itself.
+      let strikeOff: number | null = null;
+      if (num) {
+        const base = document.createElement("span");
+        base.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        num.appendChild(base);
+        const baseline = base.getBoundingClientRect().bottom;
+        base.remove();
+        const cs = getComputedStyle(num);
+        const ctx = document.createElement("canvas").getContext("2d")!;
+        ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const r = num.getBoundingClientRect();
+        strikeOff = Math.abs((r.top + r.height / 2) - (baseline - ctx.measureText("4").actualBoundingBoxAscent / 2));
+      }
       return {
+        strikeOff,
         // closed-without-merging: its own muted red, never the alarm red,
         // and struck through so it does not rest on colour alone
-        struck: !!num && getComputedStyle(num).textDecorationLine.includes("line-through"),
+        // a drawn line, not text-decoration: the font's own strikeout sits
+        // below the middle of a digit
+        struck: !!num && getComputedStyle(num).backgroundImage.includes("gradient")
+          && !getComputedStyle(num).textDecorationLine.includes("line-through"),
         closedRed: !!num && getComputedStyle(num).color === closed && closed !== err,
         state: el.dataset.prState ?? "",
         cached: "prCached" in el.dataset,
@@ -372,6 +392,8 @@ describe("sidebar filter bar", () => {
       await seed(null, { state: "closed", checks: "none", review: "none" });
       await waitMark({ state: "closed", struck: true, closedRed: true, ticked: false }, "live closed");
       await snap("sidebar-pr-closed.png");
+      // Through the middle of the digits. The font's own strikeout was not.
+      expect((await mark())!.strikeOff).toBeLessThan(1);
       await seed({ state: "closed", checks: "none", review: "none" }, null);
       await waitMark({ state: "closed", cached: true, struck: true, closedRed: true }, "remembered closed");
       await seed(null, { state: "open", checks: "passing", review: "changes_requested" });

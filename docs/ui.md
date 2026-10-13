@@ -235,7 +235,9 @@ it keeps now (the "Lens" concept of the sidebar rethink):
   for a while, and under the default number-only mark that made a closed
   PR, a draft and a PR nobody had looked up yet the same grey number,
   told apart only by the tooltip. The strike is there so closed does not
-  rest on colour alone.
+  rest on colour alone. It is a drawn line (`.tc-pr-struck`), not
+  `line-through`: a font places its strikeout for lowercase, which over
+  digits lands below the middle, and `text-decoration` cannot move it.
 - **The mark remembers its last status across launches.** The live lookup
   dies with the app and the background pass rebuilds it one subprocess at
   a time, so `usePr.snapshots` (localStorage `prSnapshots`) keeps each

@@ -935,6 +935,14 @@ html.termic-mod-held .xterm .xterm-cursor-pointer { cursor: pointer; }
 }
 .tc-icon-btn:hover { background: var(--color-hover); color: var(--color-fg); }
 .tc-icon-btn-danger:hover { color: var(--color-err); }
+/* The line through a closed PR's number. NOT text-decoration: a font puts
+   its strikeout where it crosses lowercase, around half the x-height, and
+   over digits (which stand cap-height tall) that lands visibly below the
+   middle. text-decoration has no offset for line-through, so the line is
+   drawn instead, through the middle of the box. */
+.tc-pr-struck {
+  background: linear-gradient(currentColor, currentColor) 0 50% / 100% 1px no-repeat;
+}
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,

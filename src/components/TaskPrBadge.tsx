@@ -77,7 +77,7 @@ export function TaskPrBadge({ task, testId = "task-pr-badge", showNumber = false
             tree whether or not a row is ticked. Its own green, whatever the mark's colour: an approved PR with a
             failing build is amber AND ticked, which is exactly what it is. */}
         {approved && <Check data-testid="task-pr-approved" aria-hidden className="h-3 w-3 text-[var(--color-ok)]" strokeWidth={3} />}
-        {showNumber && num ? <span data-testid="task-pr-number" className={`text-[11px] tabular-nums leading-none${struck ? " line-through" : ""}`}>{prRef(provider, num)}</span> : null}
+        {showNumber && num ? <span data-testid="task-pr-number" className={`text-[11px] tabular-nums leading-none${struck ? " tc-pr-struck" : ""}`}>{prRef(provider, num)}</span> : null}
       </button>
     </Tip>
   );
