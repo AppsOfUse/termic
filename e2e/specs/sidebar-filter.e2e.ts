@@ -412,6 +412,174 @@ describe("sidebar filter bar", () => {
     });
   });
 
+  it("PR numbers share one right edge, whether or not a row carries a mode mark", async () => {
+    // The mode mark (sandbox, docker, YOLO) is absent on most rows. It used to
+    // sit BETWEEN the PR mark and the trailing slot, so a row that had one
+    // pushed its number 22px left of every row that did not. It is inline
+    // after the name now, and the PR sits directly against the slot.
+    const seedPr = (ids: string[], on: boolean) => browser.execute((ids, on) => {
+      window.__termic!.useApp.setState((s: any) => ({
+        tasks: s.tasks.map((w: any) => ids.includes(w.id)
+          ? { ...w, pr_url: on ? "https://github.com/acme/repo/pull/42" : null, pr_number: on ? 42 : null, pr_provider: on ? "github" : null }
+          : w),
+      }));
+    }, ids, on);
+    const setSandbox = (id: string, mode: string | null) => browser.execute((id, mode) => {
+      window.__termic!.useApp.setState((s: any) => ({
+        tasks: s.tasks.map((w: any) => w.id === id
+          ? { ...w, sandbox_enabled: !!mode, sandbox_mode: mode ?? "off" } : w),
+      }));
+    }, id, mode);
+    const edges = () => browser.execute((plain, marked) => {
+      const of = (id: string) => {
+        const row = document.querySelector(`[data-sidebar-task-row="${id}"]`);
+        const badge = row?.querySelector('[data-testid="task-pr-badge"]') as HTMLElement | null;
+        const mode = row?.querySelector('[data-testid="task-mode-slot"]') as HTMLElement | null;
+        return {
+          right: badge ? Math.round(badge.getBoundingClientRect().right) : null,
+          hasMode: !!mode,
+          // the mode mark, when there is one, is LEFT of the PR mark
+          modeLeftOfPr: mode && badge ? mode.getBoundingClientRect().right <= badge.getBoundingClientRect().left : null,
+          // ...and beside the name, not in a trailing column of its own
+          // (the trailing marks are direct children of the row)
+          modeInNameGroup: !!mode && mode.parentElement !== row,
+        };
+      };
+      return { plain: of(plain), marked: of(marked) };
+    }, a, b);
+    try {
+      await seedPr([a, b], true);
+      await setSandbox(b, "enforce");
+      await browser.waitUntil(async () => {
+        const e = await edges();
+        return e.plain.right !== null && e.marked.right !== null && e.marked.hasMode;
+      }, { timeout: 5_000, timeoutMsg: `the rows never drew: ${JSON.stringify(await edges())}` });
+      const e = await edges();
+      await snap("sidebar-task-pr-aligned.png");
+      expect(e.plain.hasMode).toBe(false);
+      expect(e.marked.modeLeftOfPr).toBe(true);
+      expect(e.marked.modeInNameGroup).toBe(true);
+      expect(e.marked.right).toBe(e.plain.right);
+    } finally {
+      await setSandbox(b, null);
+      await seedPr([a, b], false);
+    }
+  });
+
+  it("every mode mark sits beside the name, and no mix of marks moves a PR number", async () => {
+    // Four rows, three passes: each mode (YOLO, monitor, enforce, enforce-fs,
+    // docker) with and without a PR, numbers of different widths, and a
+    // collapsed row whose name group also carries the tab count. The PR's
+    // right edge is the one thing that must not depend on any of it.
+    type Mark = { yolo?: boolean; mode?: string; docker?: boolean; pr?: number };
+    const dress = (rows: Record<string, Mark>) => browser.execute(rows => {
+      window.__termic!.useApp.setState((s: any) => ({
+        tasks: s.tasks.map((w: any) => {
+          const m = rows[w.id];
+          if (!m) return w;
+          return {
+            ...w,
+            sandbox_enabled: !!m.mode,
+            sandbox_mode: m.mode ?? "off",
+            docker_sandbox_enabled: !!m.docker,
+            pr_url: m.pr ? `https://github.com/acme/repo/pull/${m.pr}` : null,
+            pr_number: m.pr ?? null,
+            pr_provider: m.pr ? "github" : null,
+          };
+        }),
+      }));
+    }, rows);
+    const read = (ids: string[]) => browser.execute(ids => ids.map(id => {
+      const row = document.querySelector(`[data-sidebar-task-row="${id}"]`);
+      const badge = row?.querySelector('[data-testid="task-pr-badge"]') as HTMLElement | null;
+      const mode = row?.querySelector('[data-testid="task-mode-slot"]') as HTMLElement | null;
+      return {
+        mode: !!mode,
+        yolo: !!row?.querySelector('[data-testid="task-yolo-badge"]'),
+        // the trailing marks are direct children of the row
+        modeTrailing: !!mode && mode.parentElement === row,
+        modeLeftOfPr: mode && badge ? mode.getBoundingClientRect().right <= badge.getBoundingClientRect().left : null,
+        prRight: badge ? Math.round(badge.getBoundingClientRect().right) : null,
+      };
+    }), ids);
+    const ids = [a, b, c, wt];
+    const before = await activeTaskId();
+    const pass = async (name: string, marks: Mark[]) => {
+      await dress(Object.fromEntries(ids.map((id, i) => [id, marks[i]])));
+      const want = marks.map(m => ({ mode: !!(m.yolo || m.mode || m.docker), pr: !!m.pr }));
+      await browser.waitUntil(async () => (await read(ids)).every((r, i) =>
+        r.mode === want[i].mode && (r.prRight !== null) === want[i].pr),
+      { timeout: 5_000, timeoutMsg: `${name}: the rows never drew: ${JSON.stringify(await read(ids))}` });
+      await snap(`sidebar-mode-inline-${name}.png`);
+      const got = await read(ids);
+      for (const r of got) {
+        expect(r.modeTrailing).toBe(false);
+        if (r.modeLeftOfPr !== null) expect(r.modeLeftOfPr).toBe(true);
+      }
+      expect(new Set(got.map(r => r.prRight).filter(x => x !== null)).size).toBe(1);
+      return got;
+    };
+    // Flipping YOLO under a live agent asks whether to restart it, and the
+    // window has ONE confirm slot. So: one task at a time, each answered
+    // "Later" before the next, or a prompt is left over every later case.
+    const setYolo = async (id: string, on: boolean) => {
+      const flipped = await browser.execute((id, on) => {
+        const app = window.__termic!.useApp;
+        if (!!app.getState().tasks.find((w: any) => w.id === id)?.yolo === on) return false;
+        app.setState((s: any) => ({ tasks: s.tasks.map((w: any) => w.id === id ? { ...w, yolo: on } : w) }));
+        return true;
+      }, id, on);
+      if (!flipped) return;
+      const pending = () => browser.execute(id =>
+        !!window.__termic!.useUI.getState().confirm?.req.key?.startsWith(`yolo-restart:${id}:`), id);
+      await browser.waitUntil(pending, { timeout: 8_000, timeoutMsg: `no restart prompt for ${id}` });
+      await browser.execute(() => window.__termic!.useUI.getState().resolveConfirm(false));
+      await browser.waitUntil(async () => !(await pending()), { timeout: 5_000, timeoutMsg: "the restart prompt stayed" });
+    };
+    let second = "";
+    // Put back as found, absent key included: an unset fold is not `false`,
+    // and the chip case below reads a's badge off its collapsed row.
+    const fold = await browser.execute(t => window.__termic!.useApp.getState().collapsedTasks[t] ?? null, a);
+    try {
+      // YOLO only draws over a LIVE agent, and b was created without being
+      // opened. c and wt stay asleep and take the cages: leaving a cage
+      // under a live agent is a YOLO flip too, and would prompt.
+      for (const id of [a, b]) { await ensureActiveTask(id); await waitForAgentReady(id); }
+      await pass("sandbox", [
+        { mode: "monitor", pr: 42 }, {}, { mode: "enforce-fs", pr: 19902 }, { docker: true, pr: 7 },
+      ]);
+      await setYolo(a, true);
+      await setYolo(b, true);
+      const yolo = await pass("yolo", [
+        { yolo: true, pr: 20069 }, { yolo: true }, { docker: true }, { mode: "enforce", pr: 19752 },
+      ]);
+      expect(yolo.map(r => r.yolo)).toEqual([true, true, false, false]);
+      // Collapsed with two tabs: the name group also holds the count.
+      second = await browser.execute(t => {
+        const tab = { id: crypto.randomUUID(), type: "terminal", cli: "fakeagent", title: "Second" };
+        window.__termic!.useApp.getState().addTab(t, tab as never);
+        window.__termic!.useApp.getState().setTaskCollapsed(t, true);
+        return tab.id;
+      }, a);
+      await pass("collapsed", [
+        { yolo: true, pr: 20069 }, { yolo: true, pr: 42 }, { mode: "monitor" }, { docker: true, pr: 7 },
+      ]);
+    } finally {
+      if (second) await browser.execute((t: any, tb: any, was: any) => {
+        window.__termic!.useApp.getState().closeTab(t, tb);
+        window.__termic!.useApp.setState((s: any) => {
+          const next: any = { ...s.collapsedTasks };
+          if (was === null) delete next[t]; else next[t] = was;
+          return { collapsedTasks: next };
+        });
+      }, a, second, fold);
+      await setYolo(a, false);
+      await setYolo(b, false);
+      await dress(Object.fromEntries(ids.map(id => [id, {}])));
+      await restoreActive(before);
+    }
+  });
+
   it("the three dots can be pressed: the status layer over them takes no pointer events", async () => {
     // The slot holds the status badge AND the menu trigger in one box. The
     // badge's layer comes later in the DOM, so it is on top, and once it was

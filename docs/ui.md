@@ -190,17 +190,24 @@ it keeps now (the "Lens" concept of the sidebar rethink):
   takes the RESOLVED icon id, so a cloned agent (`claude-dpf`) is treated
   as the claude it draws as. With the pref off the spinner stays: it is then
   the only working signal.
-- **A task row's trailing marks, in order:** the PR (right-aligned, with
-  its number, `#367`), the mode (sandbox, docker, or a dangerous YOLO;
-  absent when there is none), then ONE fixed slot, always rightmost so it
-  lines up down the tree: work state at rest (the badge while collapsed),
-  the task menu on hover. Mode has its own slot, so the menu never hides
-  it. For one release the menu had a slot of its own too, reserved and
-  empty at rest, and every row ended 22px short of the sidebar's edge for a
-  button that only exists under the pointer. Do not give a hover-only
-  control a reserved column. The state layer sits OVER the trigger and is
+- **A task row's trailing marks, in order:** the PR (its number, `#367`),
+  then ONE fixed slot, always rightmost so it lines up down the tree: work
+  state at rest (the badge while collapsed), the task menu on hover. Both
+  are fixed, so PR numbers share one right edge down the tree. For one
+  release the menu had a slot of its own too, reserved and empty at rest,
+  and every row ended 22px short of the sidebar's edge for a button that
+  only exists under the pointer. Do not give a hover-only control a
+  reserved column. The state layer sits OVER the trigger and is
   `pointer-events-none`: without that it takes every click meant for the
   three dots while invisible, which shipped once.
+- **The mode mark is inline after the name**, with the location glyph: the
+  sandbox, docker, or a dangerous YOLO, absent when there is none. It used
+  to be a trailing slot, and an optional trailing slot cannot line up.
+  Right of the PR it pushed that row's number 22px out of line with its
+  neighbours; left of the PR its own x followed the number's width, and
+  moved again on a row with no PR. Do not put an optional mark in the
+  trailing columns. Marks beside the name are ragged by nature, so there
+  is nothing there to align.
 - **Location glyphs are a choice.** The tree draws a link for the main
   checkout and a branch for a worktree by default; the `taskLocationIcon`
   pref (Settings > Appearance > Sidebar, and a submenu in the Projects

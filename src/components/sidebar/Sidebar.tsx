@@ -3211,6 +3211,31 @@ function TaskRow({ w, compact, dragging = false, dragTy = 0, onDragPointerDown, 
                   (docs/ui.md "One glyph per meaning"). */}
               {showLocation && <TaskLocationIcon isMainCheckout={w.is_main_checkout} size="h-3.5 w-3.5" />}
               {w.spawned_by && <SpawnedFromMark task={w} />}
+              {/* Mode (sandbox, docker, dangerous YOLO; absent when there is
+                  none), inline with the name's other marks. It had a trailing
+                  slot of its own, and an OPTIONAL trailing slot cannot line
+                  up: left of the PR it sat at whatever x the number's width
+                  left it, right of the PR it pushed the number out of line
+                  with every row that had no mark. Marks beside the name are
+                  ragged by nature, so here there is nothing to align. */}
+              {(() => {
+                const wMode = effectiveSandboxMode(w);
+                const isLaunched = terminalTabs.length > 0;
+                // A LIVE pty, not merely "this task has tabs": a tab outlives its
+                // process, and the YOLO mark must not warn about an agent that is
+                // gone. The board's badge uses the same signal.
+                const hasLivePty = terminalTabs.some(t => t.ptyId);
+                // Docker stores sandbox_mode as off (the cages are exclusive), so
+                // it is checked first or a Docker task would show no mark.
+                const mark = w.docker_sandbox_enabled
+                  ? <DockerSandboxIcon active={isLaunched} className="h-3.5 w-3.5" />
+                  : !!w.yolo && !isSandboxEnforced(wMode) && hasLivePty
+                    ? <Zap data-testid="task-yolo-badge" className="h-3.5 w-3.5 text-[var(--color-err)]" fill="none" />
+                    : wMode !== "off" ? <SandboxIcon mode={wMode} active={isLaunched} className="h-3.5 w-3.5" /> : null;
+                return mark && (
+                  <span data-testid="task-mode-slot" className="flex shrink-0 items-center">{mark}</span>
+                );
+              })()}
               {/* The task's tab properties, collected (GH #358): after the
                   name on the LEFT, never in the trailing badge/kebab slot.
                   Shrinks before the name does; the title lists every value
@@ -3262,39 +3287,21 @@ function TaskRow({ w, compact, dragging = false, dragTy = 0, onDragPointerDown, 
           ))}
         </div>
 
-        {/* PR/MR state, right-aligned and carrying its number so it reads
-            as a link and not one more icon. Falls back to the persisted
-            pr_url for tasks not visited this session. Click opens the PR. */}
+        {/* PR/MR state, carrying its number so it reads as a link and not one
+            more icon. Falls back to the persisted pr_url for tasks not
+            visited this session. Click opens the PR. Directly against the
+            trailing slot and nothing optional between them, so the numbers
+            share one right edge down the tree. */}
         {!taskRenaming && prBadgeMode !== "none" && (
           <TaskPrBadge task={w} showNumber={prBadgeMode !== "icon"} showIcon={prBadgeMode !== "number"} />
         )}
-
-        {/* Two trailing slots (docs/ui.md "One glyph per meaning"): mode
-            (sandbox, docker, dangerous YOLO; absent when there is none), then
-            ONE fixed slot that is work state at rest (the badge while
-            collapsed; expanded rows put it on their children) and the task
-            menu on hover. The menu used to get a slot of its own, reserved
-            and empty at rest: every row paid 22px of nothing for a button
-            that only exists under the pointer. The slot is always rightmost,
-            so state lines up down the tree, and nothing shifts on hover. */}
-        {(() => {
-          const wMode = effectiveSandboxMode(w);
-          const isLaunched = terminalTabs.length > 0;
-          // A LIVE pty, not merely "this task has tabs": a tab outlives its
-          // process, and the YOLO mark must not warn about an agent that is
-          // gone. The board's badge uses the same signal.
-          const hasLivePty = terminalTabs.some(t => t.ptyId);
-          // Docker stores sandbox_mode as off (the cages are exclusive), so
-          // it is checked first or a Docker task would show no mark.
-          const mark = w.docker_sandbox_enabled
-            ? <DockerSandboxIcon active={isLaunched} className="h-3.5 w-3.5" />
-            : !!w.yolo && !isSandboxEnforced(wMode) && hasLivePty
-              ? <Zap data-testid="task-yolo-badge" className="h-3.5 w-3.5 text-[var(--color-err)]" fill="none" />
-              : wMode !== "off" ? <SandboxIcon mode={wMode} active={isLaunched} className="h-3.5 w-3.5" /> : null;
-          return mark && (
-            <span data-testid="task-mode-slot" className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">{mark}</span>
-          );
-        })()}
+        {/* ONE fixed trailing slot (docs/ui.md "One glyph per meaning"): work
+            state at rest (the badge while collapsed; expanded rows put it on
+            their children) and the task menu on hover. The menu used to get
+            a slot of its own, reserved and empty at rest: every row paid
+            22px of nothing for a button that only exists under the pointer.
+            The slot is always rightmost, so state lines up down the tree,
+            and nothing shifts on hover. */}
         <span className="relative flex h-[18px] w-[18px] shrink-0 items-center justify-center">
           <DropdownRoot open={menuOpen} onOpenChange={setMenuOpen}>
             <Tip content={t("taskMenu")}>
