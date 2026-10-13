@@ -41,15 +41,15 @@ export function TaskPrBadge({ task, testId = "task-pr-badge", showNumber = false
   // "this is ready", so the one worth a mark of its own.
   const approved = (pr?.review ?? cached?.review) === "approved" && state === "open";
   // Colour comes from prBadgeAppearance, where the rules live and are
-  // unit-tested over the whole state x checks matrix: no red anywhere, a
-  // draft takes no colour at all, and an open pr with failing checks goes
-  // WARN rather than ERR.
+  // unit-tested over the whole state x checks matrix: never the alarm red,
+  // a draft takes no colour at all, an open pr with failing checks goes WARN
+  // rather than ERR, and a closed one is a muted red with its number struck.
   //
   // The tooltip still says the checks fail, on a draft too. That is the split
   // the colour cannot express: the fact belongs to anyone who hovers, the
   // alarm colour belongs only to something you are meant to act on.
   const failing = checks === "failing" && (state === "open" || state === "draft");
-  const { color } = prBadgeAppearance(state, checks);
+  const { color, struck } = prBadgeAppearance(state, checks);
   const failingSuffix = (failing ? ` · ${t("taskPrBadge.checksFailing")}` : "")
     + (approved ? ` · ${t("taskPrBadge.approved")}` : "");
   const { Icon, label } =
@@ -77,7 +77,7 @@ export function TaskPrBadge({ task, testId = "task-pr-badge", showNumber = false
             tree whether or not a row is ticked. Its own green, whatever the mark's colour: an approved PR with a
             failing build is amber AND ticked, which is exactly what it is. */}
         {approved && <Check data-testid="task-pr-approved" aria-hidden className="h-3 w-3 text-[var(--color-ok)]" strokeWidth={3} />}
-        {showNumber && num ? <span className="text-[11px] tabular-nums leading-none">{prRef(provider, num)}</span> : null}
+        {showNumber && num ? <span data-testid="task-pr-number" className={`text-[11px] tabular-nums leading-none${struck ? " line-through" : ""}`}>{prRef(provider, num)}</span> : null}
       </button>
     </Tip>
   );

@@ -321,8 +321,17 @@ describe("sidebar filter bar", () => {
       probe.style.color = "var(--color-ok)";
       document.body.appendChild(probe);
       const ok = getComputedStyle(probe).color;
+      probe.style.color = "var(--color-pr-closed)";
+      const closed = getComputedStyle(probe).color;
+      probe.style.color = "var(--color-err)";
+      const err = getComputedStyle(probe).color;
       probe.remove();
+      const num = el.querySelector('[data-testid="task-pr-number"]') as HTMLElement | null;
       return {
+        // closed-without-merging: its own muted red, never the alarm red,
+        // and struck through so it does not rest on colour alone
+        struck: !!num && getComputedStyle(num).textDecorationLine.includes("line-through"),
+        closedRed: !!num && getComputedStyle(num).color === closed && closed !== err,
         state: el.dataset.prState ?? "",
         cached: "prCached" in el.dataset,
         ticked: !!tick,
@@ -356,7 +365,15 @@ describe("sidebar filter bar", () => {
 
       // The live poll wins over what was remembered.
       await seed({ state: "open", checks: "passing", review: "approved" }, { state: "draft", checks: "none", review: "none" });
-      await waitMark({ state: "draft", cached: false, ticked: false }, "live draft over a remembered open");
+      await waitMark({ state: "draft", cached: false, ticked: false, struck: false, closedRed: false }, "live draft over a remembered open");
+
+      // Closed without merging. A draft is the same grey number as an
+      // unknown PR; a closed one must not be.
+      await seed(null, { state: "closed", checks: "none", review: "none" });
+      await waitMark({ state: "closed", struck: true, closedRed: true, ticked: false }, "live closed");
+      await snap("sidebar-pr-closed.png");
+      await seed({ state: "closed", checks: "none", review: "none" }, null);
+      await waitMark({ state: "closed", cached: true, struck: true, closedRed: true }, "remembered closed");
       await seed(null, { state: "open", checks: "passing", review: "changes_requested" });
       await waitMark({ state: "open", ticked: false }, "changes requested is not a tick");
       await seed(null, { state: "open", checks: "passing", review: "approved" });

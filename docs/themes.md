@@ -175,6 +175,9 @@ state tints on the sidebar and dashboard task rows: like the agent tints they
 are matched to somebody else's palette (GitHub's), so a theme re-shading them
 would make the glyph stop reading as the state it names. Both flip with
 `colorScheme`, so a light theme gets the darker pair automatically.
+`--color-pr-closed`, the muted red of a PR closed without merging, is not a
+key either, but it is derived from `err` and `fg-faint`, so a theme that
+sets those re-shades it for free.
 
 ### `terminal` keys
 

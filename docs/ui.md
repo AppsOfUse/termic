@@ -227,6 +227,15 @@ it keeps now (the "Lens" concept of the sidebar rethink):
   anything. The verdict is `PrStatus.review`, which all three forges
   already report; GitHub's falls back to the reviews themselves when
   `reviewDecision` is empty.
+- **A PR closed without merging is a muted red, struck through.**
+  `--color-pr-closed` (err pulled most of the way to faint) and a
+  line through the number, on the sidebar mark and the board chip. Never
+  `--color-err` itself, which means "broken right now" and is kept off
+  this mark entirely (`lib/prBadgeAppearance.ts`). It was plain faint
+  for a while, and under the default number-only mark that made a closed
+  PR, a draft and a PR nobody had looked up yet the same grey number,
+  told apart only by the tooltip. The strike is there so closed does not
+  rest on colour alone.
 - **The mark remembers its last status across launches.** The live lookup
   dies with the app and the background pass rebuilds it one subprocess at
   a time, so `usePr.snapshots` (localStorage `prSnapshots`) keeps each

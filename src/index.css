@@ -119,12 +119,16 @@
      in the sidebar's PR glyph, which broke the "no hex outside @theme" rule
      and left light mode with two colours tuned for a dark background.
      Matched to the forge's own palette so the glyph reads the way the PR
-     page does. Merged is GitHub's purple, open its green. `closed` and
-     `draft` both take --color-fg-faint: neither is asking anything of you.
-     A failing build on an OPEN pr takes --color-warn. Nothing on this glyph
-     is ever --color-err, on purpose (see lib/prBadgeAppearance.ts). */
+     page does. Merged is GitHub's purple, open its green. `draft` takes
+     --color-fg-faint: it is not asking anything of you. A failing build on
+     an OPEN pr takes --color-warn. Closed (without merging) is a red, but
+     never --color-err itself: that one means "broken right now", and a
+     closed pr wants nothing. So it is err pulled most of the way to faint,
+     derived rather than a third hex so a theme's own red carries through
+     (see lib/prBadgeAppearance.ts). */
   --color-pr-merged: #a371f7;
   --color-pr-open:   #3fb950;
+  --color-pr-closed: color-mix(in srgb, var(--color-err) 60%, var(--color-fg-faint));
 
   /* Task location glyph tint (worktree + main checkout share it). A neutral
      warm-gray sitting a step below the task title (between fg-dim and

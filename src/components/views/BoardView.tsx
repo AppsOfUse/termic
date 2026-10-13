@@ -1060,7 +1060,7 @@ const BoardCardFooter = memo(function BoardCardFooter({ task: w }: { task: Task 
   const memberRows = members?.filter(m => m.status === "ok") ?? [];
   if (!url && !changed && !memberRows.length) return null;
 
-  const { color } = prBadgeAppearance(pr?.state ?? null, pr?.checks ?? null);
+  const { color, struck } = prBadgeAppearance(pr?.state ?? null, pr?.checks ?? null);
   const noun = pr?.provider === "gitlab" ? "MR" : "PR";
   const id = num ? `${noun === "MR" ? "!" : "#"}${num}` : noun;
   const forge = noun === "MR" ? "GitLab" : "GitHub";
@@ -1098,7 +1098,7 @@ const BoardCardFooter = memo(function BoardCardFooter({ task: w }: { task: Task 
               style={{ color }}
             >
               <PrIcon className="h-3 w-3 shrink-0" />
-              <span className="shrink-0 tabular-nums">{id}</span>
+              <span className={cn("shrink-0 tabular-nums", struck && "line-through")}>{id}</span>
               {checkNote && <span className="truncate">· {checkNote}</span>}
             </button>
           )}
@@ -1126,7 +1126,7 @@ const BoardCardFooter = memo(function BoardCardFooter({ task: w }: { task: Task 
 function BoardMemberRow({ m }: { m: MemberPrLookup }) {
   const { t } = useTranslation("chrome");
   const pr = m.pr;
-  const { color } = prBadgeAppearance(pr?.state ?? null, pr?.checks ?? null);
+  const { color, struck } = prBadgeAppearance(pr?.state ?? null, pr?.checks ?? null);
   const noun = pr?.provider === "gitlab" ? "MR" : "PR";
   const id = pr ? `${noun === "MR" ? "!" : "#"}${pr.number}` : "";
   const PrIcon =
@@ -1155,7 +1155,7 @@ function BoardMemberRow({ m }: { m: MemberPrLookup }) {
           style={{ color }}
         >
           <PrIcon className="h-3 w-3 shrink-0" />
-          <span className="shrink-0 tabular-nums">{id}</span>
+          <span className={cn("shrink-0 tabular-nums", struck && "line-through")}>{id}</span>
           {checkNote && <span className="truncate">· {checkNote}</span>}
         </button>
       )}
