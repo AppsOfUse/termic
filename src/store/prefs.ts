@@ -15,10 +15,12 @@ import {
 } from "@/lib/customTheme";
 import {
   DEFAULT_BINDINGS,
+  readHoldGesture,
   type Binding,
   type BindingMap,
   type DoubleShiftMode,
   type CtrlTabMode,
+  type HoldGesture,
   type ShortcutId,
 } from "@/lib/shortcuts";
 
@@ -115,6 +117,10 @@ const LS_STATUS_GROUP_COLLAPSED = scoped("statusGroupCollapsed");
 const LS_BRANCH_AS_TASK_NAME = "useBranchAsTaskName";
 const LS_DOUBLE_SHIFT_MODE = "doubleShiftMode";
 const LS_CTRL_TAB_MODE = "ctrlTabMode";
+// JSON `{hold, code, key?}` (lib/shortcuts.ts HoldGesture; `key` is a
+// display label, and a value without it still loads). Absent means ⌃⇥, so a
+// profile from before the gesture was recordable needs no migration.
+const LS_RECENT_TABS_GESTURE = "recentTabsGesture";
 const LS_MD_VIEW       = "markdownDefaultView";
 const LS_SVG_VIEW      = "svgDefaultView";
 const LS_HTML_VIEW     = "htmlDefaultView";
@@ -880,13 +886,25 @@ interface PrefsState {
    *  Lives with the shortcuts rather than with code navigation, because the
    *  dialog searches FILES first and symbols only where a checkout is armed. */
   doubleShiftMode: DoubleShiftMode;
-  /** Whether ⌃⇥ / ⌃⇧⇥ walk the recently-used tabs (see CTRL_TAB_MODES).
+  /** Whether the recently-used-tabs gesture is on (see CTRL_TAB_MODES). Its
+   *  keys are `recentTabsGesture`, ⌃⇥ / ⌃⇧⇥ unless rebound; the name is
+   *  historic, kept so stored prefs carry over.
    *
-   *  It earns a switch because it is the one Ctrl chord termic keeps for
-   *  itself: everything else with only Ctrl on it goes to the focused terminal
-   *  (GH #10). Nothing observable is lost (xterm sends ⌃⇥ as a plain tab), but
-   *  somebody who wants that rule to have no exceptions can have it. */
+   *  It earns a switch because the gesture is claimed before the focused
+   *  terminal sees the key, and with the default that is the one Ctrl chord
+   *  termic keeps for itself: everything else with only Ctrl on it goes to
+   *  the terminal (GH #10). Nothing observable is lost with ⌃⇥ (xterm sends
+   *  it as a plain tab), and the recorder refuses the keys a terminal needs,
+   *  but somebody who wants that rule to have no exceptions can have it. */
   ctrlTabMode: CtrlTabMode;
+  /** Which modifier is held and which key is tapped for the recently-used-tabs
+   *  walk. Read through `readHoldGesture`, so a value this platform cannot
+   *  use (Cmd, synced from a Mac to Linux) reads as ⌃⇥ without being
+   *  rewritten. */
+  recentTabsGesture: HoldGesture;
+  /** The stored gesture when this platform cannot use it (and the default is
+   *  running instead), else null. Settings says so and offers the reset. */
+  recentTabsGestureRefused: HoldGesture | null;
   /** Last-used view for markdown edit tabs (source / preview / split).
    *  New markdown tabs open in this mode, and toggling a tab's view
    *  updates it — so the app remembers however you last looked at a doc. */
@@ -1037,6 +1055,7 @@ interface PrefsState {
   setUseBranchAsTaskName: (v: boolean) => void;
   setDoubleShiftMode: (v: DoubleShiftMode) => void;
   setCtrlTabMode: (v: CtrlTabMode) => void;
+  setRecentTabsGesture: (g: HoldGesture) => void;
   setMarkdownDefaultView: (v: MarkdownView) => void;
   setSvgDefaultView: (v: MarkdownView) => void;
   setHtmlDefaultView: (v: MarkdownView) => void;
@@ -1097,7 +1116,7 @@ function loadShortcuts(): BindingMap {
   try {
     const raw = localStorage.getItem(LS_SHORTCUTS);
     if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, Partial<Binding>>;
+      const parsed = JSON.parse(raw) as Record<string, Partial<Binding> | null>;
       // "open-shortcuts" was removed as a bindable shortcut in 0.17.4 — wipe any stored binding.
       if ("open-shortcuts" in parsed) {
         delete parsed["open-shortcuts"];
@@ -1105,6 +1124,11 @@ function loadShortcuts(): BindingMap {
       }
       for (const id of Object.keys(merged) as ShortcutId[]) {
         const b = parsed[id];
+        // null is "unbound". The whole map is persisted on every change, so a
+        // command that ships without a chord (search-everywhere) is stored as
+        // null, and null is only ever its default: read it as "no override",
+        // so a default added in a later version still reaches this profile.
+        if (b === null) continue;
         if (b && typeof b.key === "string"
             && typeof b.cmd === "boolean" && typeof b.shift === "boolean" && typeof b.alt === "boolean") {
           merged[id] = { cmd: b.cmd, shift: b.shift, alt: b.alt, key: b.key };
@@ -1306,6 +1330,7 @@ function readStoredPrefs() {
   })();
   // Absent means never set, and the gesture ships on.
   const initialCtrlTabMode: CtrlTabMode = lsGet(LS_CTRL_TAB_MODE, "on") === "off" ? "off" : "on";
+  const storedRecentTabs = readHoldGesture(lsGet(LS_RECENT_TABS_GESTURE, "") || null);
   const initialMarkdownView: MarkdownView = (() => {
     const raw = lsGet(LS_MD_VIEW, "source");
     return raw === "preview" || raw === "split" ? raw : "source";
@@ -1399,6 +1424,8 @@ function readStoredPrefs() {
     useBranchAsTaskName: initialUseBranchAsTaskName,
     doubleShiftMode: initialDoubleShiftMode,
     ctrlTabMode: initialCtrlTabMode,
+    recentTabsGesture: storedRecentTabs.gesture,
+    recentTabsGestureRefused: storedRecentTabs.refused,
     markdownDefaultView: initialMarkdownView,
     svgDefaultView: initialSvgView,
     htmlDefaultView: initialHtmlView,
@@ -1857,6 +1884,17 @@ export const usePrefs = create<PrefsState>(set => ({
   setCtrlTabMode: (v) => {
     try { localStorage.setItem(LS_CTRL_TAB_MODE, v); } catch {}
     set({ ctrlTabMode: v });
+  },
+  setRecentTabsGesture: (g) => {
+    const { recentTabsGesture: cur, recentTabsGestureRefused: refused } = usePrefs.getState();
+    // Not a no-op while a refused gesture is stored: setting the default it
+    // already runs is the reset, which writes over the unusable value.
+    if (!refused && cur.hold === g.hold && cur.code === g.code && cur.key === g.key) return;
+    // `key` only when there is one: an absent field is what the parser reads
+    // as "use the US label".
+    const next: HoldGesture = g.key ? { hold: g.hold, code: g.code, key: g.key } : { hold: g.hold, code: g.code };
+    try { localStorage.setItem(LS_RECENT_TABS_GESTURE, JSON.stringify(next)); } catch {}
+    set({ recentTabsGesture: next, recentTabsGestureRefused: null });
   },
   setMarkdownDefaultView: (v) => {
     try { localStorage.setItem(LS_MD_VIEW, v); } catch {}

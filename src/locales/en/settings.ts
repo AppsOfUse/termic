@@ -487,12 +487,38 @@ export default {
     terminalNote: "Inside a terminal, Ctrl+letter belongs to the shell. Hold {{key}} instead of Ctrl there: {{key}}+J toggles the terminal panel, {{key}}+T opens a tab. Chords with Shift or Alt work with Ctrl too. If one does nothing, your desktop keeps it for itself ({{key}}+L locks the screen on GNOME): rebind it here.",
     resetAll: "Reset all",
     conflict: "Conflicts with another shortcut",
-    reservedTab: "Tab belongs to the recently-used-tabs gesture.",
+    // On a chord row whose key a hold gesture also uses; the gesture's
+    // capture listener runs first, so it is the one that fires.
+    conflictGesture: "Conflicts with Recently used tabs (the gesture wins)",
+    // On the gesture's own row. {{names}}: the chord rows it shadows.
+    conflictGestureSelf: "Conflicts with {{names}} (the gesture wins)",
+    reservedTab: "Tab cannot be part of a chord. Recently used tabs can use it.",
     needsMod: "Add {{cmd}} or {{alt}} to the combo.",
     pressKeys: "Press keys…",
+    // A command that ships without a chord (Search everywhere).
+    notSet: "Not set",
     resetDefault: "Reset to default",
     doubleShiftAria: "When double-Shift opens Search everywhere",
-    ctrlTabAria: "Whether Ctrl+Tab walks the recently used tabs",
+    ctrlTabAria: "Whether the recently used tabs gesture is on",
+    recentTabsRecorderAria: "Record the recently used tabs gesture",
+    // A stored gesture this platform cannot use, so the default runs instead.
+    // {{saved}} and {{current}}: both as the platform writes them (⌘;, Ctrl+Tab).
+    recentTabsRefused: "{{saved}} is saved but cannot be used here, so {{current}} is in use. Record another, or reset to keep {{current}}.",
+    // The hold-gesture recorder's refusals. {{mods}}: the modifiers this
+    // platform offers ("Ctrl, Option, Cmd" on macOS, "Ctrl, Alt" elsewhere).
+    holdNeedsOne: "Hold exactly one of {{mods}} and press a key.",
+    // {{keys}}: the combination as the platform writes it (⌘⇥, Alt+Tab).
+    holdOsReserved: "{{keys}} belongs to the system, Termic never sees it.",
+    // The refusals about the tapped key. {{mod}}: the held modifier as the
+    // platform names it. {{allowed}}: keys that do record with it here
+    // (lib/shortcuts.ts holdAllowedKeys), so no sentence end after it: a
+    // period would read as one more key.
+    holdRecorderKey: "Enter, Space and Backspace cannot be the key you tap. Keys that work with {{mod}}: {{allowed}}",
+    holdMovesCursor: "{{mod}} with that key moves the cursor or switches desktops. Keys that work with {{mod}}: {{allowed}}",
+    holdTerminalKey: "{{mod}} with that key sends the terminal a control character (^R, ^W). Keys that work with {{mod}}: {{allowed}}",
+    holdMetaKey: "{{mod}} with that key reaches the terminal as Meta (Alt+B, Alt+.). Keys that work with {{mod}}: {{allowed}}",
+    holdTypes: "{{mod}} with a letter or digit types a character. Keys that work with {{mod}}: {{allowed}}",
+    holdAppKey: "{{mod}} with a letter or digit is an app or system shortcut (copy, paste, quit). Keys that work with {{mod}}: {{allowed}}",
 
     // The rows themselves, keyed by shortcut id through lib/shortcutCopy.ts:
     // the settings page and the ⌘/ sheet both draw them, so the copy lives in
@@ -515,21 +541,13 @@ export default {
       doubleLeftShift: "Double left Shift",
       doubleNotInTerminal: "Double Shift, not in a terminal",
       doubleShift: "Double Shift",
-      holdCtrlTab: "Hold Ctrl, tap Tab",
+      on: "On",
     },
-    fixed: {
-      searchEverywhere: {
-        label: "Search everywhere",
-        // Says nothing about WHICH Shift: that is the setting's to say, and a
-        // hint hardcoding "left" is wrong the moment somebody picks either.
-        hint: "Files always; classes and functions too, once a checkout has code navigation on.",
-        // Shown where the recorder would be, on a row that carries no select.
-        reason: "Double tap",
-      },
+    gestures: {
       recentTabs: {
         label: "Recently used tabs",
-        hint: "Hold Ctrl and tap Tab to step back through what you were looking at; add Shift to go the other way.",
-        reason: "Hold and tap",
+        // {{mod}} and {{key}}: the recorded gesture ("Ctrl" and "Tab" by default).
+        hint: "Hold {{mod}} and tap {{key}} to step back through what you were looking at; add Shift to go the other way.",
       },
     },
     defs: {
@@ -555,6 +573,12 @@ export default {
       fileStructure: {
         label: "File structure",
         hint: "What is in this file, filterable, without scrolling it.",
+      },
+      searchEverywhere: {
+        label: "Search everywhere",
+        // Says nothing about WHICH Shift: that is the setting's to say, and a
+        // hint hardcoding "left" is wrong the moment somebody picks either.
+        hint: "Files always; classes and functions too, once a checkout has code navigation on.",
       },
       navForward: { label: "Forward", hint: "Retrace a Back." },
       taskPrevArrow: {

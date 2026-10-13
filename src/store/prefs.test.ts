@@ -102,6 +102,88 @@ describe("prefs: doubleShiftMode", () => {
   });
 });
 
+// The recently-used-tabs gesture. Absent has to mean ⌃⇥, which is what every
+// profile from before it was recordable has, so no migration exists to get
+// wrong. A Cmd gesture is not usable off macOS and this test environment is
+// not a Mac, so a Ctrl gesture on a key other than Tab is the one stored.
+describe("prefs: recentTabsGesture", () => {
+  const KEY = "recentTabsGesture";
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeLocalStorage());
+    vi.resetModules();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("defaults to Ctrl+Tab with nothing in localStorage", async () => {
+    const { usePrefs } = await import("./prefs");
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Tab" });
+  });
+
+  it("reads back a stored gesture", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ hold: "ctrl", code: "Semicolon" }));
+    const { usePrefs } = await import("./prefs");
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Semicolon" });
+  });
+
+  it("reads garbage as the default, and leaves the stored value alone", async () => {
+    localStorage.setItem(KEY, "{nope");
+    const { usePrefs } = await import("./prefs");
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Tab" });
+    expect(localStorage.getItem(KEY)).toBe("{nope");
+  });
+
+  it("persists what it is set to, as JSON", async () => {
+    const { usePrefs } = await import("./prefs");
+    usePrefs.getState().setRecentTabsGesture({ hold: "ctrl", code: "Semicolon" });
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Semicolon" });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ hold: "ctrl", code: "Semicolon" });
+  });
+
+  it("keeps the recorded key's character, and a gesture stored without one still loads", async () => {
+    const { usePrefs } = await import("./prefs");
+    usePrefs.getState().setRecentTabsGesture({ hold: "ctrl", code: "Semicolon", key: "ö" });
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Semicolon", key: "ö" });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ hold: "ctrl", code: "Semicolon", key: "ö" });
+    // Re-recorded on another layout: same key, new character, so it is written.
+    usePrefs.getState().setRecentTabsGesture({ hold: "ctrl", code: "Semicolon", key: ";" });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ hold: "ctrl", code: "Semicolon", key: ";" });
+  });
+
+  it("remembers a stored gesture it cannot use here, and reset writes over it", async () => {
+    // Cmd, synced from a Mac: unusable off macOS, so the default runs. The
+    // stored value is left alone, and Settings shows why with a reset.
+    localStorage.setItem(KEY, JSON.stringify({ hold: "cmd", code: "Semicolon" }));
+    const { usePrefs } = await import("./prefs");
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Tab" });
+    expect(usePrefs.getState().recentTabsGestureRefused).toEqual({ hold: "cmd", code: "Semicolon" });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ hold: "cmd", code: "Semicolon" });
+    // Resetting to the default it already runs is not a no-op: it is the
+    // user choosing it here.
+    usePrefs.getState().setRecentTabsGesture({ hold: "ctrl", code: "Tab" });
+    expect(usePrefs.getState().recentTabsGestureRefused).toBeNull();
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ hold: "ctrl", code: "Tab" });
+  });
+
+  it("does not publish an unchanged gesture", async () => {
+    // docs/performance.md bear trap 8: an unchanged write still copies the
+    // whole store and re-runs every selector.
+    const { usePrefs } = await import("./prefs");
+    const before = usePrefs.getState();
+    usePrefs.getState().setRecentTabsGesture({ hold: "ctrl", code: "Tab" });
+    expect(usePrefs.getState()).toBe(before);
+  });
+
+  it("is picked up by reloadPrefsFromStorage, and only when it moved", async () => {
+    // Config sync writes the key behind the store's back.
+    const { usePrefs, reloadPrefsFromStorage } = await import("./prefs");
+    expect(reloadPrefsFromStorage()).not.toContain("recentTabsGesture");
+    localStorage.setItem(KEY, JSON.stringify({ hold: "ctrl", code: "Semicolon" }));
+    expect(reloadPrefsFromStorage()).toContain("recentTabsGesture");
+    expect(usePrefs.getState().recentTabsGesture).toEqual({ hold: "ctrl", code: "Semicolon" });
+    expect(reloadPrefsFromStorage()).not.toContain("recentTabsGesture");
+  });
+});
+
 describe("prefs: findInFilesRegex", () => {
   const KEY = "findInFilesRegex";
   beforeEach(() => {
@@ -970,5 +1052,46 @@ describe("prefs: custom and imported themes", () => {
     const first = usePrefs.getState().importedThemes;
     await usePrefs.getState().loadImportedThemes();
     expect(usePrefs.getState().importedThemes).toBe(first);
+  });
+});
+
+// Stored chord bindings. The whole map is persisted on every change, so a
+// command that ships unbound (search-everywhere) is written as null, and
+// that null has to read back as "no override", not as garbage or a binding.
+describe("prefs: stored null bindings", () => {
+  const KEY = "shortcutBindings";
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeLocalStorage());
+    vi.resetModules();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reads a stored null as unbound, and keeps the other overrides", async () => {
+    localStorage.setItem(KEY, JSON.stringify({
+      "search-everywhere": null,
+      "new-tab": { cmd: true, shift: true, alt: false, key: "t" },
+    }));
+    const { usePrefs } = await import("./prefs");
+    const { shortcuts } = usePrefs.getState();
+    expect(shortcuts["search-everywhere"]).toBeNull();
+    expect(shortcuts["new-tab"]).toEqual({ cmd: true, shift: true, alt: false, key: "t" });
+  });
+
+  it("reads a stored null on a bound command as its default, not as unbound", async () => {
+    // Only a def whose default is null may be unbound; a null anywhere else
+    // is the default coming through.
+    localStorage.setItem(KEY, JSON.stringify({ "file-finder": null }));
+    const { usePrefs } = await import("./prefs");
+    expect(usePrefs.getState().shortcuts["file-finder"]).toEqual({ cmd: true, shift: false, alt: false, key: "p" });
+  });
+
+  it("writes null when the chord is reset, and reads it back as unbound", async () => {
+    const { usePrefs } = await import("./prefs");
+    usePrefs.getState().setShortcut("search-everywhere", { cmd: true, shift: true, alt: false, key: "o" });
+    usePrefs.getState().resetShortcut("search-everywhere");
+    expect(JSON.parse(localStorage.getItem(KEY)!)["search-everywhere"]).toBeNull();
+    vi.resetModules();
+    const again = await import("./prefs");
+    expect(again.usePrefs.getState().shortcuts["search-everywhere"]).toBeNull();
   });
 });

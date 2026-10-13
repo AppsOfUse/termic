@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_BINDINGS, FIXED_SHORTCUTS, GROUP_ORDER, NON_CONFLICTING_GROUPS, SHORTCUT_DEFS,
-  bindingFromEvent, bindingMatches, bindingSignature, bindingText, bindingToCmKey, bindingsEqual,
-  isValidBinding, isReservedKey, matchesTerminalAppBinding,
+  DEFAULT_BINDINGS, DEFAULT_RECENT_TABS, GESTURE_SHORTCUTS, GROUP_ORDER, NON_CONFLICTING_GROUPS, SHORTCUT_DEFS,
+  bindingFromEvent, bindingMatches, bindingSignature, bindingText, bindingToCmKey, bindingsEqual, codeGlyph,
+  conflicts, holdGestureFromEvent, holdGestureGlyphs, holdGestureText, holdHeld, holdReleased,
+  holdAllowedKeys, holdGestureError, holdKeyGlyph, holdModifierName, isValidBinding, isReservedKey, matchesTerminalAppBinding, parseHoldGesture, readHoldGesture, terminalPassesToApp,
+  tokenForCode,
 } from "./shortcuts";
 
 // `SHORTCUT_DEFS` is the single source of truth for every bindable key, and it
@@ -26,9 +28,18 @@ describe("the shortcut table", () => {
 
   it("gives every entry a binding that cannot swallow normal typing", () => {
     for (const d of SHORTCUT_DEFS) {
-      expect(isValidBinding(d.defaultBinding), `${d.id}: ${bindingSignature(d.defaultBinding)}`)
-        .toBe(true);
+      const b = d.defaultBinding;
+      if (!b) continue; // unbound by default: see "ships without a chord" below
+      expect(isValidBinding(b), `${d.id}: ${bindingSignature(b)}`).toBe(true);
     }
+  });
+
+  it("ships without a chord only where another way in exists", () => {
+    // An unbound command nobody can reach is a dead feature. Search everywhere
+    // is the one exception, and it has double-Shift.
+    const unbound = SHORTCUT_DEFS.filter(d => d.defaultBinding === null);
+    expect(unbound.map(d => d.id)).toEqual(["search-everywhere"]);
+    for (const d of unbound) expect(d.gesture, d.id).toBe("double-shift");
   });
 
   it("hands each default chord to exactly one shortcut", () => {
@@ -38,7 +49,7 @@ describe("the shortcut table", () => {
     const allowed = new Set(NON_CONFLICTING_GROUPS.flat());
     const byChord = new Map<string, string[]>();
     for (const d of SHORTCUT_DEFS) {
-      if (allowed.has(d.id)) continue;
+      if (allowed.has(d.id) || !d.defaultBinding) continue;
       const sig = bindingSignature(d.defaultBinding);
       byChord.set(sig, [...(byChord.get(sig) ?? []), d.id]);
     }
@@ -65,8 +76,8 @@ describe("Back and Forward own the bracket keys", () => {
       { key: "[", cmd: true, shift: false, alt: false })).toBe(true);
     expect(bindingsEqual(def("nav-forward").defaultBinding,
       { key: "]", cmd: true, shift: false, alt: false })).toBe(true);
-    const plainBracket = SHORTCUT_DEFS.filter(d =>
-      (d.defaultBinding.key === "[" || d.defaultBinding.key === "]")
+    const plainBracket = SHORTCUT_DEFS.filter(d => d.defaultBinding
+      && (d.defaultBinding.key === "[" || d.defaultBinding.key === "]")
       && d.defaultBinding.cmd && !d.defaultBinding.shift && !d.defaultBinding.alt);
     expect(plainBracket.map(d => d.id).sort()).toEqual(["nav-back", "nav-forward"]);
   });
@@ -120,53 +131,466 @@ describe("bindings in CodeMirror's notation", () => {
     const ids = ["go-to-definition", "find-usages", "go-to-implementation",
                  "go-to-type-definition", "file-structure"] as const;
     for (const id of ids) {
-      const key = bindingToCmKey(DEFAULT_BINDINGS[id]);
+      const key = bindingToCmKey(DEFAULT_BINDINGS[id]!);
       expect(key, id).toMatch(/^(Mod-)?(Alt-)?(Shift-)?[A-Za-z0-9]+$/);
     }
   });
 });
 
-describe("shortcuts that cannot be rebound", () => {
+describe("gesture shortcuts", () => {
   it("keeps them out of the bindable table", () => {
     // They have no Binding, and everything in SHORTCUT_DEFS is assumed to
-    // have one: the bindings map, the conflict check, the recorder and the
-    // localStorage migration would each need a special case.
+    // have one: the bindings map, the conflict check, the chord recorder and
+    // the localStorage migration would each need a special case.
     const ids = new Set(SHORTCUT_DEFS.map(d => d.id as string));
-    for (const f of FIXED_SHORTCUTS) expect(ids.has(f.id), f.id).toBe(false);
+    for (const g of GESTURE_SHORTCUTS) expect(ids.has(g.id), g.id).toBe(false);
   });
 
-  it("gives each one keys to print, in a group the sheet renders", () => {
-    // A row with no glyphs teaches nothing. Its label, hint and reason are
-    // locale entries now (lib/shortcutCopy.ts); shortcutCopy.test.ts is what
-    // pins those in both languages.
-    for (const f of FIXED_SHORTCUTS) {
-      expect(f.glyphs.length, f.id).toBeGreaterThan(0);
-      expect(GROUP_ORDER, f.id).toContain(f.group);
+  it("lists recently used tabs, with its hold-and-tap recorder, in a group the sheet renders", () => {
+    // `bindingMatches` folds Cmd and Ctrl into one flag, so the nearest thing
+    // the table could hold is {cmd:true, key:"Tab"}, which renders as ⌘⇥ and
+    // is dead on macOS. It is hold-and-tap rather than one chord, so it has
+    // a recorder of its own.
+    expect(GESTURE_SHORTCUTS).toEqual([
+      { id: "recent-tabs", group: "Navigation", control: "hold-tap" },
+    ]);
+    for (const g of GESTURE_SHORTCUTS) expect(GROUP_ORDER, g.id).toContain(g.group);
+  });
+
+  it("ships the gesture as ⌃⇥", () => {
+    expect(DEFAULT_RECENT_TABS).toEqual({ hold: "ctrl", code: "Tab" });
+    expect(holdGestureGlyphs(DEFAULT_RECENT_TABS)).toEqual(["⌃", "⇥"]);
+  });
+});
+
+describe("search everywhere", () => {
+  const def = SHORTCUT_DEFS.find(d => d.id === "search-everywhere")!;
+
+  it("is a def in Code navigation, unbound, with double-Shift beside it", () => {
+    // Double-Shift is the gesture people cannot guess, so it stays; the chord
+    // is optional and ships empty.
+    expect(def.group).toBe("Code navigation");
+    expect(def.defaultBinding).toBeNull();
+    expect(DEFAULT_BINDINGS["search-everywhere"]).toBeNull();
+    expect(def.gesture).toBe("double-shift");
+  });
+
+  it("is the only def that carries a gesture", () => {
+    expect(SHORTCUT_DEFS.filter(d => d.gesture).map(d => d.id)).toEqual(["search-everywhere"]);
+  });
+
+  it("accepts a recorded chord, and matches it", () => {
+    const b = { key: "o", cmd: true, shift: true, alt: false };
+    expect(isValidBinding(b)).toBe(true);
+    const ev = {
+      key: "O", code: "KeyO", metaKey: true, ctrlKey: false, shiftKey: true, altKey: false,
+      getModifierState: () => false,
+    } as unknown as KeyboardEvent;
+    expect(bindingMatches(ev, b)).toBe(true);
+  });
+
+  it("matches nothing while unbound", () => {
+    const ev = {
+      key: "o", code: "KeyO", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false,
+      getModifierState: () => false,
+    } as unknown as KeyboardEvent;
+    expect(bindingMatches(ev, null)).toBe(false);
+  });
+
+  it("treats two unbound bindings as equal, and unbound as different from bound", () => {
+    // What the Settings page's reset button and Reset all read.
+    expect(bindingsEqual(null, null)).toBe(true);
+    expect(bindingsEqual(null, { key: "o", cmd: true, shift: true, alt: false })).toBe(false);
+    expect(bindingsEqual(undefined, undefined)).toBe(false);
+  });
+});
+
+// ── Hold gestures ───────────────────────────────────────────────────────
+
+/** A keydown as the recorder sees it. `code` is the physical key. */
+const kd = (code: string, key: string, mods: {
+  ctrl?: boolean; alt?: boolean; meta?: boolean; shift?: boolean; altGraph?: boolean;
+} = {}) => ({
+  code, key,
+  ctrlKey: !!mods.ctrl, altKey: !!mods.alt, metaKey: !!mods.meta, shiftKey: !!mods.shift,
+  getModifierState: (m: string) => m === "AltGraph" && !!mods.altGraph,
+}) as unknown as KeyboardEvent;
+
+describe("parseHoldGesture", () => {
+  it("reads absent and empty as ⌃⇥, so no migration is needed", () => {
+    expect(parseHoldGesture(null, true)).toEqual(DEFAULT_RECENT_TABS);
+    expect(parseHoldGesture("", true)).toEqual(DEFAULT_RECENT_TABS);
+  });
+
+  it("reads a stored gesture", () => {
+    expect(parseHoldGesture('{"hold":"alt","code":"Tab"}', true))
+      .toEqual({ hold: "alt", code: "Tab" });
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon"}', true))
+      .toEqual({ hold: "cmd", code: "Semicolon" });
+  });
+
+  it("reads garbage as the default", () => {
+    for (const raw of ["{", "null", "42", '"x"', '{"hold":"shift","code":"Tab"}',
+                       '{"hold":"ctrl"}', '{"hold":"ctrl","code":7}', '{"hold":"ctrl","code":"a b"}']) {
+      expect(parseHoldGesture(raw, true), raw).toEqual(DEFAULT_RECENT_TABS);
     }
   });
 
-  it("lists double-Shift, which is the one people cannot guess", () => {
-    const se = FIXED_SHORTCUTS.find(f => f.id === "search-everywhere");
-    expect(se?.glyphs).toEqual(["⇧", "⇧"]);
-    expect(se?.group).toBe("Code navigation");
+  it("reads a gesture the recorder would refuse as the default", () => {
+    // Hand-edited, or synced from somewhere older: never act on a gesture
+    // that takes a key from readline or from the system.
+    expect(parseHoldGesture('{"hold":"ctrl","code":"KeyR"}', true)).toEqual(DEFAULT_RECENT_TABS);
+    expect(parseHoldGesture('{"hold":"cmd","code":"Tab"}', true)).toEqual(DEFAULT_RECENT_TABS);
   });
 
-  it("lists ⌃⇥, which a Binding cannot express at all", () => {
-    // `bindingMatches` folds Cmd and Ctrl into one flag, so the nearest thing
-    // the table could hold is {cmd:true, key:"Tab"} — which renders as ⌘⇥ and
-    // is dead on macOS. It is also a hold-and-tap gesture rather than a chord,
-    // so there is nothing for a recorder to record.
-    const rt = FIXED_SHORTCUTS.find(f => f.id === "recent-tabs");
-    expect(rt?.glyphs).toEqual(["⌃", "⇥"]);
-    expect(rt?.group).toBe("Navigation");
+  it("reads Option + ` back on macOS: Option + punctuation is a gesture there", () => {
+    // The chord recorder takes Option with any key, so the gesture is not
+    // stricter. Off macOS Alt + ` is the desktop's.
+    expect(parseHoldGesture('{"hold":"alt","code":"Backquote"}', true))
+      .toEqual({ hold: "alt", code: "Backquote" });
+    expect(parseHoldGesture('{"hold":"alt","code":"Backquote"}', false)).toEqual(DEFAULT_RECENT_TABS);
   });
 
-  it("gives every row that carries a mode select a control, and no other row one", () => {
-    // The two surfaces that render these rows switch on `control`. They used
-    // to switch on `f.id === "search-everywhere"` in five places across two
-    // files, which a second such row would have quietly broken.
-    const withControl = FIXED_SHORTCUTS.filter(f => f.control).map(f => f.id).sort();
-    expect(withControl).toEqual(["recent-tabs", "search-everywhere"]);
+  it("reads a Cmd gesture synced to Linux or Windows as the default", () => {
+    // Cmd is the Windows / Super key there, which the desktop keeps.
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon"}', false)).toEqual(DEFAULT_RECENT_TABS);
+    expect(parseHoldGesture('{"hold":"ctrl","code":"Semicolon"}', false))
+      .toEqual({ hold: "ctrl", code: "Semicolon" });
+  });
+});
+
+describe("readHoldGesture", () => {
+  it("names a well-formed gesture this platform cannot use, so Settings can say so", () => {
+    expect(readHoldGesture('{"hold":"cmd","code":"Semicolon"}', false))
+      .toEqual({ gesture: DEFAULT_RECENT_TABS, refused: { hold: "cmd", code: "Semicolon" } });
+    expect(readHoldGesture('{"hold":"alt","code":"KeyE"}', true))
+      .toEqual({ gesture: DEFAULT_RECENT_TABS, refused: { hold: "alt", code: "KeyE" } });
+    expect(readHoldGesture('{"hold":"alt","code":"Backquote"}', true))
+      .toEqual({ gesture: { hold: "alt", code: "Backquote" }, refused: null });
+  });
+
+  it("refuses nothing for a usable gesture, an absent one, or garbage", () => {
+    expect(readHoldGesture('{"hold":"ctrl","code":"Semicolon"}', false))
+      .toEqual({ gesture: { hold: "ctrl", code: "Semicolon" }, refused: null });
+    expect(readHoldGesture(null, true)).toEqual({ gesture: DEFAULT_RECENT_TABS, refused: null });
+    expect(readHoldGesture("{nope", true)).toEqual({ gesture: DEFAULT_RECENT_TABS, refused: null });
+  });
+});
+
+describe("holdGestureFromEvent", () => {
+  it("waits through a bare modifier press", () => {
+    expect(holdGestureFromEvent(kd("AltLeft", "Alt", { alt: true }), true)).toBeNull();
+    expect(holdGestureFromEvent(kd("ControlLeft", "Control", { ctrl: true }), true)).toBeNull();
+    expect(holdGestureFromEvent(kd("MetaLeft", "Meta", { meta: true }), true)).toBeNull();
+    expect(holdGestureFromEvent(kd("ShiftLeft", "Shift", { shift: true }), true)).toBeNull();
+  });
+
+  it("records ⌃⇥, ⌥⇥, ⌃; and ⌘; on macOS", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { ctrl: true }), true)).toEqual({ hold: "ctrl", code: "Tab" });
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { alt: true }), true)).toEqual({ hold: "alt", code: "Tab" });
+    expect(holdGestureFromEvent(kd("Semicolon", ";", { ctrl: true }), true))
+      .toMatchObject({ hold: "ctrl", code: "Semicolon" });
+    expect(holdGestureFromEvent(kd("Semicolon", ";", { meta: true }), true))
+      .toMatchObject({ hold: "cmd", code: "Semicolon" });
+  });
+
+  it("records the key by its code, whatever character it reports", () => {
+    // A US-International ' is a dead key even under Ctrl on some setups.
+    expect(holdGestureFromEvent(kd("Quote", "Dead", { ctrl: true }), false))
+      .toEqual({ hold: "ctrl", code: "Quote" });
+  });
+
+  it("ignores Shift, which is how the walk reverses", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { ctrl: true, shift: true }), true))
+      .toEqual({ hold: "ctrl", code: "Tab" });
+  });
+
+  it("refuses no modifier, and two", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab"), true)).toEqual({ error: { kind: "holdNeedsOne" } });
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { ctrl: true, alt: true }), true))
+      .toEqual({ error: { kind: "holdNeedsOne" } });
+  });
+
+  it("refuses Enter, Backspace and Space with a message of their own", () => {
+    // "Hold exactly one modifier" told someone who held exactly one that
+    // they had not.
+    for (const [code, key] of [["Enter", "Enter"], ["Backspace", "Backspace"], ["Space", " "]]) {
+      expect(holdGestureFromEvent(kd(code, key, { alt: true }), true), code)
+        .toEqual({ error: { kind: "holdRecorderKey", mod: "Option", allowed: "Tab ` ; ' , . =" } });
+    }
+  });
+
+  it("refuses what macOS keeps for itself", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { meta: true }), true))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "⌘⇥" } });
+    expect(holdGestureFromEvent(kd("Space", " ", { meta: true }), true))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "⌘␣" } });
+    expect(holdGestureFromEvent(kd("Space", " ", { ctrl: true }), true))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "⌃␣" } });
+  });
+
+  it("refuses what Windows and Linux keep for themselves", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { alt: true }), false))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "Alt+Tab" } });
+    expect(holdGestureFromEvent(kd("Semicolon", ";", { meta: true }), false))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "Win+;" } });
+  });
+
+  it("names the system's chord even when another modifier is down too", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { meta: true, ctrl: true }), true))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "⌘⇥" } });
+  });
+
+  it("refuses Ctrl with a letter or a digit (readline's)", () => {
+    expect(holdGestureFromEvent(kd("KeyR", "r", { ctrl: true }), true))
+      .toEqual({ error: { kind: "holdTerminalKey", mod: "Ctrl", allowed: "Tab ; ' , . =" } });
+    expect(holdGestureFromEvent(kd("Digit1", "1", { ctrl: true }), false))
+      .toMatchObject({ error: { kind: "holdTerminalKey" } });
+  });
+
+  it("refuses Option / Alt with a letter or a digit (it types)", () => {
+    expect(holdGestureFromEvent(kd("KeyJ", "∆", { alt: true }), true))
+      .toEqual({ error: { kind: "holdTypes", mod: "Option", allowed: "Tab ` ; ' , . =" } });
+    expect(holdGestureFromEvent(kd("Digit2", "™", { alt: true }), true)).toMatchObject({ error: { kind: "holdTypes" } });
+  });
+
+  it("refuses Cmd with a letter or a digit (copy, paste, quit...)", () => {
+    // The walk's capture listener preventDefaults every press of the
+    // gesture, so ⌘C recorded here would kill copy app-wide.
+    for (const [code, key] of [["KeyC", "c"], ["KeyV", "v"], ["KeyX", "x"], ["KeyZ", "z"],
+                               ["KeyQ", "q"], ["KeyW", "w"], ["Digit1", "1"]]) {
+      expect(holdGestureFromEvent(kd(code, key, { meta: true }), true), code)
+        .toMatchObject({ error: { kind: "holdAppKey" } });
+    }
+    expect(holdGestureFromEvent(kd("KeyC", "c", { meta: true }), true))
+      .toEqual({ error: { kind: "holdAppKey", mod: "Cmd", allowed: "; ' , ." } });
+    // And a stored one (hand-edited, or from a build before the rule) is
+    // never acted on.
+    expect(parseHoldGesture('{"hold":"cmd","code":"KeyC"}', true)).toEqual(DEFAULT_RECENT_TABS);
+  });
+
+  it("refuses Ctrl with a key that sends a control character, on every platform", () => {
+    // ^[ is ESC, ^\\ SIGQUIT, ^] GS; ^/ and ^- (with Shift, ^_) are undo in
+    // readline, ^` is NUL in most terminals.
+    for (const mac of [true, false]) {
+      for (const [code, key] of [["BracketLeft", "["], ["Backslash", "\\"], ["BracketRight", "]"],
+                                 ["Slash", "/"], ["Minus", "-"], ["Backquote", "`"]]) {
+        expect(holdGestureFromEvent(kd(code, key, { ctrl: true }), mac), `${code} ${mac}`)
+          .toMatchObject({ error: { kind: "holdTerminalKey" } });
+      }
+    }
+  });
+
+  it("refuses an arrow, Home, End or Page key with any modifier: they move the cursor", () => {
+    // Option+arrow is word navigation on macOS, Ctrl+arrow off it, ⌘+arrow
+    // line start / end, ⌃+arrow Mission Control.
+    for (const code of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]) {
+      expect(holdGestureFromEvent(kd(code, code, { ctrl: true }), false), code)
+        .toMatchObject({ error: { kind: "holdMovesCursor", mod: "Ctrl" } });
+      expect(holdGestureFromEvent(kd(code, code, { alt: true }), true), code)
+        .toMatchObject({ error: { kind: "holdMovesCursor", mod: "Option" } });
+      expect(holdGestureFromEvent(kd(code, code, { meta: true }), true), code)
+        .toMatchObject({ error: { kind: "holdMovesCursor", mod: "Cmd" } });
+    }
+  });
+
+  it("records Option with punctuation on macOS, by its code, like the chord recorder", () => {
+    // Option+` is a dead key (à, è), Option+; types …: what is recorded is
+    // the physical key, and no character is kept for display (Option
+    // changed it). Claiming the key while the gesture is on is the user's
+    // trade-off (docs/shortcuts.md).
+    for (const [code, key] of [["Backquote", "Dead"], ["Semicolon", "…"], ["Quote", "æ"],
+                               ["Comma", "≤"], ["Period", "≥"], ["Equal", "≠"], ["IntlBackslash", "§"]]) {
+      expect(holdGestureFromEvent(kd(code, key, { alt: true }), true), code).toEqual({ hold: "alt", code });
+    }
+  });
+
+  it("refuses Alt with any key that has a character off macOS: the terminal reads it as Meta", () => {
+    for (const [code, key] of [["KeyB", "b"], ["Period", "."], ["Semicolon", ";"], ["Digit1", "1"]]) {
+      expect(holdGestureFromEvent(kd(code, key, { alt: true }), false), code)
+        .toMatchObject({ error: { kind: "holdMetaKey", mod: "Alt" } });
+    }
+  });
+
+  it("refuses what Windows and the Linux desktops keep for Alt", () => {
+    // F4 closes the window; ` switches within an application's windows
+    // (GNOME); Space opens the window menu; F1, F2, F7, F8 and F10 are GNOME's
+    // overview, run dialog, move, resize and maximize.
+    for (const code of ["F4", "Backquote", "Space", "F1", "F2", "F7", "F8", "F10"]) {
+      expect(holdGestureFromEvent(kd(code, code === "Backquote" ? "`" : code, { alt: true }), false), code)
+        .toMatchObject({ error: { kind: "holdOsReserved" } });
+    }
+  });
+
+  it("refuses ⌘` on macOS, the system's next-window key", () => {
+    expect(holdGestureFromEvent(kd("Backquote", "`", { meta: true }), true))
+      .toEqual({ error: { kind: "holdOsReserved", keys: "⌘`" } });
+  });
+
+  it("records every key holdAllowedKeys names, and the defaults", () => {
+    const codeOf: Record<string, string> = {
+      Tab: "Tab", ";": "Semicolon", "'": "Quote", ",": "Comma", ".": "Period", "=": "Equal",
+    };
+    const fkeys = (spec: string) => spec.split(" ").flatMap(part => {
+      const m = /^F(\d+)-F(\d+)$/.exec(part);
+      if (!m) return [part];
+      const out: string[] = [];
+      for (let n = +m[1]; n <= +m[2]; n++) out.push(`F${n}`);
+      return out;
+    });
+    const cases: [boolean, "ctrl" | "alt" | "cmd"][] =
+      [[true, "ctrl"], [true, "alt"], [true, "cmd"], [false, "ctrl"], [false, "alt"]];
+    for (const [mac, hold] of cases) {
+      const list = holdAllowedKeys(hold, mac);
+      expect(list, `${hold} ${mac}`).not.toBe("");
+      for (const k of fkeys(list)) {
+        const code = codeOf[k] ?? k;
+        expect(holdGestureError({ hold, code }, mac), `${hold}+${k} ${mac}`).toBeNull();
+      }
+    }
+  });
+
+  it("does not read AltGr as Alt or Ctrl", () => {
+    // AltGr is Ctrl+Alt to Chromium. It is a typing key, not a hold.
+    expect(holdGestureFromEvent(kd("Backquote", "`", { ctrl: true, alt: true, altGraph: true }), false))
+      .toEqual({ error: { kind: "holdNeedsOne" } });
+  });
+
+  it("falls back to the key when an event carries no code", () => {
+    expect(holdGestureFromEvent(kd("", "Tab", { ctrl: true }), true)).toEqual({ hold: "ctrl", code: "Tab" });
+  });
+});
+
+describe("holdHeld / holdReleased", () => {
+  it("wants exactly the gesture's modifier, Shift aside", () => {
+    expect(holdHeld(kd("Tab", "Tab", { ctrl: true }), "ctrl")).toBe(true);
+    expect(holdHeld(kd("Tab", "Tab", { ctrl: true, shift: true }), "ctrl")).toBe(true);
+    expect(holdHeld(kd("Tab", "Tab", { ctrl: true, alt: true }), "ctrl")).toBe(false);
+    expect(holdHeld(kd("Tab", "Tab", { ctrl: true, meta: true }), "ctrl")).toBe(false);
+    expect(holdHeld(kd("Backquote", "Dead", { alt: true }), "alt")).toBe(true);
+    expect(holdHeld(kd("Backquote", "`", { alt: true, ctrl: true }), "alt")).toBe(false);
+    expect(holdHeld(kd("Backquote", "`", { meta: true }), "cmd")).toBe(true);
+    expect(holdHeld(kd("Backquote", "`", { meta: true, alt: true }), "cmd")).toBe(false);
+  });
+
+  it("does not take AltGr for Alt", () => {
+    expect(holdHeld(kd("Backquote", "`", { alt: true, altGraph: true }), "alt")).toBe(false);
+  });
+
+  it("lands when the gesture's own modifier comes up, whatever else is down", () => {
+    const up = (mods: Parameters<typeof kd>[2]) => kd("ControlLeft", "Control", mods);
+    expect(holdReleased(up({}), "ctrl")).toBe(true);
+    expect(holdReleased(up({ shift: true }), "ctrl")).toBe(true);
+    expect(holdReleased(up({ ctrl: true }), "ctrl")).toBe(false);
+    expect(holdReleased(up({ ctrl: true }), "alt")).toBe(true);
+    expect(holdReleased(up({ alt: true }), "alt")).toBe(false);
+    expect(holdReleased(up({ meta: true }), "cmd")).toBe(false);
+    expect(holdReleased(up({}), "cmd")).toBe(true);
+  });
+});
+
+describe("hold gesture glyphs and names", () => {
+  it("prints the modifier and the key", () => {
+    expect(holdGestureGlyphs({ hold: "alt", code: "Backquote" })).toEqual(["⌥", "`"]);
+    expect(holdGestureGlyphs({ hold: "cmd", code: "KeyJ" })).toEqual(["⌘", "J"]);
+    expect(holdGestureGlyphs({ hold: "ctrl", code: "BracketLeft" })).toEqual(["⌃", "["]);
+    expect(codeGlyph("Digit1")).toBe("1");
+  });
+
+  it("calls the logo key Super on Linux, Win on Windows", () => {
+    expect(holdModifierName("cmd", true)).toBe("Cmd");
+    expect(holdModifierName("cmd", false, false)).toBe("Win");
+    expect(holdModifierName("cmd", false, true)).toBe("Super");
+    expect(holdGestureText({ hold: "cmd", code: "Tab" }, false, true)).toBe("Super+Tab");
+  });
+
+  it("writes it as each platform does", () => {
+    expect(holdGestureText({ hold: "alt", code: "Backquote" }, true)).toBe("⌥`");
+    expect(holdGestureText({ hold: "ctrl", code: "Tab" }, false)).toBe("Ctrl+Tab");
+    expect(holdGestureText({ hold: "alt", code: "Backquote" }, false)).toBe("Alt+`");
+  });
+
+  it("maps codes to the chord tokens a Binding uses", () => {
+    expect(tokenForCode("KeyJ")).toBe("j");
+    expect(tokenForCode("Digit3")).toBe("3");
+    expect(tokenForCode("Tab")).toBe("Tab");
+    expect(tokenForCode("Backquote")).toBe("`");
+    expect(tokenForCode("ArrowUp")).toBe("ArrowUp");
+  });
+});
+
+describe("conflicts", () => {
+  const b = (key: string, mods: { cmd?: boolean; shift?: boolean; alt?: boolean } = {}) =>
+    ({ key, cmd: !!mods.cmd, shift: !!mods.shift, alt: !!mods.alt });
+
+  it("finds none in the defaults, with the gesture on", () => {
+    // NON_CONFLICTING_GROUPS covers the one deliberate pair.
+    const c = conflicts(DEFAULT_BINDINGS, DEFAULT_RECENT_TABS, "on");
+    expect([...c.chords]).toEqual([]);
+    expect(c.withGesture).toEqual([]);
+  });
+
+  it("(a) flags two chords on one signature, and skips unbound rows", () => {
+    const binds = { ...DEFAULT_BINDINGS, "new-tab": b("k", { cmd: true }) };
+    expect([...conflicts(binds, DEFAULT_RECENT_TABS, "on").chords].sort())
+      .toEqual(["clear-terminal", "new-tab"]);
+    // search-everywhere is null in the defaults and must not be compared.
+    expect(conflicts(DEFAULT_BINDINGS, DEFAULT_RECENT_TABS, "on").chords.has("search-everywhere")).toBe(false);
+  });
+
+  it("(a) still honours NON_CONFLICTING_GROUPS", () => {
+    expect(conflicts(DEFAULT_BINDINGS, DEFAULT_RECENT_TABS, "on").chords.has("discard-file")).toBe(false);
+  });
+
+  it("(b) flags a chord on the gesture's key and modifier, Shift either way", () => {
+    const g = { hold: "alt" as const, code: "Backquote" };
+    const binds = { ...DEFAULT_BINDINGS, "search-everywhere": b("`", { alt: true, shift: true }) };
+    expect(conflicts(binds, g, "on").withGesture).toEqual(["search-everywhere"]);
+    const plain = { ...DEFAULT_BINDINGS, "search-everywhere": b("`", { alt: true }) };
+    expect(conflicts(plain, g, "on").withGesture).toEqual(["search-everywhere"]);
+  });
+
+  it("(b) off macOS a Ctrl hold meets a cmd chord: Ctrl IS the app's Cmd there", () => {
+    const binds = { ...DEFAULT_BINDINGS, "search-everywhere": b(";", { cmd: true }) };
+    expect(conflicts(binds, { hold: "ctrl", code: "Semicolon" }, "on", false).withGesture)
+      .toEqual(["search-everywhere"]);
+    expect(conflicts(binds, { hold: "alt", code: "Semicolon" }, "on", false).withGesture).toEqual([]);
+  });
+
+  it("(b) on macOS only a Cmd hold meets a cmd chord", () => {
+    // ⌃; held for the walk takes ⌃; only. The ⌘; chord is pressed with Cmd
+    // and keeps working, so flagging it would warn about nothing.
+    const binds = { ...DEFAULT_BINDINGS, "search-everywhere": b(";", { cmd: true }) };
+    expect(conflicts(binds, { hold: "cmd", code: "Semicolon" }, "on", true).withGesture)
+      .toEqual(["search-everywhere"]);
+    expect(conflicts(binds, { hold: "ctrl", code: "Semicolon" }, "on", true).withGesture).toEqual([]);
+    expect(conflicts(binds, { hold: "alt", code: "Semicolon" }, "on", true).withGesture).toEqual([]);
+  });
+
+  it("(b) an alt hold meets an Option-only chord, not an Option-Cmd one", () => {
+    const binds = { ...DEFAULT_BINDINGS, "search-everywhere": b("Tab", { alt: true }) };
+    expect(conflicts(binds, { hold: "alt", code: "Tab" }, "on", true).withGesture).toEqual(["search-everywhere"]);
+  });
+
+  it("(b) a Cmd hold on a digit meets jump-to-tab's range", () => {
+    expect(conflicts(DEFAULT_BINDINGS, { hold: "cmd", code: "Digit3" }, "on", true).withGesture)
+      .toEqual(["jump-to-tab"]);
+  });
+
+  it("(b) says nothing while the gesture is off", () => {
+    const binds = { ...DEFAULT_BINDINGS, "search-everywhere": b("`", { alt: true }) };
+    expect(conflicts(binds, { hold: "alt", code: "Backquote" }, "off").withGesture).toEqual([]);
+  });
+
+  it("(c) double-Shift conflicts with nothing: an unbound search row is clean", () => {
+    const c = conflicts(DEFAULT_BINDINGS, DEFAULT_RECENT_TABS, "on");
+    expect(c.chords.has("search-everywhere")).toBe(false);
+    expect(c.withGesture).not.toContain("search-everywhere");
+  });
+
+  it("(d) Tab stays out of chords, so the default gesture never meets one", () => {
+    expect(isReservedKey("Tab")).toBe(true);
+    for (const d of SHORTCUT_DEFS) expect(d.defaultBinding?.key, d.id).not.toBe("Tab");
   });
 });
 
@@ -191,7 +615,7 @@ describe("Tab is not bindable", () => {
   });
 
   it("is claimed by no default binding", () => {
-    for (const d of SHORTCUT_DEFS) expect(d.defaultBinding.key, d.id).not.toBe("Tab");
+    for (const d of SHORTCUT_DEFS) expect(d.defaultBinding?.key, d.id).not.toBe("Tab");
   });
 });
 
@@ -203,7 +627,7 @@ describe("the code-navigation group", () => {
     const inGroup = SHORTCUT_DEFS.filter(d => d.group === "Code navigation").map(d => d.id);
     expect(inGroup.sort()).toEqual([
       "file-structure", "find-usages", "go-to-definition",
-      "go-to-implementation", "go-to-type-definition",
+      "go-to-implementation", "go-to-type-definition", "search-everywhere",
     ]);
     expect(SHORTCUT_DEFS.find(d => d.id === "nav-back")?.group).toBe("Navigation");
   });
@@ -290,5 +714,83 @@ describe("bindingText", () => {
   });
   it("keeps the glyph run on macOS", () => {
     expect(bindingText({ key: "p", cmd: true, shift: true, alt: false }, true)).toBe("⇧⌘P");
+  });
+});
+
+// TerminalPane's PASS_TO_APP. On macOS Ctrl is the terminal's own modifier
+// (GH #10), and useShortcuts bails on a Mac Ctrl chord in a terminal, so a
+// Ctrl press the terminal handed over would reach neither the shell nor the
+// app. Only Cmd may be taken there.
+describe("terminalPassesToApp", () => {
+  const ev = (key: string, mods: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean }) => ({
+    key, code: `Key${key.toUpperCase()}`,
+    ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, shiftKey: !!mods.shift, altKey: !!mods.alt,
+    getModifierState: () => false,
+  }) as unknown as KeyboardEvent;
+  const binds = { ...DEFAULT_BINDINGS, "search-everywhere": { cmd: true, shift: false, alt: false, key: "r" } };
+  const ids = ["file-finder", "search-everywhere"] as const;
+
+  it("on macOS hands over ⌘R bound to Search everywhere", () => {
+    expect(terminalPassesToApp(ev("r", { meta: true }), binds, ids, true)).toBe(true);
+  });
+
+  it("on macOS keeps ⌃R (reverse search) for the shell, though ⌘R is bound", () => {
+    expect(terminalPassesToApp(ev("r", { ctrl: true }), binds, ids, true)).toBe(false);
+    // The same for the shipped ⌘P: ⌃P is readline's previous line.
+    expect(terminalPassesToApp(ev("p", { ctrl: true }), binds, ids, true)).toBe(false);
+    expect(terminalPassesToApp(ev("p", { meta: true }), binds, ids, true)).toBe(true);
+  });
+
+  it("off macOS keeps plain Ctrl+letter, and takes it with Shift or Alt", () => {
+    expect(terminalPassesToApp(ev("r", { ctrl: true }), binds, ids, false)).toBe(false);
+    const shifted = { ...binds, "search-everywhere": { cmd: true, shift: true, alt: false, key: "r" } };
+    expect(terminalPassesToApp(ev("r", { ctrl: true, shift: true }), shifted, ids, false)).toBe(true);
+  });
+});
+
+// The gesture is matched by `code`, the physical key, which is right for
+// matching and wrong for reading: on a German layout the key US calls ";" is
+// ö. The recorder keeps the character the key typed, for display and for
+// the conflict check, whose chords are recorded by character too.
+describe("hold gestures on a non-US layout", () => {
+  const qwertzCmdOe = kd("Semicolon", "ö", { meta: true });
+
+  it("records the key's own character beside its code", () => {
+    expect(holdGestureFromEvent(qwertzCmdOe, true)).toEqual({ hold: "cmd", code: "Semicolon", key: "ö" });
+  });
+
+  it("keeps no character for a key that reports none, or one Shift or Option changed", () => {
+    expect(holdGestureFromEvent(kd("Tab", "Tab", { ctrl: true }), true)).toEqual({ hold: "ctrl", code: "Tab" });
+    expect(holdGestureFromEvent(kd("Quote", "Dead", { ctrl: true }), false)).toEqual({ hold: "ctrl", code: "Quote" });
+    expect(holdGestureFromEvent(kd("Semicolon", ":", { ctrl: true, shift: true }), false))
+      .toEqual({ hold: "ctrl", code: "Semicolon" });
+  });
+
+  it("prints the character, not the US label", () => {
+    expect(holdKeyGlyph({ hold: "cmd", code: "Semicolon", key: "ö" })).toBe("Ö");
+    expect(holdGestureGlyphs({ hold: "cmd", code: "Semicolon", key: "ö" })).toEqual(["⌘", "Ö"]);
+    expect(holdGestureText({ hold: "ctrl", code: "Semicolon", key: "ö" }, false)).toBe("Ctrl+Ö");
+    // Stored before the field existed: the US label, as before.
+    expect(holdKeyGlyph({ hold: "cmd", code: "Semicolon" })).toBe(";");
+  });
+
+  it("compares with chords by that character", () => {
+    const b = (key: string) => ({ ...DEFAULT_BINDINGS, "search-everywhere": { cmd: true, shift: false, alt: false, key } });
+    const g = { hold: "cmd" as const, code: "Semicolon", key: "ö" };
+    // ⌘; on this layout is Shift+, : not the gesture's key at all.
+    expect(conflicts(b(";"), g, "on", true).withGesture).toEqual([]);
+    expect(conflicts(b("ö"), g, "on", true).withGesture).toEqual(["search-everywhere"]);
+  });
+
+  it("reads a stored character back, and still reads a value without one", () => {
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon","key":"ö"}', true))
+      .toEqual({ hold: "cmd", code: "Semicolon", key: "ö" });
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon"}', true))
+      .toEqual({ hold: "cmd", code: "Semicolon" });
+    // A key field that is not one printable character is dropped, not fatal.
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon","key":"Dead"}', true))
+      .toEqual({ hold: "cmd", code: "Semicolon" });
+    expect(parseHoldGesture('{"hold":"cmd","code":"Semicolon","key":7}', true))
+      .toEqual({ hold: "cmd", code: "Semicolon" });
   });
 });

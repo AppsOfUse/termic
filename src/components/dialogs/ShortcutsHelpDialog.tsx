@@ -11,31 +11,31 @@ import { AppDialog } from "@/components/ui/Dialog";
 import { Command, Search, X, Pencil } from "lucide-react";
 import {
   SHORTCUT_DEFS,
-  FIXED_SHORTCUTS,
+  GESTURE_SHORTCUTS,
   GROUP_ORDER,
   bindingGlyphs,
+  holdGestureGlyphs,
   IS_MAC,
   type ShortcutGroup,
   type ShortcutId, displayGlyph } from "@/lib/shortcuts";
 import {
-  ctrlTabModeLabel,
   doubleShiftModeLabel,
-  fixedShortcutHint,
-  fixedShortcutLabel,
-  fixedShortcutReason,
+  gestureShortcutHint,
+  gestureShortcutLabel,
   shortcutGroupLabel,
   shortcutHint,
   shortcutLabel,
 } from "@/lib/shortcutCopy";
 import { dragRegion, appRegionStyle } from "@/lib/platform";
 
-/** One printed line: a label, the keys, and (for the fixed ones) why there is
- *  no recorder next to it. */
+/** One printed line: a label, the keys, and (for search everywhere) which
+ *  double-Shift mode is on. */
 interface Row {
   id: string;
   label: string;
   glyphs: string[];
-  fixed: string | null;
+  /** Search everywhere only: the double-Shift mode's label while it is on. */
+  doubleShiftLabel: string | null;
 }
 
 // Terminal copy/paste are native (⌘C / ⌘V) on macOS and only wired on
@@ -53,6 +53,7 @@ export function ShortcutsHelpDialog() {
   const typeChecking = usePrefs(s => s.codeIntelDiagnostics);
   const doubleShiftMode = usePrefs(s => s.doubleShiftMode);
   const ctrlTabMode = usePrefs(s => s.ctrlTabMode);
+  const recentTabsGesture = usePrefs(s => s.recentTabsGesture);
   const [query, setQuery] = useState("");
 
   // Reset the filter each time the sheet opens so it never reopens
@@ -61,10 +62,11 @@ export function ShortcutsHelpDialog() {
 
   // Group → matching rows, filtered by the search query (label + hint).
   //
-  // Two sources: the rebindable defs, and the handful of gestures that cannot
-  // be expressed as a chord (double-Shift). Both are things a reader is here
-  // to FIND, so the search has to reach both; only the rebindable half has a
-  // binding to print, so each row carries its own glyphs.
+  // Two sources: the chord defs (search everywhere among them, with its
+  // double-Shift beside its optional chord), and the gesture rows that are
+  // not a chord (recently used tabs, hold-and-tap). Both are things a reader
+  // is here to FIND, so the search has to reach both, and each row carries
+  // the keys the user has now, not the factory ones.
   //
   // The copy comes from lib/shortcutCopy.ts, in whatever language is active,
   // so `t` is a dep: a language switch rebuilds every row's name and re-runs
@@ -79,40 +81,48 @@ export function ShortcutsHelpDialog() {
         ...SHORTCUT_DEFS
           .filter(d => d.group === group && !HIDDEN_ON_MAC.has(d.id)
             && matches(shortcutLabel(d.id, t), shortcutHint(d.id, t)))
-          .map(d => ({
-            id: d.id,
-            label: shortcutLabel(d.id, t),
-            glyphs: bindingGlyphs(shortcuts[d.id]),
-            fixed: null,
-          })),
+          .flatMap((d): Row[] => {
+            const b = shortcuts[d.id];
+            // A row with a gesture beside its chord (search everywhere): the
+            // chord if one is recorded, and the gesture's mode by name if it
+            // is on. Dropped only when BOTH are off, because a sheet printing
+            // something inert is an instruction to press nothing.
+            if (d.gesture === "double-shift") {
+              const on = doubleShiftMode !== "off";
+              if (!b && !on) return [];
+              return [{
+                id: d.id,
+                label: shortcutLabel(d.id, t),
+                glyphs: b ? bindingGlyphs(b) : ["⇧", "⇧"],
+                // The chosen mode's own label, the same string the Shortcuts
+                // page offers: printing "Double tap, left" to somebody who
+                // chose either Shift describes a restriction they turned off.
+                doubleShiftLabel: on ? doubleShiftModeLabel(doubleShiftMode, t) : null,
+              }];
+            }
+            // Unbound, with no other way in: nothing to press.
+            if (!b) return [];
+            return [{ id: d.id, label: shortcutLabel(d.id, t), glyphs: bindingGlyphs(b), doubleShiftLabel: null }];
+          }),
         // A gesture switched off in Settings is not a shortcut this window
         // has: printing it would be an instruction that does nothing. It is
         // dropped rather than greyed, because this sheet is the answer to
         // "what can I press", and the Shortcuts page is where its state and
-        // the way back on both live.
-        ...FIXED_SHORTCUTS
-          .filter(f => f.group === group && matches(fixedShortcutLabel(f.id, t), fixedShortcutHint(f.id, t)))
-          .filter(f => (f.control === "double-shift" ? doubleShiftMode !== "off" : true))
-          .filter(f => (f.control === "ctrl-tab" ? ctrlTabMode !== "off" : true))
-          // The row says WHICH double tap, because the answer is a setting:
-          // printing "Double tap, left" to somebody who chose either Shift
-          // describes a restriction they turned off.
-          .map(f => ({
-            id: f.id,
-            label: fixedShortcutLabel(f.id, t),
-            glyphs: f.glyphs,
-            // The chosen mode's own label, which is the same string the
-            // Shortcuts page offers: this sheet cannot be rebound from, so it
-            // prints what the gesture currently IS.
-            fixed: f.control === "double-shift" ? doubleShiftModeLabel(doubleShiftMode, t)
-              : f.control === "ctrl-tab" ? ctrlTabModeLabel(ctrlTabMode, t)
-              : fixedShortcutReason(f.id, t),
+        // the way back on both live. Its keys are the recorded ones.
+        ...GESTURE_SHORTCUTS
+          .filter(g => g.group === group && ctrlTabMode !== "off"
+            && matches(gestureShortcutLabel(g.id, t), gestureShortcutHint(g.id, recentTabsGesture, t)))
+          .map(g => ({
+            id: g.id,
+            label: gestureShortcutLabel(g.id, t),
+            glyphs: holdGestureGlyphs(recentTabsGesture),
+            doubleShiftLabel: null,
           })),
       ];
       if (rows.length) out.push({ group, rows });
     }
     return out;
-  }, [query, shortcuts, doubleShiftMode, ctrlTabMode, t]);
+  }, [query, shortcuts, doubleShiftMode, ctrlTabMode, recentTabsGesture, t]);
 
   function edit() {
     close();
@@ -190,10 +200,10 @@ export function ShortcutsHelpDialog() {
               >
                 <span className="min-w-0 truncate text-[13.5px] text-[var(--color-fg)]">{row.label}</span>
                 <div className="flex shrink-0 items-center gap-1">
-                  {/* Why it has no recorder, said in one word rather than by
-                      leaving the reader to wonder why this row is different. */}
-                  {row.fixed && (
-                    <span className="text-[11px] text-[var(--color-fg-faint)]">{row.fixed}</span>
+                  {/* Search everywhere's second trigger, by the mode's own
+                      label, beside the chord (or ⇧⇧ while it has none). */}
+                  {row.doubleShiftLabel && (
+                    <span className="text-[11px] text-[var(--color-fg-faint)]">{row.doubleShiftLabel}</span>
                   )}
                   {row.glyphs.map((g, i) => <KeyCap key={i} glyph={g} />)}
                 </div>
