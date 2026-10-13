@@ -73,13 +73,18 @@ export function editedSchedule(
   return next;
 }
 
-/** A weekday only means something on a weekly cadence. */
+/** A weekday only means something on a weekly cadence, a date only on a
+ *  one-off. */
 function normalizeCadence(c: ScheduleCadence): ScheduleCadence {
-  return c.kind === "weekly" ? { kind: c.kind, time: c.time, weekday: c.weekday } : { kind: c.kind, time: c.time };
+  if (c.kind === "weekly") return { kind: c.kind, time: c.time, weekday: c.weekday };
+  if (c.kind === "once") return { kind: c.kind, time: c.time, date: c.date };
+  return { kind: c.kind, time: c.time };
 }
 
 function sameCadence(a: ScheduleCadence, b: ScheduleCadence): boolean {
-  return a.kind === b.kind && a.time === b.time && (a.kind !== "weekly" || a.weekday === b.weekday);
+  return a.kind === b.kind && a.time === b.time
+    && (a.kind !== "weekly" || a.weekday === b.weekday)
+    && (a.kind !== "once" || a.date === b.date);
 }
 
 /** The sandbox the dialog starts on for a NEW parent: the New Task chain

@@ -36076,7 +36076,7 @@ mod schedule_record_tests {
             name: "nightly".into(),
             slug: slug.into(),
             prompt: Some("check the dashboards".into()),
-            cadence: ScheduleCadence { kind: CadenceKind::Daily, time: "09:00".into(), weekday: None },
+            cadence: ScheduleCadence { kind: CadenceKind::Daily, time: "09:00".into(), weekday: None, date: None },
             keep_runs: 7,
             report_days: Some(30),
             ..Default::default()

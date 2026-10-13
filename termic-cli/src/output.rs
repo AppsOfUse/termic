@@ -1270,6 +1270,7 @@ pub fn cadence_text(c: &termic_proto::ScheduleCadence) -> String {
     match c.kind.as_str() {
         "daily" => format!("daily at {}", c.time),
         "weekdays" => format!("weekdays at {}", c.time),
+        "once" => format!("once on {} at {}", c.date.as_deref().unwrap_or("?"), c.time),
         "weekly" => {
             let day = match c.weekday.unwrap_or(1) {
                 0 => "Sun", 1 => "Mon", 2 => "Tue", 3 => "Wed", 4 => "Thu", 5 => "Fri", 6 => "Sat",

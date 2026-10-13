@@ -8,7 +8,7 @@ process.env.TZ = "America/New_York";
 import { describe, it, expect } from "vitest";
 import {
   GRACE_MS, decidePass, initialLastSlot, latestSlotAtOrBefore, nextSlotAfter, parseTime,
-  slotOnDay, slotsBetween,
+  localDate, onceSlot, parseDate, slotOnDay, slotsBetween,
 } from "@/lib/schedules/slots";
 import type { ScheduleCadence, TaskSchedule } from "@/lib/types";
 
@@ -159,5 +159,76 @@ describe("decidePass", () => {
     expect(decidePass(sched({ last_slot: last }), created + MIN, false)).toEqual({ kind: "none" });
     expect(decidePass(sched({ last_slot: last }), at(2026, 10, 3, 9, 1), false))
       .toMatchObject({ kind: "fire", slot: at(2026, 10, 3, 9) });
+  });
+});
+
+describe("a once cadence", () => {
+  const once = (date = "2026-10-27", time = "09:00"): ScheduleCadence => ({ kind: "once", time, date });
+  const slot = at(2026, 10, 27, 9);
+
+  it("reads a real calendar date and refuses one that would roll over", () => {
+    expect(parseDate("2026-10-27")).toEqual({ y: 2026, mo: 9, d: 27 });
+    for (const bad of ["2026-02-30", "2026-13-01", "27-10-2026", "2026-10-7", "", undefined]) {
+      expect(parseDate(bad as string | undefined)).toBeNull();
+    }
+    expect(localDate(slot)).toBe("2026-10-27");
+  });
+
+  it("has exactly one slot, on its own day", () => {
+    expect(onceSlot(once())).toBe(slot);
+    expect(onceSlot({ kind: "once", time: "09:00" })).toBeNull();
+    expect(slotOnDay(once(), 2026, 9, 27)).toBe(slot);
+    expect(slotOnDay(once(), 2026, 9, 28)).toBeNull();
+    expect(slotOnDay(once(), 2027, 9, 27)).toBeNull();
+  });
+
+  it("is found however long ago it passed, which a week-long walk would miss", () => {
+    expect(latestSlotAtOrBefore(once(), slot - 1)).toBeNull();
+    expect(latestSlotAtOrBefore(once(), slot)).toBe(slot);
+    expect(latestSlotAtOrBefore(once(), at(2027, 6, 1))).toBe(slot);
+  });
+
+  it("has a next slot only while it is still ahead", () => {
+    expect(nextSlotAfter(once(), at(2026, 10, 1))).toBe(slot);
+    expect(nextSlotAfter(once(), slot)).toBeNull();
+    expect(slotsBetween(once(), at(2026, 10, 1), at(2027, 1, 1))).toBe(1);
+    expect(slotsBetween(once(), slot, at(2027, 1, 1))).toBe(0);
+  });
+
+  it("fires once on time, and never again", () => {
+    const s = sched({ cadence: once(), last_slot: initialLastSlot(once(), at(2026, 10, 20)) });
+    expect(s.last_slot).toBeNull();
+    expect(decidePass(s, slot - MIN, false)).toEqual({ kind: "none" });
+    expect(decidePass(s, slot + MIN, false)).toEqual({ kind: "fire", slot, catchUp: false, missedBefore: 0 });
+    const done = { ...s, last_slot: slot };
+    expect(decidePass(done, slot + 2 * MIN, false)).toEqual({ kind: "none" });
+    expect(decidePass(done, at(2027, 3, 1), false)).toEqual({ kind: "none" });
+  });
+
+  it("a one-off the app slept through is reported missed, or caught up when opted in", () => {
+    const s = sched({ cadence: once(), last_slot: null });
+    const later = at(2026, 10, 29, 12);
+    expect(decidePass(s, later, false)).toEqual({ kind: "missed", slot, count: 1 });
+    expect(decidePass({ ...s, catch_up: true }, later, false))
+      .toEqual({ kind: "fire", slot, catchUp: true, missedBefore: 0 });
+    expect(decidePass({ ...s, catch_up: true }, later, true)).toEqual({ kind: "missed", slot, count: 1 });
+  });
+
+  it("a one-off created for a date that already passed is stamped as done, not fired", () => {
+    const past = once("2026-10-01");
+    const created = at(2026, 10, 5, 10);
+    const last = initialLastSlot(past, created);
+    expect(last).toBe(at(2026, 10, 1, 9));
+    expect(decidePass(sched({ cadence: past, last_slot: last }), created + HOUR, false)).toEqual({ kind: "none" });
+  });
+
+  it("the slot after a spring-forward gap rolls forward like any other", () => {
+    // 2027-03-14 02:30 does not exist in New York.
+    const gap = once("2027-03-14", "02:30");
+    expect(new Date(onceSlot(gap)!).getHours()).toBe(3);
+  });
+
+  it("does not run in a disabled schedule", () => {
+    expect(decidePass(sched({ cadence: once(), enabled: false }), slot + MIN, false)).toEqual({ kind: "none" });
   });
 });

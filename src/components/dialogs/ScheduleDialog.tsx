@@ -37,6 +37,7 @@ import {
   DEFAULT_KEEP_RUNS, DEFAULT_REPORT_DAYS, MAX_KEEP_RUNS, REPORT_DAY_CHOICES, scheduleSandboxSeed, type ScheduleInput,
 } from "@/lib/schedules/record";
 import { weekdayName } from "@/lib/schedules/display";
+import { localDate, onceSlot } from "@/lib/schedules/slots";
 import { reportFolder, scheduleSlug } from "@/lib/schedules/runSpec";
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -68,6 +69,7 @@ export function ScheduleDialog() {
   const [kind, setKind] = useState<CadenceKind>("daily");
   const [time, setTime] = useState("09:00");
   const [weekday, setWeekday] = useState(1);
+  const [date, setDate] = useState(() => localDate(Date.now() + 86_400_000));
   const [selection, setSelection] = useState<SandboxSelection | null>("off");
   const [dockerSeeded, setDockerSeeded] = useState(false);
   const [yolo, setYolo] = useState(false);
@@ -108,6 +110,7 @@ export function ScheduleDialog() {
     setKind(s?.cadence.kind ?? "daily");
     setTime(s?.cadence.time ?? "09:00");
     setWeekday(s?.cadence.weekday ?? 1);
+    setDate(s?.cadence.date ?? localDate(Date.now() + 86_400_000));
     setCatchUp(s?.catch_up ?? false);
     setKeepRuns(s?.keep_runs ?? DEFAULT_KEEP_RUNS);
     setReportDays(s ? s.report_days : DEFAULT_REPORT_DAYS);
@@ -157,13 +160,21 @@ export function ScheduleDialog() {
   async function submit() {
     if (!name.trim()) return setErr(t("schedule.errName"));
     if (!prompt.trim() && !promptId) return setErr(t("schedule.errPrompt"));
+    if (kind === "once") {
+      // A one-off in the past would never run: creating one stamps it as
+      // already passed. An unchanged past date on an edit is allowed through.
+      const at = onceSlot({ kind, time, date });
+      const unchanged = editing && parent!.schedule!.cadence.kind === "once"
+        && parent!.schedule!.cadence.date === date && parent!.schedule!.cadence.time === time;
+      if (at == null || (at <= Date.now() && !unchanged)) return setErr(t("schedule.errDate"));
+    }
     if (newParent && !cli) return setErr(t("schedule.errAgent"));
     if (newParent && !selection) return setErr(t("schedule.errSandbox"));
     const input: ScheduleInput = {
       name: name.trim(),
       prompt,
       prompt_id: promptId || undefined,
-      cadence: kind === "weekly" ? { kind, time, weekday } : { kind, time },
+      cadence: kind === "weekly" ? { kind, time, weekday } : kind === "once" ? { kind, time, date } : { kind, time },
       catch_up: catchUp,
       keep_runs: Math.min(MAX_KEEP_RUNS, Math.max(1, Math.round(keepRuns) || 1)),
       report_days: reportDays,
@@ -325,6 +336,7 @@ export function ScheduleDialog() {
                 { id: "daily", label: t("schedule.daily") },
                 { id: "weekdays", label: t("schedule.weekdays") },
                 { id: "weekly", label: t("schedule.weekly") },
+                { id: "once", label: t("schedule.once") },
               ]}
               testId="schedule-cadence"
             />
@@ -338,6 +350,17 @@ export function ScheduleDialog() {
               >
                 {WEEK_ORDER.map(d => <option key={d} value={d}>{weekdayName(d, lang)}</option>)}
               </select>
+            )}
+            {kind === "once" && (
+              <input
+                type="date"
+                data-testid="schedule-date"
+                aria-label={t("schedule.date")}
+                value={date}
+                min={localDate(Date.now())}
+                onChange={e => setDate(e.target.value || localDate(Date.now() + 86_400_000))}
+                className={selectClass}
+              />
             )}
             <input
               type="time"

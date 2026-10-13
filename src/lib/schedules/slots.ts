@@ -33,12 +33,45 @@ export function parseTime(t: string): { h: number; m: number } | null {
   return h < 24 && min < 60 ? { h, m: min } : null;
 }
 
+/** A `YYYY-MM-DD` as y / zero-based month / day, or null when it is not a
+ *  real calendar date (`2026-02-30` is refused, not rolled into March). */
+export function parseDate(d: string | undefined): { y: number; mo: number; d: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d ?? "");
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const back = new Date(y, mo, day);
+  return back.getFullYear() === y && back.getMonth() === mo && back.getDate() === day ? { y, mo, d: day } : null;
+}
+
+/** The one slot of a `once` cadence, or null when its date or time is broken. */
+export function onceSlot(c: ScheduleCadence): number | null {
+  const date = parseDate(c.date);
+  const t = parseTime(c.time);
+  if (!date || !t) return null;
+  return new Date(date.y, date.mo, date.d, t.h, t.m, 0, 0).getTime();
+}
+
+/** The local `YYYY-MM-DD` of `ms`, the value a date input holds. */
+export function localDate(ms: number): string {
+  const d = new Date(ms);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
 /** The slot on one local calendar day, or null when the cadence skips that
  *  day. The weekday test reads the CALENDAR day, not the rolled-forward
  *  time, so a DST gap can never move a slot onto another day's rule. */
 export function slotOnDay(c: ScheduleCadence, y: number, mo: number, d: number): number | null {
   const t = parseTime(c.time);
   if (!t) return null;
+  if (c.kind === "once") {
+    const date = parseDate(c.date);
+    return date && date.y === y && date.mo === mo && date.d === d
+      ? new Date(y, mo, d, t.h, t.m, 0, 0).getTime()
+      : null;
+  }
   const dow = new Date(y, mo, d).getDay();
   if (c.kind === "weekdays" && (dow === 0 || dow === 6)) return null;
   if (c.kind === "weekly" && dow !== c.weekday) return null;
@@ -54,6 +87,12 @@ function dayAt(ms: number, offset: number): [number, number, number] {
 
 /** The latest slot at or before `now`, or null when the cadence is broken. */
 export function latestSlotAtOrBefore(c: ScheduleCadence, now: number): number | null {
+  // A one-off has no weekly rhythm to walk back through: its date may be
+  // months behind, and a missed one-off must still be found to be reported.
+  if (c.kind === "once") {
+    const s = onceSlot(c);
+    return s != null && s <= now ? s : null;
+  }
   for (let i = 0; i <= 8; i++) {
     const s = slotOnDay(c, ...dayAt(now, -i));
     if (s != null && s <= now) return s;
@@ -63,6 +102,10 @@ export function latestSlotAtOrBefore(c: ScheduleCadence, now: number): number | 
 
 /** The first slot strictly after `after`. */
 export function nextSlotAfter(c: ScheduleCadence, after: number): number | null {
+  if (c.kind === "once") {
+    const s = onceSlot(c);
+    return s != null && s > after ? s : null;
+  }
   for (let i = 0; i <= 8; i++) {
     const s = slotOnDay(c, ...dayAt(after, i));
     if (s != null && s > after) return s;
@@ -73,6 +116,10 @@ export function nextSlotAfter(c: ScheduleCadence, after: number): number | null 
 /** How many slots fall in `(after, upTo]`, capped by the walk. */
 export function slotsBetween(c: ScheduleCadence, after: number, upTo: number): number {
   if (upTo <= after) return 0;
+  if (c.kind === "once") {
+    const s = onceSlot(c);
+    return s != null && s > after && s <= upTo ? 1 : 0;
+  }
   let n = 0;
   for (let i = 0; i <= MAX_WALK_DAYS; i++) {
     const day = dayAt(after, i);

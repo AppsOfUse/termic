@@ -2372,6 +2372,14 @@ it archives the parent and its runs with skip_scripts and deletes the
 reports). Renaming a schedule renames its parent too while the
 parent still carries the schedule's old name, so the sidebar group (which
 shows its lead's name) agrees; a parent with a name of its own keeps it.
+**Once.** The dialog's cadence has a fourth choice, Once, which adds a date
+input (default tomorrow, `min` today) next to the time. It exists because a
+date the schedule runs on is not a weekday: "27 October" has no preset. Create
+refuses a moment that has already passed ("Pick a date and time that are
+still ahead"), since `initialLastSlot` would stamp it as done and it would
+never run; an edit that leaves a past one-off untouched is let through. After
+it acts the row reads "Done", not "Paused": nothing is switched off, there is
+simply no next slot.
 `ScheduleDialog.tsx` creates one with a new parent
 (project, name, agent and model, prompt or library entry, cadence, the
 Seatbelt sandbox and YOLO seeded the way New Task seeds them, catch-up,

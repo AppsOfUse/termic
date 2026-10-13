@@ -23,6 +23,8 @@ describe("scheduled tasks", () => {
   let parent = "";
   let slug = "";
   const runs: string[] = [];
+  let onceParent = "";
+  let onceRun = "";
   const NAME = "e2e nightly";
 
   const block = (gid: string) => `[data-task-group-id="${gid}"]`;
@@ -79,7 +81,13 @@ describe("scheduled tasks", () => {
         parent,
       ).catch(() => {});
     }
-    for (const id of [...runs, parent].filter(Boolean)) {
+    if (onceParent) {
+      await browser.execute(
+        async (id) => { await window.__termic!.scheduleRunner.deleteSchedule(id, true); },
+        onceParent,
+      ).catch(() => {});
+    }
+    for (const id of [...runs, onceParent, parent].filter(Boolean)) {
       const t = await diskTask(id).catch(() => null);
       if (t && !t.archived) await archiveTask(id);
     }
@@ -240,6 +248,59 @@ describe("scheduled tasks", () => {
     runs.push(e.run_task_id);
     await waitOutcome(e.run_task_id, "fired");
   });
+
+  it("a one-off fires once at its date and never again", async () => {
+    // Tomorrow 03:00, so the real minute ticker never fires it mid-spec.
+    const once = await browser.execute(async (pid) => {
+      const d = new Date();
+      const p2 = (n: number) => String(n).padStart(2, "0");
+      const t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+      const date = `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())}`;
+      const id = await window.__termic!.scheduleRunner.createSchedule({
+        projectId: pid,
+        agent: { cli: "fakeagent", agentArgs: [], yolo: false, sandbox: { enabled: false, rwPaths: [], allowedHosts: [] } },
+        input: {
+          name: "e2e one-off", prompt: "#report", cadence: { kind: "once", time: "03:00", date },
+          catch_up: false, keep_runs: 7, report_days: null,
+        },
+      });
+      return { id: id as string, slot: new Date(t.getFullYear(), t.getMonth(), t.getDate(), 3, 0).getTime() };
+    }, projectId) as { id: string; slot: number };
+    onceParent = once.id;
+    const onceSchedule = () => browser.execute(
+      (id) => window.__termic!.useApp.getState().tasks.find((t: any) => t.id === id)?.schedule ?? null,
+      onceParent,
+    ) as Promise<any>;
+    const tickAt = (now: number) => browser.execute(
+      async (n) => window.__termic!.scheduleRunner.scheduleTickNow(n), now,
+    ) as unknown as Promise<number>;
+
+    // Created ahead of its date: armed, nothing acted on.
+    const created = await onceSchedule();
+    expect(created.cadence.kind).toBe("once");
+    expect(created.last_slot).toBeNull();
+    expect(created.history).toEqual([]);
+
+    // Before the slot nothing is due. The tick walks every schedule, the
+    // weekly one above included, and that one is days from its own slot.
+    expect(await tickAt(once.slot - 60_000)).toBe(0);
+    // Inside the grace window: it fires.
+    expect(await tickAt(once.slot + 60_000)).toBe(1);
+    const fired = await onceSchedule();
+    expect(fired.history).toHaveLength(1);
+    expect(fired.history[0].slot).toBe(once.slot);
+    expect(fired.last_slot).toBe(once.slot);
+    onceRun = fired.history[0].run_task_id;
+    runs.push(onceRun);
+    await browser.waitUntil(
+      async () => ((await onceSchedule())?.history ?? [])[0]?.outcome === "fired",
+      { timeout: 30_000, interval: 250, timeoutMsg: "the one-off's run never reached fired" },
+    );
+    // Neither a minute later nor a week later does it run again.
+    expect(await tickAt(once.slot + 120_000)).toBe(0);
+    expect(await tickAt(once.slot + 7 * 86_400_000)).toBe(0);
+    expect((await onceSchedule()).history).toHaveLength(1);
+  });
 });
 
 // The same feature through its own surfaces: the Scheduled view, the schedule
@@ -399,6 +460,38 @@ describe("the Scheduled view and dialog", () => {
     // The parent was created, not started.
     expect(await browser.execute((id) => !!document.querySelector(`[data-task-id="${id}"]`), parent)).toBe(false);
     expect((await diskTask(parent)).cli).toBe("fakeagent");
+  });
+
+  it("Once shows a date, and the dialog refuses a moment that has passed", async () => {
+    await clickWhenVisible('[data-testid="schedule-new"]');
+    await waitVisible(inDialog('[data-testid="schedule-name"]'));
+    const dateSel = inDialog('[data-testid="schedule-date"]');
+    expect(await browser.execute((sel) => !!document.querySelector(sel), dateSel)).toBe(false);
+    await clickWhenVisible(inDialog('[data-testid="schedule-cadence"] [data-value="once"]'));
+    await waitVisible(dateSel);
+    // The date defaults to tomorrow and cannot be picked from the past.
+    const tomorrow = await browser.execute(() => {
+      const d = new Date(Date.now() + 86_400_000);
+      const p2 = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+    });
+    expect(await browser.execute((sel) => (document.querySelector(sel) as HTMLInputElement).value, dateSel)).toBe(tomorrow);
+    expect(await attr(dateSel, "min")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await browser.execute((sel) => document.querySelector(sel)!.scrollIntoView({ block: "center" }), dateSel);
+    await snap("schedules-ui-02c-dialog-once.png");
+
+    await setInputValue(inDialog('[data-testid="schedule-name"]'), "e2e past one-off");
+    await setInputValue(inDialog('[data-testid="schedule-prompt"]'), "#report");
+    await setInputValue(dateSel, "2020-01-01");
+    await clickWhenVisible('[data-testid="schedule-submit"]');
+    await waitVisible('[data-testid="schedule-error"]');
+    expect(await text('[data-testid="schedule-error"]')).toBe("Pick a date and time that are still ahead.");
+    await snap("schedules-ui-02d-dialog-once-past.png");
+    // Refused: nothing was created.
+    expect(await browser.execute(() =>
+      window.__termic!.useApp.getState().tasks.some((t: any) => t.schedule?.name === "e2e past one-off"))).toBe(false);
+    await browser.keys("Escape");
+    await waitGone('[data-testid="schedule-dialog"]');
   });
 
   it("Run now from the view runs it, and the last run links its report", async () => {

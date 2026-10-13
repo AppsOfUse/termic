@@ -325,6 +325,8 @@ export default {
     cadenceDaily: "每天 {{time}}",
     cadenceWeekdays: "工作日 {{time}}",
     cadenceWeekly: "每{{day}} {{time}}",
+    cadenceOnce: "{{date}} {{time}} 运行一次",
+    done: "已完成",
     next: "下次 {{when}}",
     paused: "已暂停",
     enabledTip: "按计划执行",

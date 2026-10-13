@@ -14,6 +14,14 @@ describe("cadenceText", () => {
     expect(cadenceText({ kind: "weekly", time: "17:00", weekday: 1 }, t, "en")).toBe("Every Monday at 17:00");
     expect(weekdayName(0, "en")).toBe("Sunday");
   });
+
+  it("reads a one-off as its date and time, and has no next run once it has passed", () => {
+    const c = { kind: "once" as const, time: "09:00", date: "2026-10-27" };
+    expect(cadenceText(c, t, "en")).toBe("Once on Oct 27, 2026 at 09:00");
+    const s = { enabled: true, cadence: c, last_slot: null };
+    expect(nextRun(s, NOW)).toBe(at(27, 9));
+    expect(nextRun({ ...s, last_slot: at(27, 9) }, at(28, 9))).toBeNull();
+  });
 });
 
 describe("slotText and nextRun", () => {

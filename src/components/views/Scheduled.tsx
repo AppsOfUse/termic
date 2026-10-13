@@ -110,7 +110,9 @@ function ScheduleRow({ parent, lang }: { parent: Task; lang: string }) {
             <span data-testid={`schedule-cadence-${parent.id}`}>{cadenceText(s.cadence, t, lang)}</span>
             <span className="text-[var(--color-fg-faint)]">·</span>
             <span data-testid={`schedule-next-${parent.id}`}>
-              {next == null ? t("scheduled.paused") : t("scheduled.next", { when: slotText(next, now, lang) })}
+              {next != null
+                ? t("scheduled.next", { when: slotText(next, now, lang) })
+                : s.enabled && s.cadence.kind === "once" ? t("scheduled.done") : t("scheduled.paused")}
             </span>
           </div>
           <div className="mt-0.5 flex min-w-0 items-baseline gap-2 text-[12px]">

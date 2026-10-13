@@ -1610,9 +1610,10 @@ const TOOLS: &[ToolDef] = &[
             P_SCHEDULE_TASK,
             P_PROJECT,
             ParamDef { name: "name", json_type: "string", required: false, description: "Schedule display name (defaults to the task name).", cli_flag: Some("--name") },
-            ParamDef { name: "cadence", json_type: "string", required: false, description: "\"daily\", \"weekdays\", or \"weekly\".", cli_flag: Some("--cadence") },
+            ParamDef { name: "cadence", json_type: "string", required: false, description: "\"daily\", \"weekdays\", \"weekly\", or \"once\" (with date).", cli_flag: Some("--cadence") },
             ParamDef { name: "time", json_type: "string", required: false, description: "Local wall-clock time in \"HH:MM\" 24-hour format.", cli_flag: Some("--time") },
             ParamDef { name: "weekday", json_type: "integer", required: false, description: "Day of week for weekly cadence: 0 (Sunday) to 6 (Saturday).", cli_flag: Some("--weekday") },
+            ParamDef { name: "date", json_type: "string", required: false, description: "YYYY-MM-DD, for once.", cli_flag: Some("--date") },
             ParamDef { name: "prompt", json_type: "string", required: false, description: "Prompt to inject on each run.", cli_flag: Some("--prompt") },
             P_LIBRARY,
             ParamDef { name: "keepRuns", json_type: "integer", required: false, description: "Number of past run tasks to retain (1 to 20, default 7).", cli_flag: Some("--keep-runs") },
@@ -1634,6 +1635,7 @@ const TOOLS: &[ToolDef] = &[
                         kind,
                         time,
                         weekday,
+                        date: arg_str(a, "date")?,
                     })
                 }
                 (None, None) => None,
@@ -3580,7 +3582,10 @@ mod tests {
         // 21907: schedule_delete's `archiveTasks`, parity with `--archive-tasks`:
         // archive related tasks and delete reports.
         // 22350: scratchpad scope parameter for global and project scratchpads.
-        const RECORDED: usize = 22350;
+        // 22428: schedule_set's `date` and the `once` cadence, parity with
+        // `termic schedule set --cadence once --date`: one run on a calendar
+        // day, which no weekday preset can name. One short clause each.
+        const RECORDED: usize = 22428;
         assert!(
             size <= RECORDED,
             "serialized tools/list grew to {size} bytes (recorded {RECORDED}); grow it consciously"

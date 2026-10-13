@@ -1336,6 +1336,9 @@ pub struct ScheduleCadence {
     pub time: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weekday: Option<u8>,
+    /// Once only: the local date, `YYYY-MM-DD`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
 }
 
 /// One schedule's summary row.
@@ -2293,7 +2296,7 @@ mod tests {
                 task: Some("parent-1".into()),
                 project: None,
                 name: Some("nightly run".into()),
-                cadence: Some(ScheduleCadence { kind: "daily".into(), time: "09:00".into(), weekday: None }),
+                cadence: Some(ScheduleCadence { kind: "daily".into(), time: "09:00".into(), weekday: None, date: None }),
                 prompt: Some("check status".into()),
                 prompt_ref: None,
                 keep_runs: Some(7),
@@ -2604,7 +2607,7 @@ mod tests {
                     name: "nightly run".into(),
                     slug: "nightly-run".into(),
                     enabled: true,
-                    cadence: ScheduleCadence { kind: "daily".into(), time: "09:00".into(), weekday: None },
+                    cadence: ScheduleCadence { kind: "daily".into(), time: "09:00".into(), weekday: None, date: None },
                     prompt: Some("check status".into()),
                     prompt_id: None,
                     next_run: Some(1728400000),

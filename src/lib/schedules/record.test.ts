@@ -82,3 +82,29 @@ describe("scheduleSandboxSeed", () => {
     expect(scheduleSandboxSeed({}, "docker", false)).toBe("docker");
   });
 });
+
+describe("a once cadence in a record", () => {
+  const once = { kind: "once" as const, time: "09:00", date: "2026-10-27", weekday: 3 };
+
+  it("keeps its date, drops a weekday, and has not fired yet", () => {
+    const s = newSchedule({ ...input, cadence: once }, at(2, 10), []);
+    expect(s.cadence).toEqual({ kind: "once", time: "09:00", date: "2026-10-27" });
+    expect(s.last_slot).toBeNull();
+  });
+
+  it("moving the date re-arms it, and an unchanged date does not touch last_slot", () => {
+    const prev = { ...newSchedule({ ...input, cadence: once }, at(2, 10), []), last_slot: at(27, 9) };
+    const same = editedSchedule(prev, { cadence: { ...once } }, at(28, 10));
+    expect(same.last_slot).toBe(at(27, 9));
+    const moved = editedSchedule(prev, { cadence: { ...once, date: "2026-11-03" } }, at(28, 10));
+    expect(moved.cadence.date).toBe("2026-11-03");
+    expect(moved.last_slot).toBeNull();
+  });
+
+  it("switching a recurring schedule to a one-off restarts from now", () => {
+    const prev = newSchedule(input, at(2, 10), []);
+    const next = editedSchedule(prev, { cadence: once }, at(3, 10));
+    expect(next.cadence.kind).toBe("once");
+    expect(next.last_slot).toBeNull();
+  });
+});

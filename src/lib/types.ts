@@ -485,9 +485,10 @@ export interface ScheduledMessage {
   created: number;
 }
 
-/** A recurring schedule's cadence (GH #300). Presets, not cron: daily,
- *  weekdays (Mon-Fri) or weekly, each at one local wall-clock time. */
-export type CadenceKind = "daily" | "weekdays" | "weekly";
+/** A schedule's cadence (GH #300). Presets, not cron: daily, weekdays
+ *  (Mon-Fri) or weekly, each at one local wall-clock time, or `once` at one
+ *  local date and time. */
+export type CadenceKind = "daily" | "weekdays" | "weekly" | "once";
 
 export interface ScheduleCadence {
   kind: CadenceKind;
@@ -495,6 +496,8 @@ export interface ScheduleCadence {
   time: string;
   /** Weekly only: 0 = Sunday .. 6 = Saturday (`Date.getDay()`). */
   weekday?: number;
+  /** Once only: the local date, `YYYY-MM-DD`. */
+  date?: string;
 }
 
 /** What became of one slot. `running` is in flight; `no_report` settled

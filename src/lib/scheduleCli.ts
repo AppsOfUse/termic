@@ -13,6 +13,7 @@ import {
   updateSchedule,
 } from "@/lib/schedules/runner";
 import { nextRun } from "@/lib/schedules/display";
+import { parseDate } from "@/lib/schedules/slots";
 import { lastEntry } from "@/lib/schedules/history";
 import {
   DEFAULT_KEEP_RUNS,
@@ -26,6 +27,7 @@ export interface ScheduleCadenceWire {
   kind: string;
   time: string;
   weekday?: number;
+  date?: string;
 }
 
 export interface ScheduleSummaryWire {
@@ -97,6 +99,7 @@ function toSummaryWire(
       ...(s.cadence.kind === "weekly" && s.cadence.weekday !== undefined
         ? { weekday: s.cadence.weekday }
         : {}),
+      ...(s.cadence.kind === "once" && s.cadence.date ? { date: s.cadence.date } : {}),
     },
     ...(s.prompt ? { prompt: s.prompt } : {}),
     ...(s.prompt_id ? { prompt_id: s.prompt_id } : {}),
@@ -127,12 +130,16 @@ function toRunWire(r: ScheduleRun): ScheduleRunWire {
 
 function normalizeCadence(wire: ScheduleCadenceWire): ScheduleCadence {
   const kind = wire.kind.toLowerCase();
-  if (kind !== "daily" && kind !== "weekdays" && kind !== "weekly") {
-    throw new Error(`cadence kind must be daily, weekdays, or weekly, got "${wire.kind}"`);
+  if (kind !== "daily" && kind !== "weekdays" && kind !== "weekly" && kind !== "once") {
+    throw new Error(`cadence kind must be daily, weekdays, weekly, or once, got "${wire.kind}"`);
   }
   const time = wire.time.trim();
   if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)) {
     throw new Error(`time must be in HH:MM 24-hour format, got "${time}"`);
+  }
+  if (kind === "once") {
+    if (!parseDate(wire.date)) throw new Error(`a once schedule needs a date as YYYY-MM-DD, got "${wire.date ?? ""}"`);
+    return { kind, time, date: wire.date };
   }
   if (kind === "weekly") {
     const weekday = wire.weekday ?? 1;

@@ -16,6 +16,18 @@ use std::io::Read as _;
 use termic_proto as proto;
 use termic_proto::exit_code;
 
+/// `--date` belongs to a once cadence and a once cadence needs it. Shape only:
+/// whether the date is a real, still-future day is the app's call, which has
+/// the clock and the calendar.
+fn cadence_date_problem(cadence: Option<&str>, date: Option<&str>) -> Option<&'static str> {
+    match (cadence, date) {
+        (Some("once"), None) => Some("--cadence once requires --date YYYY-MM-DD"),
+        (Some(c), Some(_)) if c != "once" => Some("--date requires --cadence once"),
+        (None, Some(_)) => Some("--date requires --cadence once and --time"),
+        _ => None,
+    }
+}
+
 /// `termic hook-emit <target>`: copy stdin (an agent hook's OSC report) to
 /// `target`, the terminal the hook reports to.
 ///
@@ -1528,7 +1540,8 @@ Exit codes: 0 success, 1 unknown or ambiguous task, 4 app not running, \
     /// Create or update a recurring schedule on a parent task.
     #[command(
         after_help = "Configures recurring runs for a task. The cadence is either daily, weekdays, or weekly \
-(with --time HH:MM and optional --weekday 0-6 for weekly). \
+(with --time HH:MM and optional --weekday 0-6 for weekly), or once \
+(--cadence once --date YYYY-MM-DD --time HH:MM: a single run, never repeated). \
 -p - reads the prompt from stdin. -P/--library delivers a prompt from the prompt library. \
 Without <TASK>, targets your own task ($TERMIC_TASK_ID), then falls back to the current directory.
 
@@ -1547,8 +1560,8 @@ Exit codes: 0 success, 1 error (invalid cadence, time, or prompt), 4 app not run
         /// Schedule display name (defaults to the task name).
         #[arg(long)]
         name: Option<String>,
-        /// Cadence: \"daily\", \"weekdays\", or \"weekly\".
-        #[arg(long, value_parser = ["daily", "weekdays", "weekly"])]
+        /// Cadence: \"daily\", \"weekdays\", \"weekly\", or \"once\" (with --date).
+        #[arg(long, value_parser = ["daily", "weekdays", "weekly", "once"])]
         cadence: Option<String>,
         /// Local wall-clock time in \"HH:MM\" 24-hour format.
         #[arg(long)]
@@ -1556,6 +1569,9 @@ Exit codes: 0 success, 1 error (invalid cadence, time, or prompt), 4 app not run
         /// Day of week for weekly cadence: 0 (Sunday) to 6 (Saturday).
         #[arg(long, value_parser = clap::value_parser!(u8).range(0..=6))]
         weekday: Option<u8>,
+        /// Local date \"YYYY-MM-DD\" for a once cadence.
+        #[arg(long)]
+        date: Option<String>,
         /// Prompt to inject on each run. `-` reads stdin.
         #[arg(short, long)]
         prompt: Option<String>,
@@ -1726,7 +1742,10 @@ fn pre_connect_guard(cmd: &Cmd) -> Result<(), CliError> {
         }
     }
     // Cadence and time on `schedule set` must be specified together.
-    if let Cmd::Schedule(ScheduleCmd::Set { cadence, time, weekday, .. }) = cmd {
+    if let Cmd::Schedule(ScheduleCmd::Set { cadence, time, weekday, date, .. }) = cmd {
+        if let Some(msg) = cadence_date_problem(cadence.as_deref(), date.as_deref()) {
+            return Err(CliError::new(exit_code::ERROR, msg));
+        }
         match (cadence.as_deref(), time.as_deref()) {
             (Some(_), None) | (None, Some(_)) => {
                 return Err(CliError::new(
@@ -2859,6 +2878,7 @@ fn execute_schedule(
             cadence,
             time,
             weekday,
+            date,
             prompt: _,
             library,
             keep_runs,
@@ -2882,6 +2902,7 @@ fn execute_schedule(
                     kind: k.to_string(),
                     time: t.to_string(),
                     weekday: *weekday,
+                    date: date.clone(),
                 }),
                 (None, None) => {
                     if weekday.is_some() {
@@ -4025,6 +4046,26 @@ mod tests {
         assert!(*yes);
 
         assert!(Cli::try_parse_from(["termic", "schedule"]).is_err());
+    }
+
+    #[test]
+    fn schedule_set_once_needs_its_date_and_only_once_takes_one() {
+        let parse = |extra: &[&str]| {
+            let mut v = vec!["termic", "schedule", "set", "parent-1"];
+            v.extend_from_slice(extra);
+            Cli::try_parse_from(v).unwrap()
+        };
+        let once = parse(&["--cadence", "once", "--date", "2026-10-27", "--time", "09:00"]);
+        let Cmd::Schedule(ScheduleCmd::Set { cadence, date, .. }) = &once.cmd else { panic!("not schedule set") };
+        assert_eq!(cadence.as_deref(), Some("once"));
+        assert_eq!(date.as_deref(), Some("2026-10-27"));
+        assert_eq!(cadence_date_problem(cadence.as_deref(), date.as_deref()), None);
+
+        assert!(cadence_date_problem(Some("once"), None).is_some());
+        assert!(cadence_date_problem(Some("daily"), Some("2026-10-27")).is_some());
+        assert!(cadence_date_problem(None, Some("2026-10-27")).is_some());
+        assert_eq!(cadence_date_problem(Some("weekly"), None), None);
+        assert_eq!(cadence_date_problem(None, None), None);
     }
 
     #[test]

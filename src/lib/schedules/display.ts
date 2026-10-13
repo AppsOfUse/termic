@@ -4,7 +4,7 @@
 
 import type { TFunction } from "i18next";
 import type { ScheduleCadence, ScheduleRun, TaskSchedule } from "@/lib/types";
-import { nextSlotAfter } from "@/lib/schedules/slots";
+import { nextSlotAfter, parseDate } from "@/lib/schedules/slots";
 
 /** The name of a weekday (0 = Sunday) in the UI language. */
 export function weekdayName(day: number, lang: string): string {
@@ -13,6 +13,11 @@ export function weekdayName(day: number, lang: string): string {
 }
 
 export function cadenceText(c: ScheduleCadence, t: TFunction, lang: string): string {
+  if (c.kind === "once") {
+    const date = parseDate(c.date);
+    const shown = date ? new Intl.DateTimeFormat(lang, { year: "numeric", month: "short", day: "numeric" }).format(new Date(date.y, date.mo, date.d)) : (c.date ?? "");
+    return t("scheduled.cadenceOnce", { date: shown, time: c.time });
+  }
   if (c.kind === "weekdays") return t("scheduled.cadenceWeekdays", { time: c.time });
   if (c.kind === "weekly") return t("scheduled.cadenceWeekly", { day: weekdayName(c.weekday ?? 1, lang), time: c.time });
   return t("scheduled.cadenceDaily", { time: c.time });

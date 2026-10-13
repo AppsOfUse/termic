@@ -41,10 +41,12 @@ pub enum CadenceKind {
     Daily,
     Weekdays,
     Weekly,
+    /// One run at `ScheduleCadence::date` and `time`, never again.
+    Once,
 }
 
 /// When a schedule runs. Presets, not cron: daily, weekdays (Mon-Fri) or
-/// weekly, each at one local wall-clock time.
+/// weekly, each at one local wall-clock time, or once at a local date and time.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct ScheduleCadence {
@@ -54,6 +56,9 @@ pub struct ScheduleCadence {
     /// Weekly only: 0 = Sunday .. 6 = Saturday, JavaScript's `getDay()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weekday: Option<u8>,
+    /// Once only: the local date, `YYYY-MM-DD`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -166,6 +171,28 @@ fn time_ok(t: &str) -> bool {
     h < 24 && m < 60
 }
 
+/// Whether `d` is a real calendar date written `YYYY-MM-DD` (`2026-02-30` is
+/// not one). The runner reads it with `Date(y, m, d)`, which would roll such a
+/// date into March, so the boundary refuses it instead.
+fn cadence_date_ok(d: &str) -> bool {
+    let b = d.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    if !d[..4].bytes().chain(d[5..7].bytes()).chain(d[8..].bytes()).all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let (y, m, day): (u32, u32, u32) = (d[..4].parse().unwrap_or(0), d[5..7].parse().unwrap_or(0), d[8..].parse().unwrap_or(0));
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if leap { 29 } else { 28 },
+        _ => return false,
+    };
+    y >= 1970 && (1..=days).contains(&day)
+}
+
 /// Why `s` cannot be stored, or `None`. The frontend validates the same
 /// things for its own messages; this is the boundary that does not trust it.
 pub fn schedule_problem(s: &TaskSchedule) -> Option<String> {
@@ -184,6 +211,9 @@ pub fn schedule_problem(s: &TaskSchedule) -> Option<String> {
     }
     if s.cadence.kind == CadenceKind::Weekly && !s.cadence.weekday.is_some_and(|d| d <= 6) {
         return Some("a weekly schedule needs a weekday".into());
+    }
+    if s.cadence.kind == CadenceKind::Once && !s.cadence.date.as_deref().is_some_and(cadence_date_ok) {
+        return Some("a one-off schedule needs a date, YYYY-MM-DD".into());
     }
     if !(1..=MAX_KEEP_RUNS).contains(&s.keep_runs) {
         return Some(format!("keep between 1 and {MAX_KEEP_RUNS} runs"));
@@ -505,7 +535,7 @@ mod tests {
             name: "grafana check".into(),
             slug: "grafana-check".into(),
             prompt: Some("check the dashboards".into()),
-            cadence: ScheduleCadence { kind: CadenceKind::Daily, time: "09:00".into(), weekday: None },
+            cadence: ScheduleCadence { kind: CadenceKind::Daily, time: "09:00".into(), weekday: None, date: None },
             keep_runs: 7,
             report_days: Some(30),
             ..Default::default()
@@ -528,11 +558,17 @@ mod tests {
     fn a_valid_schedule_has_no_problem() {
         assert_eq!(schedule_problem(&sched()), None);
         let mut weekly = sched();
-        weekly.cadence = ScheduleCadence { kind: CadenceKind::Weekly, time: "23:59".into(), weekday: Some(6) };
+        weekly.cadence = ScheduleCadence { kind: CadenceKind::Weekly, time: "23:59".into(), weekday: Some(6), date: None };
         weekly.prompt = None;
         weekly.prompt_id = Some("builtin:review".into());
         weekly.report_days = None;
         assert_eq!(schedule_problem(&weekly), None);
+        let mut once = sched();
+        once.cadence = ScheduleCadence { kind: CadenceKind::Once, time: "09:00".into(), weekday: None, date: Some("2026-10-27".into()) };
+        assert_eq!(schedule_problem(&once), None);
+        // Leap day: real in 2028, not in 2026.
+        once.cadence.date = Some("2028-02-29".into());
+        assert_eq!(schedule_problem(&once), None);
     }
 
     #[test]
@@ -548,6 +584,9 @@ mod tests {
             ("bad time shape", Box::new(|s| s.cadence.time = "9:00".into())),
             ("weekly without a day", Box::new(|s| s.cadence.kind = CadenceKind::Weekly)),
             ("weekday out of range", Box::new(|s| { s.cadence.kind = CadenceKind::Weekly; s.cadence.weekday = Some(7); })),
+            ("once without a date", Box::new(|s| s.cadence.kind = CadenceKind::Once)),
+            ("once on a day that does not exist", Box::new(|s| { s.cadence.kind = CadenceKind::Once; s.cadence.date = Some("2026-02-30".into()); })),
+            ("once with a malformed date", Box::new(|s| { s.cadence.kind = CadenceKind::Once; s.cadence.date = Some("27-10-2026".into()); })),
             ("keep zero", Box::new(|s| s.keep_runs = 0)),
             ("keep too many", Box::new(|s| s.keep_runs = MAX_KEEP_RUNS + 1)),
             ("zero retention", Box::new(|s| s.report_days = Some(0))),
@@ -567,6 +606,7 @@ mod tests {
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["cadence"]["kind"], "daily");
         assert!(v["cadence"].get("weekday").is_none());
+        assert!(v["cadence"].get("date").is_none());
         assert_eq!(v["history"][0]["outcome"], "no_report");
         assert!(v["history"][0].get("manual").is_none());
         assert!(v["history"][0].get("report_gone").is_none());
