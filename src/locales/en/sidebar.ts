@@ -121,6 +121,8 @@ export default {
   stopTask: "Stop task",
   archiveTask: "Archive task",
   closeTab: "Close tab",
+  tabMenuNewBelow: "New below",
+  tabMenuClose: "Close",
   terminalTabTitle: "Terminal",
   taskNamePlaceholder: "Task name",
   branchPlaceholder: "branch",
