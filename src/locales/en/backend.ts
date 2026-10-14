@@ -254,6 +254,7 @@ export default {
     review: "Review",
     writeTests: "Write tests",
     securityReview: "Security review",
+    deepReview: "Deep review",
     explainChanges: "Explain the changes",
     commit: "Commit",
     commitPush: "Commit and push",

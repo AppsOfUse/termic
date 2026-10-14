@@ -4,7 +4,7 @@ All notable changes to Termic, newest first. This file is the human-authored
 source of truth: the in-app Update card and the /changelog page on termic.dev
 are generated from it. See the `release` skill for how entries are added.
 
-## [1.16.0] - 2026-10-14
+## [1.16.1] - 2026-10-14
 
 A guided first launch, Review a PR, History by PR, and new-file previews.
 
@@ -25,9 +25,15 @@ A guided first launch, Review a PR, History by PR, and new-file previews.
   checkout, an agent and a review prompt, and Termic fetches the PR and
   starts the review with the PR's details in front of the prompt, which you
   can edit for that review. Open it from the command palette or a project's
-  `+` menu, or bind a shortcut. In Settings, Prompts, tag any prompt (your
-  own review skill, say) as a code review prompt. `termic review <pr>` and
-  the MCP `task_review` tool do the same.
+  `+` menu, or bind a shortcut. `termic review <pr>` and the MCP
+  `task_review` tool do the same.
+- **Review prompts, as many as you like.** Prompts in Settings, Prompts take
+  labels, and the list filters by them. Every prompt labelled Code review is
+  offered when you review a PR. Two come built in: Review, and Deep review,
+  which runs eight focused reviewers side by side, filters out false
+  positives, and reports findings as BL-1, SUG-1 and NIT-1. "Edit or add
+  review prompts" opens Settings without losing the review you were setting
+  up, and a prompt you add there is picked when you come back.
 - **History by pull request.** The History page is a wide table with each
   task's branch, what it was cut from, and its PR: number, last known
   state and title. Search a PR number (`#123`, or the link) to find the
@@ -68,6 +74,8 @@ A guided first launch, Review a PR, History by PR, and new-file previews.
   sidebar's mode mark sits beside the task name.
 - The "pi" agent's name was nearly invisible in the New Task agent picker
   on dark themes.
+- Linux: switching a Markdown preview to split view could leave the editor
+  at the top instead of beside what you were reading.
 
 ## [1.15.0] - 2026-10-12
 

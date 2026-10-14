@@ -48,6 +48,9 @@ export function ReviewPrDialog() {
   const detectedClis = useApp(s => s.detectedClis);
   const library = usePromptLibrary(s => s.prompts);
   const prompts = useMemo(() => reviewPrompts(library), [library]);
+  // Settings > Prompts opens from here without closing the review: the
+  // dialog steps aside while Settings is up and comes back as it was.
+  const settingsOpen = useApp(s => !!s.view.settingsOpen);
 
   const gitProjects = useMemo(() => projects.filter(p => !p.non_git), [projects]);
   const choices = useMemo(() => {
@@ -132,17 +135,29 @@ export function ReviewPrDialog() {
 
   const label = "w-16 shrink-0 pt-1 text-[12.5px] text-[var(--color-fg-dim)]";
 
+  // What the library held when Settings opened, so coming back can pick
+  // the prompt that was just made, or show the new text of the one edited.
+  const beforeSettings = useRef<{ ids: Set<string>; body: string } | null>(null);
+  useEffect(() => {
+    const was = beforeSettings.current;
+    if (settingsOpen || !was) return;
+    beforeSettings.current = null;
+    const added = prompts.find(p => !was.ids.has(p.id));
+    if (added) { setPromptId(added.id); setDraft(null); }
+    else if (prompt && prompt.body !== was.body) setDraft(null);
+  }, [settingsOpen, prompts, prompt]);
+
   /** Settings > Prompts, filtered to the review prompts: where they are
    *  edited, and where New prompt makes another one with the label. */
   function openReviewPrompts() {
-    close();
+    beforeSettings.current = { ids: new Set(prompts.map(p => p.id)), body: prompt?.body ?? "" };
     usePromptLibrary.getState().setFilterLabel(CODE_REVIEW_LABEL);
     useApp.getState().openSettings("prompts");
   }
 
   return (
     <AppDialog
-      open={open}
+      open={open && !settingsOpen}
       onOpenChange={(v) => { if (!v && !busy) close(); }}
       title={t("reviewPr.title")}
       className="max-w-3xl"

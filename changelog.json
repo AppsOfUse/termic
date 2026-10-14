@@ -1,7 +1,7 @@
 {
   "versions": [
     {
-      "version": "1.16.0",
+      "version": "1.16.1",
       "date": "2026-10-14",
       "summary": "A guided first launch, Review a PR, History by PR, and new-file previews."
     },

@@ -76,19 +76,19 @@ describe("review a PR: labels in the prompt library", () => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
       for (const id of ids) s.deletePrompt(id);
       s.setLabels("builtin:review", ["code-review"]);
-      s.setLabels("builtin:security-review", ["code-review"]);
+      s.setLabels("builtin:deep-review", ["code-review"]);
       s.setFilterLabel(null);
     }, made);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
   });
 
-  it("labels Review and Security review Code review out of the box, and filters by it", async () => {
+  it("labels Review and Deep review Code review out of the box, and filters by it", async () => {
     expect(await labelsOn("builtin:review")).toEqual(["code-review"]);
-    expect(await labelsOn("builtin:security-review")).toEqual(["code-review"]);
+    expect(await labelsOn("builtin:deep-review")).toEqual(["code-review"]);
     expect(await labelsOn("builtin:commit")).toEqual([]);
     await filterTo("code-review");
     await browser.waitUntil(async () => (await shownIds()).length === 2, { timeout: 5_000, timeoutMsg: "the Code review filter did not narrow the list" });
-    expect(new Set(await shownIds())).toEqual(new Set(["builtin:review", "builtin:security-review"]));
+    expect(new Set(await shownIds())).toEqual(new Set(["builtin:review", "builtin:deep-review"]));
     await snap("review-pr-01-prompt-labels.png");
     await filterTo(null);
   });
@@ -142,18 +142,38 @@ describe("review a PR: labels in the prompt library", () => {
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
     await openDialog();
     const ids = await promptIds();
-    expect(new Set(ids)).toEqual(new Set(["builtin:review", "builtin:security-review", ...made]));
-    // The link opens Settings, Prompts on the review prompts.
+    expect(new Set(ids)).toEqual(new Set(["builtin:review", "builtin:deep-review", ...made]));
+    await setInputValue(INPUT, "42");
+    // The link opens Settings, Prompts on the review prompts, with the
+    // dialog stepped aside rather than closed.
     await clickWhenVisible('[data-testid="review-pr-manage-prompts"]');
     await waitGone(DIALOG);
     await waitVisible('[data-testid="prompt-label-filter"] [data-label="code-review"][aria-pressed="true"]');
+    expect(await browser.execute(() => window.__termic!.useUI.getState().reviewPrProjectId)).toBe(await fixtureId());
+    const id = await browser.execute(() => {
+      const s = window.__termic!.usePromptLibrary.getState() as any;
+      const i = s.addPrompt({ title: "Made from the dialog", body: "Check the migrations." }) as string;
+      s.addLabel(i, "code-review");
+      return i;
+    }) as string;
+    made.push(id);
     await filterTo(null);
+    // Closing Settings brings the dialog back as it was, on the new prompt.
+    await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
+    await waitVisible(DIALOG);
+    expect(await browser.execute((s) => (document.querySelector(s) as HTMLInputElement).value, INPUT)).toBe("42");
+    await browser.waitUntil(async () => (await browser.execute((i) =>
+      document.querySelector(`[data-testid="review-pr-prompt"][data-prompt-id="${i}"]`)?.getAttribute("aria-checked"), id)) === "true",
+      { timeout: 5_000, timeoutMsg: "the prompt made in Settings was not picked" });
+    expect(await browser.execute(() => (document.querySelector('[data-testid="review-pr-text"]') as HTMLTextAreaElement)?.value)).toBe("Check the migrations.");
+    await snap("review-pr-02b-back-from-settings.png");
+    await closeDialog();
   });
 
   it("says where to label one when nothing is, and cannot start", async () => {
     await browser.execute((ids) => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
-      for (const p of ["builtin:review", "builtin:security-review", ...ids]) s.removeLabel(p, "code-review");
+      for (const p of ["builtin:review", "builtin:deep-review", ...ids]) s.removeLabel(p, "code-review");
     }, made);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
     await openDialog();
@@ -165,10 +185,12 @@ describe("review a PR: labels in the prompt library", () => {
     await waitVisible('[data-testid="prompt-label-empty"]');
     await browser.execute((ids) => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
-      for (const p of ["builtin:review", "builtin:security-review", ...ids]) s.addLabel(p, "code-review");
+      for (const p of ["builtin:review", "builtin:deep-review", ...ids]) s.addLabel(p, "code-review");
       s.setFilterLabel(null);
     }, made);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
+    await waitVisible(DIALOG);
+    await closeDialog();
   });
 });
 
@@ -221,15 +243,15 @@ describe("review a PR: the dialog", () => {
     await clickWhenVisible('[data-testid="review-pr-prompt"][data-prompt-id="builtin:review"]');
     expect(await text()).toBe(await body("builtin:review"));
     // Picking another prompt shows ITS text.
-    await clickWhenVisible('[data-testid="review-pr-prompt"][data-prompt-id="builtin:security-review"]');
-    await browser.waitUntil(async () => (await text()) === (await body("builtin:security-review")),
+    await clickWhenVisible('[data-testid="review-pr-prompt"][data-prompt-id="builtin:deep-review"]');
+    await browser.waitUntil(async () => (await text()) === (await body("builtin:deep-review")),
       { timeout: 5_000, timeoutMsg: "the prompt box did not follow the pick" });
     // An edit is this review's only: the library keeps its text, and Reset
     // brings the saved prompt back.
-    const saved = await body("builtin:security-review");
+    const saved = await body("builtin:deep-review");
     await setInputValue('[data-testid="review-pr-text"]', "Only look at the migrations.");
     await waitVisible('[data-testid="review-pr-text-reset"]');
-    expect(await body("builtin:security-review")).toBe(saved);
+    expect(await body("builtin:deep-review")).toBe(saved);
     await snap("review-pr-06-edited-prompt.png");
     await clickWhenVisible('[data-testid="review-pr-text-reset"]');
     await browser.waitUntil(async () => (await text()) === saved,
@@ -280,7 +302,7 @@ describe("review a PR: the dialog", () => {
   it("remembers main checkout and the prompt for next time", async () => {
     await openDialog();
     await clickWhenVisible('[data-testid="review-pr-where-main"]');
-    await clickWhenVisible('[data-testid="review-pr-prompt"][data-prompt-id="builtin:security-review"]');
+    await clickWhenVisible('[data-testid="review-pr-prompt"][data-prompt-id="builtin:deep-review"]');
     // The choice is remembered when a review is started; the fixture's PR
     // fetch fails, which is fine, the choice is written before it.
     await setInputValue(INPUT, "7");
@@ -291,7 +313,7 @@ describe("review a PR: the dialog", () => {
     expect(await browser.execute(() =>
       document.querySelector('[data-testid="review-pr-where-main"]')?.getAttribute("aria-checked"))).toBe("true");
     expect(await browser.execute(() =>
-      document.querySelector('[data-testid="review-pr-prompt"][aria-checked="true"]')?.getAttribute("data-prompt-id"))).toBe("builtin:security-review");
+      document.querySelector('[data-testid="review-pr-prompt"][aria-checked="true"]')?.getAttribute("data-prompt-id"))).toBe("builtin:deep-review");
     await clickWhenVisible('[data-testid="review-pr-where-worktree"]');
   });
 
@@ -335,7 +357,7 @@ describe("review a PR: termic review and MCP task_review", () => {
     const out = runCli(["--no-launch", "--json", "prompts"], { TERMIC_DATA_DIR: dataDir });
     const tagged = (JSON.parse(out).prompts as any[]).filter(p => p.review).map(p => p.id);
     expect(tagged).toContain("builtin:review");
-    expect(tagged).toContain("builtin:security-review");
+    expect(tagged).toContain("builtin:deep-review");
   });
 
   it("asks the forge, and a repo that is not on one is an error with no task left behind", async () => {

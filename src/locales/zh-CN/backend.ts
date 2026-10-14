@@ -250,6 +250,7 @@ export default {
     review: "代码审查",
     writeTests: "编写测试",
     securityReview: "安全审查",
+    deepReview: "深度审查",
     explainChanges: "解释更改",
     commit: "提交",
     commitPush: "提交并推送",

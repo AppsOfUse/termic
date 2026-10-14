@@ -117,10 +117,10 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it("tags Review and Security review by default, and nothing else", async () => {
+  it("tags Review and Deep review by default, and nothing else", async () => {
     const { listPromptsHandler } = await fresh();
     const tagged = listPromptsHandler().prompts.filter(p => p.review).map(p => p.id);
-    expect(tagged).toEqual(["builtin:review", "builtin:security-review"]);
+    expect(tagged).toEqual(["builtin:review", "builtin:deep-review"]);
   });
 
   it("tags a custom prompt, untags a built-in, and stores only the difference", async () => {
@@ -128,11 +128,11 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
     const s = usePromptLibrary.getState();
     const id = s.addPrompt({ title: "Deep review", body: "Run the deep-review skill." });
     s.setForReview(id, true);
-    s.setForReview("builtin:security-review", false);
+    s.setForReview("builtin:deep-review", false);
     const tagged = listPromptsHandler().prompts.filter(p => p.review).map(p => p.id);
     expect([...tagged].sort()).toEqual(["builtin:review", id].sort());
     // Untagging back to the default leaves nothing behind for that id.
-    usePromptLibrary.getState().setForReview("builtin:security-review", true);
+    usePromptLibrary.getState().setForReview("builtin:deep-review", true);
     const stored = JSON.parse(localStorage.getItem("promptLibrary") ?? "{}");
     expect(stored.labels).toEqual({ [id]: ["code-review"] });
   });
@@ -160,7 +160,7 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
     const s = usePromptLibrary.getState();
     const empty = s.addPrompt({ title: "Empty", body: "  " });
     s.setForReview(empty, true);
-    s.toggleEnabled("builtin:security-review");
+    s.toggleEnabled("builtin:deep-review");
     expect(reviewPrompts(usePromptLibrary.getState().prompts).map(p => p.id)).toEqual(["builtin:review"]);
   });
 });
@@ -233,6 +233,8 @@ describe("prompt labels", () => {
     expect(await labelsOf("c1")).toEqual(["code-review"]);
     expect(await labelsOf("builtin:security-review")).toEqual([]);
     expect(await labelsOf("builtin:review")).toEqual(["code-review"]);
+    // Deep review is new in this release and a review prompt by default.
+    expect(await labelsOf("builtin:deep-review")).toEqual(["code-review"]);
   });
 
   it("reports labels to the CLI, and a clone keeps them", async () => {
@@ -246,5 +248,34 @@ describe("prompt labels", () => {
     expect(rows.find(p => p.id === id)?.labels).toEqual(["infra", "code-review"]);
     expect(rows.find(p => p.id === copy)?.labels).toEqual(["infra", "code-review"]);
     expect(rows.find(p => p.id === copy)?.review).toBe(true);
+  });
+});
+
+describe("the Deep review built-in", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeLocalStorage());
+    vi.resetModules();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("runs parallel reviewers and a false-positive filter, and changes nothing", async () => {
+    const { usePromptLibrary } = await fresh();
+    const p = usePromptLibrary.getState().prompts.find(x => x.id === "builtin:deep-review")!;
+    expect(p.title).toBe("Deep review");
+    expect(p.labels).toEqual(["code-review"]);
+    expect(p.body).toContain("pull request above");
+    expect(p.body).toContain("sub-agent");
+    expect(p.body).toContain("False-positive filter");
+    // findings carry their severity in the id: BL-1, SUG-1, NIT-1
+    for (const id of ["**BL-1**", "**SUG-2**", "**NIT-1**"]) expect(p.body).toContain(id);
+    expect(p.body).not.toMatch(/DR-\d/);
+    expect(p.body).toContain("## Deep Review");
+    expect(p.body).toContain("do not change any files");
+    // Written for any repository: no one codebase's products, paths or tools.
+    expect(p.body).not.toMatch(/wispr|aria|posthog|desktop\/|dash\/|flow-enterprise|onboarding|dictation|deep-review skill/i);
+    expect(p.body).not.toContain("—");
+    // Sits right after the normal Review, so the two read as a pair.
+    const ids = usePromptLibrary.getState().prompts.map(x => x.id);
+    expect(ids.indexOf("builtin:deep-review")).toBe(ids.indexOf("builtin:review") + 1);
   });
 });

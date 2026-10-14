@@ -23,7 +23,7 @@ import {
   WRITE_TESTS_PROMPT, SECURITY_REVIEW_PROMPT, EXPLAIN_CHANGES_PROMPT, COMMIT_PROMPT,
   COMMIT_PUSH_PROMPT, VERIFY_PROMPT, FIX_BUG_PROMPT, STATUS_PROMPT,
   UPDATE_DOCS_PROMPT, RESEARCH_PROMPT, CONTINUE_PROMPT, SIMPLIFY_PROMPT,
-  WORK_ISSUE_PROMPT, HANDOFF_PROMPT, FIX_MERGE_CONFLICT_PROMPT,
+  WORK_ISSUE_PROMPT, HANDOFF_PROMPT, FIX_MERGE_CONFLICT_PROMPT, DEEP_REVIEW_PROMPT,
 } from "@/lib/builtinPrompts";
 import { scoped } from "@/lib/profileScope";
 
@@ -53,7 +53,7 @@ export const CODE_REVIEW_LABEL = "code-review";
  *  starts with none. */
 export const DEFAULT_LABELS: Readonly<Record<string, readonly string[]>> = {
   "builtin:review": [CODE_REVIEW_LABEL],
-  "builtin:security-review": [CODE_REVIEW_LABEL],
+  "builtin:deep-review": [CODE_REVIEW_LABEL],
 };
 /** Kept for callers that only ask "which built-ins are review prompts". */
 export const REVIEW_BY_DEFAULT: readonly string[] = Object.keys(DEFAULT_LABELS);
@@ -97,6 +97,7 @@ interface BuiltinDef { id: string; title: string; body: string }
 // between agent turns: verify, fix, status, continue, docs, research.
 export const DEFAULT_PROMPTS: readonly BuiltinDef[] = [
   { id: "builtin:review",          title: "Review",               body: REVIEW_PROMPT },
+  { id: "builtin:deep-review",     title: "Deep review",          body: DEEP_REVIEW_PROMPT },
   { id: "builtin:write-tests",     title: "Write tests",          body: WRITE_TESTS_PROMPT },
   { id: "builtin:security-review", title: "Security review",      body: SECURITY_REVIEW_PROMPT },
   { id: "builtin:explain-changes", title: "Explain the changes",  body: EXPLAIN_CHANGES_PROMPT },
@@ -120,6 +121,7 @@ export const DEFAULT_PROMPTS: readonly BuiltinDef[] = [
 // outright). Customs always render what the user typed.
 const PROMPT_TITLE_KEYS: Record<string, string> = {
   "builtin:review": "review",
+  "builtin:deep-review": "deepReview",
   "builtin:write-tests": "writeTests",
   "builtin:security-review": "securityReview",
   "builtin:explain-changes": "explainChanges",
