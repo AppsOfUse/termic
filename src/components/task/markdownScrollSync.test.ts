@@ -77,3 +77,79 @@ describe("previewAnchors", () => {
     ]);
   });
 });
+
+// The switch from preview to split: the editor must land where the reader was
+// in the preview. WebKitGTK gave the editor its height one ResizeObserver
+// delivery late, and the first sync was spent on the delivery where it had
+// none, so the editor never followed (a Linux CI flake on editor.e2e.ts).
+describe("useScrollSync, entering split from the preview", () => {
+  it("waits for the editor to have a box before spending its first sync", async () => {
+    const { createElement, useRef } = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { act } = await import("react");
+    const { useScrollSync } = await import("./markdownScrollSync");
+
+    const observers: Array<() => void> = [];
+    const RealRO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      cb: () => void;
+      constructor(cb: () => void) { this.cb = cb; observers.push(() => this.cb()); }
+      observe() {} unobserve() {} disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+    const box = (el: HTMLElement, h: { client: () => number; scroll: number }, top = 0) => {
+      let st = top;
+      Object.defineProperties(el, {
+        scrollTop: { get: () => st, set: (v: number) => { st = Math.max(0, Math.min(v, h.scroll - h.client())); }, configurable: true },
+        clientHeight: { get: h.client, configurable: true },
+        scrollHeight: { get: () => h.scroll, configurable: true },
+      });
+      el.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    };
+    // the preview, read down to line 21 (one block per line, 20px each)
+    const scroller = document.createElement("div");
+    const host = document.createElement("div");
+    for (let line = 1; line <= 100; line++) {
+      const p = document.createElement("p");
+      p.dataset.srcLine = String(line);
+      p.getBoundingClientRect = () => ({ top: (line - 1) * 20 - scroller.scrollTop }) as DOMRect;
+      p.getClientRects = () => ({ length: 1 }) as DOMRectList;
+      host.append(p);
+    }
+    scroller.append(host);
+    box(scroller, { client: () => 100, scroll: 2100 }, 400);
+    // the editor, laid out late: no height on the first delivery
+    let edHeight = 0;
+    const ed = document.createElement("div");
+    box(ed, { client: () => edHeight, scroll: 2100 });
+    const view = {
+      scrollDOM: ed,
+      get documentTop() { return -ed.scrollTop; },
+      lineBlockAt: (pos: number) => ({ top: pos * 20, height: 20 }),
+      lineBlockAtHeight: (y: number) => ({ from: Math.floor(y / 20), top: Math.floor(y / 20) * 20, height: 20 }),
+      state: { doc: { lines: 100, line: (n: number) => ({ from: n - 1 }), lineAt: (pos: number) => ({ number: pos + 1 }) } },
+    } as unknown as EditorView;
+
+    function Probe({ editorVisible }: { editorVisible: boolean }) {
+      const s = useRef<HTMLElement | null>(scroller), h = useRef<HTMLElement | null>(host);
+      useScrollSync(s, h, view, true, editorVisible);
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    try {
+      await act(async () => { root.render(createElement(Probe, { editorVisible: false })); });
+      await act(async () => { root.render(createElement(Probe, { editorVisible: true })); });
+      // first delivery: the editor has no height yet, so nothing can sync
+      for (const fire of observers) fire();
+      expect(ed.scrollTop).toBe(0);
+      // the editor gets its height: that resize is the retry
+      edHeight = 100;
+      for (const fire of observers) fire();
+      expect(ed.scrollTop).toBe(400);
+    } finally {
+      await act(async () => { root.unmount(); });
+      globalThis.ResizeObserver = RealRO;
+    }
+  });
+});

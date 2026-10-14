@@ -112,12 +112,14 @@ export function useScrollSync(
       el.scrollTop = y;
       return el.scrollTop !== before ? el.scrollTop : null;
     };
-    const sync = (from: "editor" | "preview") => {
+    /** False when a pane had no box to sync, so nothing happened. */
+    const sync = (from: "editor" | "preview"): boolean => {
       // a pane with no box (task in the background, mid collapse) has no
       // position to give, and WKWebView fires scroll(0) around those toggles.
-      if (!scroller.clientHeight || !ed.clientHeight) return;
+      if (!scroller.clientHeight || !ed.clientHeight) return false;
       if (from === "editor") echoPv = drive(scroller, lineToY(anchors(), editorTopLine(view)));
       else echoEd = drive(ed, editorYForLine(view, yToLine(anchors(), scroller.scrollTop)));
+      return true;
     };
     const isEcho = (el: HTMLElement, echo: number | null) => echo != null && Math.abs(el.scrollTop - echo) <= 1;
     const fromEditor = () => { const echo = isEcho(ed, echoEd); echoEd = null; if (!echo) sync("editor"); };
@@ -127,16 +129,21 @@ export function useScrollSync(
     // (an older observer, so notified first) puts back the position it had
     // when it was hidden. Syncing earlier would be undone by that restore.
     let first: "editor" | "preview" | null = was.visible && !was.editorVisible ? "preview" : "editor";
+    // `first` is spent only by a sync that RAN. WebKitGTK can deliver the
+    // first observation while the editor still has no height (it lays the
+    // split out a callback later); spending it there left the editor where
+    // it was and nothing ever brought it to the preview's place. The editor
+    // getting its height is itself a resize, so the next delivery retries.
     const ro = new ResizeObserver(() => {
       anchorsRef.current = null;
-      if (first) { const f = first; first = null; sync(f); }
+      if (first && sync(first)) first = null;
     });
     ro.observe(host);
     ro.observe(scroller);
     ro.observe(ed);
     ed.addEventListener("scroll", fromEditor, { passive: true });
     scroller.addEventListener("scroll", fromPreview, { passive: true });
-    syncRef.current = () => sync("editor");
+    syncRef.current = () => { sync("editor"); };
     return () => {
       syncRef.current = null;
       ro.disconnect();

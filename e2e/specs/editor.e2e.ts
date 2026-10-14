@@ -4429,10 +4429,10 @@ describe("markdown split: scroll sync and preview comments", () => {
         return view.state.doc.lineAt(view.lineBlockAtHeight(y).from).number as number;
       });
       return Math.abs(line - headingLine(10)) <= 1;
-    // 15s, not 5: the editor follows through scroll events, which a loaded
-    // WebKitGTK runner under xvfb delivers late. It missed 5s once in CI
-    // after passing every run before; the claim is unchanged.
-    }, { timeout: 15_000, timeoutMsg: "the editor did not follow the preview to section 10" });
+    // A miss here was a race, not slowness: WebKitGTK can give the editor
+    // its height one ResizeObserver delivery late, and the first sync used
+    // to be spent on the delivery where it had none (markdownScrollSync.ts).
+    }, { timeout: 5_000, timeoutMsg: "the editor did not follow the preview to section 10" });
     // and the preview did not get dragged to the editor's old place instead
     expect(await previewTopSection()).toBe(10);
   });
