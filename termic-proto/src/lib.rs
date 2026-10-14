@@ -1174,6 +1174,10 @@ pub struct PromptEntry {
     /// `review` picks when no prompt is named.
     #[serde(default, skip_serializing_if = "crate::is_false")]
     pub review: bool,
+    /// Every label the prompt carries (Settings, Prompts), the built-in
+    /// one as `code-review`. Absent when it has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
     /// The prompt body. Present only for a resolved selector
     /// (`prompts show`); the list omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2550,6 +2554,7 @@ mod tests {
                 prompts: vec![
                     PromptEntry {
                         review: false,
+                        labels: Vec::new(),
                         id: "builtin:review".into(),
                         title: "Review".into(),
                         builtin: true,
@@ -2560,6 +2565,7 @@ mod tests {
                     },
                     PromptEntry {
                         review: false,
+                        labels: Vec::new(),
                         id: "3f1c0d6e-aaaa-bbbb-cccc-1234567890ab".into(),
                         title: "Ship it".into(),
                         builtin: false,

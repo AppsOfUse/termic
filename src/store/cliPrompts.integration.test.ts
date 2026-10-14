@@ -134,7 +134,7 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
     // Untagging back to the default leaves nothing behind for that id.
     usePromptLibrary.getState().setForReview("builtin:security-review", true);
     const stored = JSON.parse(localStorage.getItem("promptLibrary") ?? "{}");
-    expect(stored.review).toEqual({ [id]: true });
+    expect(stored.labels).toEqual({ [id]: ["code-review"] });
   });
 
   it("survives a reload, and a deleted prompt takes its tag with it", async () => {
@@ -145,7 +145,7 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
     ({ usePromptLibrary } = await fresh());
     expect(usePromptLibrary.getState().prompts.find(p => p.id === id)?.forReview).toBe(true);
     usePromptLibrary.getState().deletePrompt(id);
-    expect(JSON.parse(localStorage.getItem("promptLibrary") ?? "{}").review).toEqual({});
+    expect(JSON.parse(localStorage.getItem("promptLibrary") ?? "{}").labels).toEqual({});
   });
 
   it("a clone of a tagged prompt stays tagged", async () => {
@@ -162,5 +162,89 @@ describe("the Code review tag (Review a PR, `termic review`)", () => {
     s.setForReview(empty, true);
     s.toggleEnabled("builtin:security-review");
     expect(reviewPrompts(usePromptLibrary.getState().prompts).map(p => p.id)).toEqual(["builtin:review"]);
+  });
+});
+
+describe("prompt labels", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeLocalStorage());
+    vi.resetModules();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const labelsOf = async (id: string) => {
+    const { usePromptLibrary } = await import("@/store/prompts");
+    return usePromptLibrary.getState().prompts.find(p => p.id === id)!.labels;
+  };
+
+  it("adds, de-duplicates and removes labels of the user's own", async () => {
+    const { usePromptLibrary } = await fresh();
+    const s = usePromptLibrary.getState();
+    const id = s.addPrompt({ title: "Perf pass", body: "x" });
+    s.addLabel(id, "  Backend  ");
+    s.addLabel(id, "backend");
+    s.addLabel(id, "perf   checks");
+    s.addLabel(id, "   ");
+    expect(await labelsOf(id)).toEqual(["Backend", "perf checks"]);
+    usePromptLibrary.getState().removeLabel(id, "BACKEND");
+    expect(await labelsOf(id)).toEqual(["perf checks"]);
+  });
+
+  it("any spelling of code review is the built-in label, so it reaches Review a PR", async () => {
+    const { usePromptLibrary } = await fresh();
+    const { reviewPrompts } = await import("@/store/prompts");
+    const s = usePromptLibrary.getState();
+    const id = s.addPrompt({ title: "Deep review", body: "Run the deep-review skill." });
+    s.addLabel(id, "Code Review");
+    expect(await labelsOf(id)).toEqual(["code-review"]);
+    expect(reviewPrompts(usePromptLibrary.getState().prompts).map(p => p.id)).toContain(id);
+    for (const spelling of ["code_review", "CODE-REVIEW"]) {
+      const other = usePromptLibrary.getState().addPrompt({ title: spelling, body: "y" });
+      usePromptLibrary.getState().addLabel(other, spelling);
+      expect(await labelsOf(other)).toEqual(["code-review"]);
+    }
+  });
+
+  it("lists every label in use, code review first", async () => {
+    const { usePromptLibrary } = await fresh();
+    const { allLabels } = await import("@/store/prompts");
+    const s = usePromptLibrary.getState();
+    const a = s.addPrompt({ title: "a", body: "x" });
+    s.addLabel(a, "zeta");
+    s.addLabel(a, "Alpha");
+    expect(allLabels(usePromptLibrary.getState().prompts)).toEqual(["code-review", "Alpha", "zeta"]);
+  });
+
+  it("a built-in put back to its default labels stores nothing, so a better default still reaches it", async () => {
+    const { usePromptLibrary } = await fresh();
+    const s = usePromptLibrary.getState();
+    s.addLabel("builtin:review", "team");
+    expect(JSON.parse(localStorage.getItem("promptLibrary") ?? "{}").labels["builtin:review"]).toEqual(["code-review", "team"]);
+    usePromptLibrary.getState().removeLabel("builtin:review", "team");
+    expect(JSON.parse(localStorage.getItem("promptLibrary") ?? "{}").labels).toEqual({});
+  });
+
+  it("reads 1.16.0's review flags as the code review label", async () => {
+    localStorage.setItem("promptLibrary", JSON.stringify({
+      customs: [{ id: "c1", title: "Deep review", body: "x" }],
+      review: { c1: true, "builtin:security-review": false },
+    }));
+    await fresh();
+    expect(await labelsOf("c1")).toEqual(["code-review"]);
+    expect(await labelsOf("builtin:security-review")).toEqual([]);
+    expect(await labelsOf("builtin:review")).toEqual(["code-review"]);
+  });
+
+  it("reports labels to the CLI, and a clone keeps them", async () => {
+    const { listPromptsHandler, usePromptLibrary } = await fresh();
+    const s = usePromptLibrary.getState();
+    const id = s.addPrompt({ title: "Infra", body: "x" });
+    s.addLabel(id, "infra");
+    s.addLabel(id, "code review");
+    const copy = usePromptLibrary.getState().clonePrompt(id)!;
+    const rows = listPromptsHandler().prompts;
+    expect(rows.find(p => p.id === id)?.labels).toEqual(["infra", "code-review"]);
+    expect(rows.find(p => p.id === copy)?.labels).toEqual(["infra", "code-review"]);
+    expect(rows.find(p => p.id === copy)?.review).toBe(true);
   });
 });

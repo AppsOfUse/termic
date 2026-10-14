@@ -7,13 +7,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { usePromptLibrary } from "@/store/prompts";
+import { usePromptLibrary, allLabels, CODE_REVIEW_LABEL, sameLabel, type Prompt } from "@/store/prompts";
 import { useUI } from "@/store/ui";
 import { Button } from "@/components/ui/Button";
 import { AppDialog } from "@/components/ui/Dialog";
 import { cn } from "@/lib/utils";
-import { GripVertical, Copy, Trash2, RotateCcw, Eye, EyeOff, Plus, Pencil, GitPullRequest } from "lucide-react";
-import { Checkbox } from "@/components/ui/Checkbox";
+import { GripVertical, Copy, Trash2, RotateCcw, Eye, EyeOff, Plus, Pencil, GitPullRequest, Tag, X } from "lucide-react";
 import { kbd } from "@/lib/platform";
 
 interface DragState {
@@ -40,7 +39,16 @@ export function PromptLibrarySection() {
   const deletePrompt = usePromptLibrary(s => s.deletePrompt);
   const resetPrompt = usePromptLibrary(s => s.resetPrompt);
   const toggleEnabled = usePromptLibrary(s => s.toggleEnabled);
-  const setForReview = usePromptLibrary(s => s.setForReview);
+  const addLabel = usePromptLibrary(s => s.addLabel);
+  const removeLabel = usePromptLibrary(s => s.removeLabel);
+  const filterLabel = usePromptLibrary(s => s.filterLabel);
+  const setFilterLabel = usePromptLibrary(s => s.setFilterLabel);
+  // Every label in use (Code review always first), for the filter row and
+  // the add-label suggestions.
+  const labels = allLabels(prompts);
+  // A filter naming a label nothing carries any more falls back to all.
+  const activeFilter = filterLabel && labels.some(l => sameLabel(l, filterLabel)) ? filterLabel : null;
+  const shown = activeFilter ? prompts.filter(p => p.labels.some(l => sameLabel(l, activeFilter))) : prompts;
   const reorderPrompts = usePromptLibrary(s => s.reorderPrompts);
   const restoreBuiltins = usePromptLibrary(s => s.restoreBuiltins);
   const deletedCount = usePromptLibrary(s => s.deletedBuiltins.length);
@@ -58,6 +66,9 @@ export function PromptLibrarySection() {
 
   function openNewPrompt() {
     const id = addPrompt();
+    // A new prompt made while a label is picked carries it: "Code review" then
+    // New prompt is how a second review prompt gets made.
+    if (activeFilter) addLabel(id, activeFilter);
     setNewId(id);
     setEditingId(id);
   }
@@ -197,14 +208,48 @@ export function PromptLibrarySection() {
         </Button>
       </div>
 
-      <div ref={listRef} className="mt-5 flex flex-col gap-3">
+      {/* Label filter. Code review is always offered: it is the label the app
+          reads, and an empty "Code review" view says where to make one. */}
+      <div data-testid="prompt-label-filter" className="mt-4 flex flex-wrap items-center gap-1.5">
+        <Tag className="mr-0.5 h-3.5 w-3.5 text-[var(--color-fg-faint)]" />
+        {([null, ...labels] as (string | null)[]).map(l => {
+          const on = l === null ? !activeFilter : !!activeFilter && sameLabel(activeFilter, l);
+          const count = l === null ? prompts.length : prompts.filter(p => p.labels.some(x => sameLabel(x, l))).length;
+          return (
+            <button
+              key={l ?? "__all"}
+              type="button"
+              aria-pressed={on}
+              data-label={l ?? ""}
+              onClick={() => setFilterLabel(l)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px]",
+                on
+                  ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-fg)]"
+                  : "border-[var(--color-border-soft)] text-[var(--color-fg-dim)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]",
+              )}
+            >
+              {l === CODE_REVIEW_LABEL && <GitPullRequest className="h-3 w-3" />}
+              {l === null ? t("prompts.allLabels") : labelName(l, t)}
+              <span className="tabular-nums text-[var(--color-fg-faint)]">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div ref={listRef} className="mt-4 flex flex-col gap-3">
+        {activeFilter && shown.length === 0 && (
+          <div data-testid="prompt-label-empty" className="rounded-lg border border-dashed border-[var(--color-border)] px-4 py-6 text-center text-[13px] text-[var(--color-fg-faint)]">
+            {t("prompts.labelEmpty", { label: labelName(activeFilter, t) })}
+          </div>
+        )}
         {prompts.length === 0 && (
           <div className="rounded-lg border border-dashed border-[var(--color-border)] px-4 py-8 text-center text-[13px] text-[var(--color-fg-faint)]">
             {t("prompts.empty")}
           </div>
         )}
 
-        {prompts.map(p => (
+        {shown.map(p => (
           <div
             key={p.id}
             data-prompt-id={p.id}
@@ -216,14 +261,16 @@ export function PromptLibrarySection() {
             )}
           >
             <div className="flex items-center gap-2">
-              <button
+              {/* Reordering maps rows to positions in the whole list, so it
+                  is off while a label filter shows only some of them. */}
+              {!activeFilter && <button
                 onPointerDown={(e) => startDrag(p.id, e)}
                 style={{ touchAction: "none" }}
                 title={t("prompts.dragTip")}
                 className="shrink-0 cursor-grab rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] active:cursor-grabbing"
               >
                 <GripVertical className="h-4 w-4" />
-              </button>
+              </button>}
 
               <input
                 value={p.title}
@@ -247,25 +294,12 @@ export function PromptLibrarySection() {
                 </span>
               )}
 
-              {/* The "Code review" tag: a toggle chip, lit when on, so the
-                  list shows at a glance which prompts Review a PR offers. */}
-              <button
-                type="button"
-                data-testid="prompt-review-tag"
-                aria-pressed={p.forReview}
-                title={t("prompts.forReviewTip")}
-                onClick={() => setForReview(p.id, !p.forReview)}
-                className={cn(
-                  "flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10.5px] font-medium uppercase tracking-wide",
-                  p.forReview
-                    ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
-                    // Untagged: only on the row the pointer is on (or when
-                    // tabbed to), so 16 dim chips do not line the list.
-                    : "text-[var(--color-fg-faint)] opacity-0 hover:bg-[var(--color-hover)] hover:!opacity-100 focus-visible:opacity-100 group-hover:opacity-60",
-                )}
-              >
-                <GitPullRequest className="h-3 w-3" /> {t("prompts.forReview")}
-              </button>
+              <LabelChips
+                prompt={p}
+                suggestions={labels}
+                onAdd={l => addLabel(p.id, l)}
+                onRemove={l => removeLabel(p.id, l)}
+              />
 
               {/* Row actions */}
               <IconBtn title={t("prompts.editTip")} onClick={() => setEditingId(p.id)}>
@@ -346,14 +380,16 @@ export function PromptLibrarySection() {
           />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg-dim)]">
-                <Checkbox
-                  data-testid="prompt-editor-review"
-                  checked={editing.forReview}
-                  onChange={(on) => setForReview(editing.id, on)}
+              <div data-testid="prompt-editor-labels" className="flex items-center gap-2 text-[12.5px] text-[var(--color-fg-dim)]">
+                <Tag className="h-3.5 w-3.5" />
+                <LabelChips
+                  prompt={editing}
+                  suggestions={labels}
+                  onAdd={l => addLabel(editing.id, l)}
+                  onRemove={l => removeLabel(editing.id, l)}
+                  alwaysShowAdd
                 />
-                {t("prompts.forReviewEditor")}
-              </label>
+              </div>
               <span className="text-[11.5px] text-[var(--color-fg-faint)]">
                 {incomplete ? t("prompts.incomplete") : t("prompts.autosave")}
               </span>
@@ -372,6 +408,99 @@ export function PromptLibrarySection() {
         </AppDialog>
       )}
     </div>
+  );
+}
+
+/** A label as shown: the built-in one by its translated name, any other as
+ *  the user typed it. */
+function labelName(l: string, t: (k: string) => string): string {
+  return l === CODE_REVIEW_LABEL ? t("prompts.forReview") : l;
+}
+
+/** A prompt's labels as removable chips, and an inline field to add one,
+ *  with every label in use offered as a suggestion. Code review is lit in
+ *  the accent: it is the one the app reads (Review a PR). */
+function LabelChips({ prompt, suggestions, onAdd, onRemove, alwaysShowAdd }: {
+  prompt: Prompt;
+  suggestions: string[];
+  onAdd: (label: string) => void;
+  onRemove: (label: string) => void;
+  alwaysShowAdd?: boolean;
+}) {
+  const { t } = useTranslation("settings");
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const listId = `prompt-labels-${prompt.id}`;
+  const offer = suggestions.filter(s => !prompt.labels.some(l => sameLabel(l, s)));
+  const commit = () => {
+    if (draft.trim()) onAdd(draft);
+    setDraft(""); setAdding(false);
+  };
+  return (
+    <span data-testid="prompt-labels" className="flex min-w-0 flex-wrap items-center gap-1">
+      {prompt.labels.map(l => (
+        <span
+          key={l}
+          data-testid="prompt-label"
+          data-label={l}
+          className={cn(
+            "group/label flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10.5px] font-medium uppercase tracking-wide",
+            l === CODE_REVIEW_LABEL
+              ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+              : "bg-[var(--color-bg-3)] text-[var(--color-fg-dim)]",
+          )}
+        >
+          {l === CODE_REVIEW_LABEL && <GitPullRequest className="h-3 w-3" />}
+          {labelName(l, t)}
+          <button
+            type="button"
+            data-testid="prompt-label-remove"
+            aria-label={t("prompts.removeLabel", { label: labelName(l, t) })}
+            onClick={() => onRemove(l)}
+            className="-mr-0.5 rounded opacity-50 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      {adding ? (
+        <>
+          <input
+            autoFocus
+            data-testid="prompt-label-input"
+            list={listId}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") { e.preventDefault(); commit(); }
+              else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setDraft(""); setAdding(false); }
+            }}
+            onBlur={commit}
+            placeholder={t("prompts.labelPlaceholder")}
+            spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off"
+            className="h-5 w-32 rounded border border-[var(--color-accent)] bg-[var(--color-bg)] px-1.5 text-[11.5px] text-[var(--color-fg)] outline-none"
+          />
+          <datalist id={listId}>
+            {offer.map(s => <option key={s} value={s === CODE_REVIEW_LABEL ? t("prompts.forReview") : s} />)}
+          </datalist>
+        </>
+      ) : (
+        <button
+          type="button"
+          data-testid="prompt-label-add"
+          onClick={() => setAdding(true)}
+          title={t("prompts.addLabelTip")}
+          className={cn(
+            "flex shrink-0 items-center gap-0.5 rounded px-1 py-px text-[10.5px] font-medium uppercase tracking-wide text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]",
+            // On a row: only where the pointer is (or tabbed to), so the list
+            // is not lined with "+ label" buttons. In the editor: always.
+            !alwaysShowAdd && "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+          )}
+        >
+          <Plus className="h-3 w-3" /> {t("prompts.addLabel")}
+        </button>
+      )}
+    </span>
   );
 }
 

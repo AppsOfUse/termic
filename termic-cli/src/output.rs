@@ -544,7 +544,7 @@ pub fn prompts_text(prompts: &[PromptEntry]) -> String {
     // narrower than their headers.
     let idw = prompts.iter().map(|p| p.id.chars().count()).max().unwrap_or(0).max("ID".len());
     let tw = prompts.iter().map(|p| p.title.chars().count()).max().unwrap_or(0).max("TITLE".len());
-    let mut out = format!("{:<idw$} {:<tw$} KIND     ENABLED  MODIFIED  REVIEW\n", "ID", "TITLE");
+    let mut out = format!("{:<idw$} {:<tw$} KIND     ENABLED  MODIFIED  LABELS\n", "ID", "TITLE");
     for p in prompts {
         out.push_str(&format!(
             "{:<idw$} {:<tw$} {:<8} {:<8} {:<9} {}\n",
@@ -555,8 +555,8 @@ pub fn prompts_text(prompts: &[PromptEntry]) -> String {
             // A dash for custom prompts: modified only means something
             // for a builtin (edited away from the shipped text).
             if !p.builtin { "-" } else if p.modified { "yes" } else { "no" },
-            // Tagged "Code review": what `termic review` picks without -P.
-            if p.review { "yes" } else { "no" },
+            // `code-review` among them is what `termic review` picks without -P.
+            if p.labels.is_empty() { "-".to_string() } else { p.labels.join(", ") },
         ));
     }
     out.trim_end().to_string()

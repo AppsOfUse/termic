@@ -9,8 +9,10 @@
 //   - deletedBuiltins built-ins the user removed
 //   - disabled:       prompts hidden from the menu
 //   - order:          display order of ids
-//   - review:         "Code review" tags that differ from the default
-//                     (id -> on/off); see REVIEW_BY_DEFAULT
+//   - labels:         a prompt's labels where they differ from its default
+//                     (id -> the full list); see DEFAULT_LABELS. 1.16.0
+//                     stored a single "Code review" flag as `review`
+//                     (id -> on/off), read once and folded into this.
 // An UNEDITED built-in therefore always renders the current app default, so a
 // better default shipped in a future version reaches users who never touched it.
 
@@ -34,14 +36,52 @@ export interface Prompt {
   enabled: boolean;
   /** Built-in only: true once the user edited it away from the shipped text. */
   modified: boolean;
-  /** Tagged "Code review": offered by the Review a PR dialog and picked by
-   *  `termic review` when no prompt is named. */
+  /** The prompt's labels, user-chosen. `CODE_REVIEW_LABEL` among them puts
+   *  it in the Review a PR dialog. */
+  labels: string[];
+  /** Carries `CODE_REVIEW_LABEL`: offered by the Review a PR dialog and
+   *  picked by `termic review` when no prompt is named. */
   forReview: boolean;
 }
 
-/** Built-ins tagged for code review until the user says otherwise. Every
- *  other prompt, custom ones included, starts untagged. */
-export const REVIEW_BY_DEFAULT: readonly string[] = ["builtin:review", "builtin:security-review"];
+/** The one label the app itself reads: a prompt carrying it is a code
+ *  review prompt. Shown as "Code review" (i18n); stored as this key so a
+ *  language switch does not untag anything. */
+export const CODE_REVIEW_LABEL = "code-review";
+
+/** Labels a built-in starts with. Every other prompt, custom ones included,
+ *  starts with none. */
+export const DEFAULT_LABELS: Readonly<Record<string, readonly string[]>> = {
+  "builtin:review": [CODE_REVIEW_LABEL],
+  "builtin:security-review": [CODE_REVIEW_LABEL],
+};
+/** Kept for callers that only ask "which built-ins are review prompts". */
+export const REVIEW_BY_DEFAULT: readonly string[] = Object.keys(DEFAULT_LABELS);
+
+const LABEL_MAX = 40;
+
+/** A typed label as stored: trimmed, inner whitespace collapsed, capped. Any
+ *  spelling of "code review" is the built-in label, so typing it by hand
+ *  tags the prompt for Review a PR rather than making a look-alike. "" for
+ *  nothing usable. */
+export function normalizeLabel(raw: string): string {
+  const t = raw.trim().replace(/\s+/g, " ").slice(0, LABEL_MAX);
+  if (!t) return "";
+  const key = t.toLowerCase().replace(/[\s_]+/g, "-");
+  return key === CODE_REVIEW_LABEL ? CODE_REVIEW_LABEL : t;
+}
+
+/** Same label, ignoring case. */
+export function sameLabel(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/** Every label in use, built-in first, then the rest by name. */
+export function allLabels(prompts: readonly Prompt[]): string[] {
+  const seen: string[] = [CODE_REVIEW_LABEL];
+  for (const p of prompts) for (const l of p.labels) if (!seen.some(x => sameLabel(x, l))) seen.push(l);
+  return [seen[0], ...seen.slice(1).sort((a, b) => a.localeCompare(b))];
+}
 
 /** The prompts the Review a PR dialog offers, in library order: tagged,
  *  enabled, and with something in them. */
@@ -126,11 +166,11 @@ interface Persisted {
   deletedBuiltins: string[];
   disabled: string[];
   order: string[];
-  review: Record<string, boolean>;
+  labels: Record<string, string[]>;
 }
 
 const EMPTY: Persisted = {
-  customs: [], overrides: {}, deletedBuiltins: [], disabled: [], order: [], review: {},
+  customs: [], overrides: {}, deletedBuiltins: [], disabled: [], order: [], labels: {},
 };
 
 function isCustom(c: unknown): c is StoredCustom {
@@ -151,9 +191,7 @@ function load(): Persisted {
       deletedBuiltins: Array.isArray(s.deletedBuiltins) ? s.deletedBuiltins : [],
       disabled: Array.isArray(s.disabled) ? s.disabled : [],
       order: Array.isArray(s.order) ? s.order : [],
-      review: s.review && typeof s.review === "object" && !Array.isArray(s.review)
-        ? Object.fromEntries(Object.entries(s.review).filter(([, v]) => typeof v === "boolean"))
-        : {},
+      labels: readLabels(s),
     };
   } catch {
     return { ...EMPTY };
@@ -164,8 +202,37 @@ function save(p: Persisted) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch {}
 }
 
-function isForReview(p: Persisted, id: string): boolean {
-  return p.review[id] ?? REVIEW_BY_DEFAULT.includes(id);
+/** The stored labels, with 1.16.0's `review` flags folded in: a flag set to
+ *  true adds the code review label, false takes a built-in's default one
+ *  away. An explicit `labels` entry wins over the flag for the same id. */
+function readLabels(s: Partial<Persisted> & { review?: unknown }): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (s.review && typeof s.review === "object" && !Array.isArray(s.review)) {
+    for (const [id, on] of Object.entries(s.review as Record<string, unknown>)) {
+      if (typeof on !== "boolean") continue;
+      const base = (DEFAULT_LABELS[id] ?? []).filter(l => l !== CODE_REVIEW_LABEL);
+      out[id] = on ? [...base, CODE_REVIEW_LABEL] : base;
+    }
+  }
+  if (s.labels && typeof s.labels === "object" && !Array.isArray(s.labels)) {
+    for (const [id, list] of Object.entries(s.labels)) {
+      if (Array.isArray(list)) out[id] = cleanLabels(list.filter((l): l is string => typeof l === "string"));
+    }
+  }
+  return out;
+}
+
+function cleanLabels(list: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of list) {
+    const l = normalizeLabel(raw);
+    if (l && !out.some(x => sameLabel(x, l))) out.push(l);
+  }
+  return out;
+}
+
+function labelsOf(p: Persisted, id: string): string[] {
+  return p.labels[id] ?? [...(DEFAULT_LABELS[id] ?? [])];
 }
 
 /** Resolve the persisted delta into the ordered list the UI / dropdown use. */
@@ -181,14 +248,16 @@ function computePrompts(p: Persisted): Prompt[] {
       builtin: true,
       enabled: !p.disabled.includes(d.id),
       modified: !!ov,
-      forReview: isForReview(p, d.id),
+      labels: labelsOf(p, d.id),
+      forReview: labelsOf(p, d.id).includes(CODE_REVIEW_LABEL),
     });
   }
   for (const c of p.customs) {
     items.push({
       id: c.id, title: c.title, body: c.body, builtin: false,
       enabled: !p.disabled.includes(c.id), modified: false,
-      forReview: isForReview(p, c.id),
+      labels: labelsOf(p, c.id),
+      forReview: labelsOf(p, c.id).includes(CODE_REVIEW_LABEL),
     });
   }
   // Apply explicit order; anything not listed (new built-in / freshly added)
@@ -213,8 +282,16 @@ interface PromptStore {
   /** Built-in only: drop the override so it renders the shipped default again. */
   resetPrompt: (id: string) => void;
   toggleEnabled: (id: string) => void;
-  /** Tag or untag a prompt for code review. */
+  /** Tag or untag a prompt for code review (the built-in label). */
   setForReview: (id: string, on: boolean) => void;
+  /** Replace a prompt's labels (normalized, de-duplicated). */
+  setLabels: (id: string, labels: readonly string[]) => void;
+  addLabel: (id: string, label: string) => void;
+  removeLabel: (id: string, label: string) => void;
+  /** Settings > Prompts' label filter. View state, never stored: here so
+   *  Review a PR can open the page on its review prompts. */
+  filterLabel: string | null;
+  setFilterLabel: (label: string | null) => void;
   reorderPrompts: (from: number, to: number) => void;
   /** Re-add any built-ins the user deleted. */
   restoreBuiltins: () => void;
@@ -223,7 +300,7 @@ interface PromptStore {
   reloadFromStorage: () => boolean;
 }
 
-export const usePromptLibrary = create<PromptStore>((set) => {
+export const usePromptLibrary = create<PromptStore>((set, get) => {
   let p = load();
 
   const commit = (next: Persisted) => {
@@ -243,6 +320,8 @@ export const usePromptLibrary = create<PromptStore>((set) => {
   return {
     prompts: computePrompts(p),
     deletedBuiltins: p.deletedBuiltins,
+    filterLabel: null,
+    setFilterLabel: (label) => set({ filterLabel: label }),
 
     reloadFromStorage: () => {
       const next = load();
@@ -297,18 +376,19 @@ export const usePromptLibrary = create<PromptStore>((set) => {
       if (at >= 0) order.splice(at + 1, 0, newId); else order.push(newId);
       // The suffix is minted into storage at clone time, like a tab title:
       // a clone is a user object, so it keeps the wording of the moment.
-      // A clone keeps the source's review tag: copying "Review" to tweak it
+      // A clone keeps the source's labels: copying "Review" to tweak it
       // should not drop it out of the Review a PR dialog.
-      const review = isForReview(p, id) ? { ...p.review, [newId]: true } : p.review;
-      commit({ ...p, customs: [...p.customs, { id: newId, title: `${eff.title}${i18n.t("backend:copySuffix")}`, body: eff.body }], order, review });
+      const src = labelsOf(p, id);
+      const labels = src.length ? { ...p.labels, [newId]: src } : p.labels;
+      commit({ ...p, customs: [...p.customs, { id: newId, title: `${eff.title}${i18n.t("backend:copySuffix")}`, body: eff.body }], order, labels });
       return newId;
     },
 
     deletePrompt: (id) => {
       const order = p.order.filter(x => x !== id);
       const disabled = p.disabled.filter(x => x !== id);
-      const review = { ...p.review }; delete review[id];
-      p = { ...p, review };
+      const labels = { ...p.labels }; delete labels[id];
+      p = { ...p, labels };
       if (builtinDef(id)) {
         const overrides = { ...p.overrides }; delete overrides[id];
         commit({ ...p, deletedBuiltins: Array.from(new Set([...p.deletedBuiltins, id])), overrides, order, disabled });
@@ -337,12 +417,35 @@ export const usePromptLibrary = create<PromptStore>((set) => {
       commit({ ...p, order: ids });
     },
 
+    setLabels: (id, list) => {
+      const next = cleanLabels(list);
+      const def = DEFAULT_LABELS[id] ?? [];
+      const labels = { ...p.labels };
+      // Back to the default is stored as nothing, like an unedited built-in,
+      // so a better default shipped later still reaches this prompt.
+      const isDefault = next.length === def.length && next.every(l => def.some(d => sameLabel(d, l)));
+      if (isDefault) delete labels[id];
+      else labels[id] = next;
+      commit({ ...p, labels });
+    },
+
+    addLabel: (id, label) => {
+      const l = normalizeLabel(label);
+      if (!l) return;
+      const cur = labelsOf(p, id);
+      if (cur.some(x => sameLabel(x, l))) return;
+      get().setLabels(id, [...cur, l]);
+    },
+
+    removeLabel: (id, label) => {
+      const cur = labelsOf(p, id);
+      if (!cur.some(x => sameLabel(x, label))) return;
+      get().setLabels(id, cur.filter(x => !sameLabel(x, label)));
+    },
+
     setForReview: (id, on) => {
-      const review = { ...p.review };
-      // Back to the default is stored as nothing, like an unedited built-in.
-      if (on === REVIEW_BY_DEFAULT.includes(id)) delete review[id];
-      else review[id] = on;
-      commit({ ...p, review });
+      if (on) get().addLabel(id, CODE_REVIEW_LABEL);
+      else get().removeLabel(id, CODE_REVIEW_LABEL);
     },
 
     restoreBuiltins: () => {

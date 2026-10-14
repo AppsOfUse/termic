@@ -2552,6 +2552,9 @@ struct PromptInfo {
     /// Tagged "Code review" (v21). Absent from an older webview: untagged.
     #[serde(default)]
     review: bool,
+    /// The prompt's labels, `code-review` among them when `review` is set.
+    #[serde(default)]
+    labels: Vec<String>,
 }
 
 /// The first enabled prompt tagged "Code review" with a body, as an exact
@@ -2744,6 +2747,7 @@ fn handle_prompts(req: &Request, host: &dyn CliHost) -> Reply {
             enabled: p.enabled,
             modified: p.modified,
             review: p.review,
+            labels: p.labels.clone(),
             body,
             truncated,
         }

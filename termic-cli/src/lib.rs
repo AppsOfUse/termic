@@ -4089,6 +4089,7 @@ mod tests {
         let entries = vec![
             proto::PromptEntry {
                 review: true,
+                labels: vec!["code-review".into()],
                 id: "builtin:review".into(),
                 title: "Review".into(),
                 builtin: true,
@@ -4099,6 +4100,7 @@ mod tests {
             },
             proto::PromptEntry {
                 review: false,
+                labels: Vec::new(),
                 id: "3f1c0d6e-aaaa-bbbb-cccc-1234567890ab".into(),
                 title: "Ship it".into(),
                 builtin: false,
@@ -4115,10 +4117,10 @@ mod tests {
         assert!(lines[0].starts_with("ID"), "{text}");
         assert!(lines[1].starts_with("builtin:review"), "{text}");
         assert!(lines[1].contains("builtin") && lines[1].contains("yes"), "{text}");
-        // Last column is REVIEW: the tag `termic review` picks by.
-        assert!(lines[0].ends_with("REVIEW"), "{text}");
-        assert!(lines[1].ends_with("yes"), "{text}");
-        assert!(lines[2].contains("custom") && lines[2].contains(" - ") && lines[2].ends_with("no"), "{text}");
+        // Last column is LABELS: `code-review` is what `termic review` picks by.
+        assert!(lines[0].ends_with("LABELS"), "{text}");
+        assert!(lines[1].ends_with("code-review"), "{text}");
+        assert!(lines[2].contains("custom") && lines[2].ends_with("-"), "{text}");
         assert_eq!(output::prompts_text(&[]), "The prompt library is empty.");
         // The wire's internal "kind" tag must not leak into --json output.
         let v: serde_json::Value = serde_json::from_str(&output::json(

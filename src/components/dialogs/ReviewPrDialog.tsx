@@ -11,7 +11,7 @@ import { useTranslation } from "react-i18next";
 import { GitBranch, GitPullRequest, Link2, Loader2 } from "lucide-react";
 import { useUI } from "@/store/ui";
 import { useApp } from "@/store/app";
-import { usePromptLibrary, promptTitle, reviewPrompts } from "@/store/prompts";
+import { usePromptLibrary, promptTitle, reviewPrompts, CODE_REVIEW_LABEL } from "@/store/prompts";
 import { AppDialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { AgentPills } from "./AgentPills";
@@ -121,7 +121,7 @@ export function ReviewPrDialog() {
       // title names the agent tab when the PR already has a review task).
       const used = prompt
         ? { ...prompt, body: promptText }
-        : { id: "review-pr:custom", title: t("reviewPr.title"), body: promptText, builtin: false, enabled: true, modified: false, forReview: true };
+        : { id: "review-pr:custom", title: t("reviewPr.title"), body: promptText, builtin: false, enabled: true, modified: false, labels: [CODE_REVIEW_LABEL], forReview: true };
       await startPrReview({ projectId: project.id, number: n, where, cli: agent.id, prompt: used });
       close();
     } catch (e) {
@@ -131,6 +131,14 @@ export function ReviewPrDialog() {
   }
 
   const label = "w-16 shrink-0 pt-1 text-[12.5px] text-[var(--color-fg-dim)]";
+
+  /** Settings > Prompts, filtered to the review prompts: where they are
+   *  edited, and where New prompt makes another one with the label. */
+  function openReviewPrompts() {
+    close();
+    usePromptLibrary.getState().setFilterLabel(CODE_REVIEW_LABEL);
+    useApp.getState().openSettings("prompts");
+  }
 
   return (
     <AppDialog
@@ -257,7 +265,7 @@ export function ReviewPrDialog() {
                 <button
                   type="button"
                   className="text-[var(--color-accent)] hover:underline"
-                  onClick={() => { close(); useApp.getState().openSettings("prompts"); }}
+                  onClick={openReviewPrompts}
                 >
                   {t("reviewPr.openPrompts")}
                 </button>
@@ -283,6 +291,14 @@ export function ReviewPrDialog() {
                     {promptTitle(p, t)}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  data-testid="review-pr-manage-prompts"
+                  onClick={openReviewPrompts}
+                  className="px-1 py-1 text-[12px] text-[var(--color-accent)] hover:underline"
+                >
+                  {t("reviewPr.managePrompts")}
+                </button>
               </div>
             )}
             {/* The prompt the agent wakes up with, editable for this review

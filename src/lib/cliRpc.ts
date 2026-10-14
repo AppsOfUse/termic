@@ -941,8 +941,10 @@ export function listPromptsHandler(params?: unknown): {
   prompts: {
     id: string; title: string; body: string;
     builtin: boolean; enabled: boolean; modified: boolean;
-    /** Tagged "Code review": what `termic review` picks without -P. */
+    /** Labelled "Code review": what `termic review` picks without -P. */
     review: boolean;
+    /** Every label, the built-in one as `code-review`. */
+    labels: string[];
   }[];
 } {
   const bodies = (params as { bodies?: unknown })?.bodies !== false;
@@ -955,6 +957,7 @@ export function listPromptsHandler(params?: unknown): {
       enabled: p.enabled,
       modified: p.modified,
       review: p.forReview,
+      labels: p.labels,
     })),
   };
 }

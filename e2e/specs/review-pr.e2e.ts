@@ -36,96 +36,138 @@ const promptIds = () => browser.execute(() =>
 const reviewTasks = () => browser.execute(() =>
   window.__termic!.useApp.getState().tasks.filter((t: any) => !t.archived && t.name.startsWith("review-pr-")).length);
 
-describe("review a PR: the prompt library's Code review tag", () => {
-  let customId = "";
+describe("review a PR: labels in the prompt library", () => {
+  const made: string[] = [];
+  const row = (id: string) => `[data-prompt-id="${id}"]`;
+  const labelsOn = (id: string) => browser.execute((sel) =>
+    [...document.querySelectorAll(`${sel} [data-testid="prompt-label"]`)].map(e => e.getAttribute("data-label")), row(id));
+  const libLabels = (id: string) => browser.execute((i) =>
+    (window.__termic!.usePromptLibrary.getState() as any).prompts.find((p: any) => p.id === i)?.labels as string[], id);
+  /** Type a label into a row's (or the editor's) add field and press Enter. */
+  const addLabel = async (scope: string, label: string) => {
+    // the "+ Label" button is out of sight until its row is hovered: pressed
+    // the way a hovering user would, since WebDriver will not click it
+    await browser.execute((s) => (document.querySelector(`${s} [data-testid="prompt-label-add"]`) as HTMLElement).click(), scope);
+    await waitVisible(`${scope} [data-testid="prompt-label-input"]`);
+    await setInputValue(`${scope} [data-testid="prompt-label-input"]`, label);
+    await browser.execute((s) => {
+      const el = document.querySelector(`${s} [data-testid="prompt-label-input"]`) as HTMLInputElement;
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    }, scope);
+  };
+  const filterTo = (label: string | null) => browser.execute((l) => {
+    const btn = [...document.querySelectorAll('[data-testid="prompt-label-filter"] button')]
+      .find(b => b.getAttribute("data-label") === (l ?? "")) as HTMLElement;
+    btn.click();
+  }, label);
+  const shownIds = () => browser.execute(() =>
+    [...document.querySelectorAll("[data-prompt-id]")].map(e => e.getAttribute("data-prompt-id")));
 
   before(async () => {
     await waitForAppShell();
     await requireTermicApi();
     await dismissOverlays();
+    await browser.execute(() => window.__termic!.useApp.getState().openSettings("prompts"));
+    await waitVisible('[data-testid="prompt-label-filter"]');
   });
 
   after(async () => {
-    await browser.execute((id) => {
+    await browser.execute((ids) => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
-      if (id) s.deletePrompt(id);
-      s.setForReview("builtin:review", true);
-      s.setForReview("builtin:security-review", true);
-    }, customId);
+      for (const id of ids) s.deletePrompt(id);
+      s.setLabels("builtin:review", ["code-review"]);
+      s.setLabels("builtin:security-review", ["code-review"]);
+      s.setFilterLabel(null);
+    }, made);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
   });
 
-  it("marks Review and Security review as code review prompts out of the box", async () => {
-    await browser.execute(() => window.__termic!.useApp.getState().openSettings("prompts"));
-    await waitVisible('[data-prompt-id="builtin:review"] [data-testid="prompt-review-tag"]');
-    const pressed = await browser.execute(() =>
-      [...document.querySelectorAll("[data-prompt-id]")].map(r => [
-        r.getAttribute("data-prompt-id"),
-        r.querySelector('[data-testid="prompt-review-tag"]')?.getAttribute("aria-pressed"),
-      ]));
-    const on = (pressed as [string, string][]).filter(([, v]) => v === "true").map(([id]) => id);
-    expect(on.sort()).toEqual(["builtin:review", "builtin:security-review"]);
-    await snap("review-pr-01-prompt-tags.png");
+  it("labels Review and Security review Code review out of the box, and filters by it", async () => {
+    expect(await labelsOn("builtin:review")).toEqual(["code-review"]);
+    expect(await labelsOn("builtin:security-review")).toEqual(["code-review"]);
+    expect(await labelsOn("builtin:commit")).toEqual([]);
+    await filterTo("code-review");
+    await browser.waitUntil(async () => (await shownIds()).length === 2, { timeout: 5_000, timeoutMsg: "the Code review filter did not narrow the list" });
+    expect(new Set(await shownIds())).toEqual(new Set(["builtin:review", "builtin:security-review"]));
+    await snap("review-pr-01-prompt-labels.png");
+    await filterTo(null);
   });
 
-  it("tags a prompt from its row, and the editor's checkbox says the same", async () => {
-    customId = await browser.execute(() =>
-      (window.__termic!.usePromptLibrary.getState() as any).addPrompt({ title: "Deep review", body: "Run the deep-review skill on this PR." }));
-    const chip = `[data-prompt-id="${customId}"] [data-testid="prompt-review-tag"]`;
-    const opacity = () => browser.execute((s) => getComputedStyle(document.querySelector(s)!).opacity, chip);
-    await browser.waitUntil(() => browser.execute((s) => !!document.querySelector(s), chip), { timeout: 8_000, timeoutMsg: "no chip on the new row" });
-    expect(await browser.execute((s) => document.querySelector(s)?.getAttribute("aria-pressed"), chip)).toBe("false");
-    // Untagged, the chip stays out of sight until its row is hovered, so a
-    // list of sixteen prompts is not lined with dim chips.
-    expect(await opacity()).toBe("0");
-    // Pressed as a hovering user would; WebDriver will not click an
-    // element it considers invisible.
-    await browser.execute((s) => (document.querySelector(s) as HTMLElement).click(), chip);
-    await browser.waitUntil(
-      () => browser.execute((s) => document.querySelector(s)?.getAttribute("aria-pressed") === "true", chip),
-      { timeout: 5_000, timeoutMsg: "the chip never lit" },
-    );
-    // Tagged, it shows whatever the pointer is doing.
-    expect(await opacity()).toBe("1");
-    expect(await browser.execute((id) =>
-      (window.__termic!.usePromptLibrary.getState() as any).prompts.find((p: any) => p.id === id)?.forReview, customId)).toBe(true);
-    // The editor shows the same tag, and unticking it there untags the row.
-    await clickWhenVisible(`[data-prompt-id="${customId}"] [title="Edit prompt"]`);
-    await waitVisible('[data-testid="prompt-editor-review"][aria-checked="true"]');
-    await clickWhenVisible('[data-testid="prompt-editor-review"]');
-    await waitVisible('[data-testid="prompt-editor-review"][aria-checked="false"]');
-    expect(await browser.execute((s) => document.querySelector(s)?.getAttribute("aria-pressed"), chip)).toBe("false");
-    await clickWhenVisible('[data-testid="prompt-editor-review"]');
-    await waitVisible('[data-testid="prompt-editor-review"][aria-checked="true"]');
+  it("New prompt under a label filter makes a prompt with that label: as many review prompts as wanted", async () => {
+    await filterTo("code-review");
+    await browser.waitUntil(async () => (await shownIds()).length === 2, { timeout: 5_000, timeoutMsg: "filter did not apply" });
+    await clickByText("New prompt");
+    const id = await browser.waitUntil(async () => {
+      const ids = await browser.execute(() => (window.__termic!.usePromptLibrary.getState() as any).prompts.map((p: any) => p.id as string)) as string[];
+      return ids.find(x => !x.startsWith("builtin:") && !made.includes(x)) ?? false;
+    }, { timeout: 5_000, timeoutMsg: "no new prompt" }) as string;
+    made.push(id);
+    expect(await libLabels(id)).toEqual(["code-review"]);
+    // give it a title and body so closing the editor keeps it
+    await browser.execute((i) => (window.__termic!.usePromptLibrary.getState() as any)
+      .updatePrompt(i, { title: "Deep review", body: "Run the deep-review skill on this PR." }), id);
+    // The editor shows its labels and takes another.
+    await waitVisible('[data-testid="prompt-editor-labels"] [data-testid="prompt-label"][data-label="code-review"]');
+    await addLabel('[data-testid="prompt-editor-labels"]', "Team standards");
+    await browser.waitUntil(async () => (await libLabels(id)).includes("Team standards"),
+      { timeout: 5_000, timeoutMsg: "the editor did not add the label" });
+    await snap("review-pr-02-editor-labels.png");
     await browser.keys("Escape");
+    await browser.waitUntil(async () => (await shownIds()).length === 3, { timeout: 5_000, timeoutMsg: "the new review prompt is not under the filter" });
+    await filterTo(null);
   });
 
-  it("offers exactly the tagged prompts in the dialog, in library order", async () => {
+  it("adds a label of the user's own on a row, and removes it again", async () => {
+    const id = await browser.execute(() =>
+      (window.__termic!.usePromptLibrary.getState() as any).addPrompt({ title: "Perf pass", body: "Look for slow paths." })) as string;
+    made.push(id);
+    await waitVisible(row(id));
+    await addLabel(row(id), "performance");
+    await browser.waitUntil(async () => (await labelsOn(id)).includes("performance"), { timeout: 5_000, timeoutMsg: "the row did not take the label" });
+    // A new label becomes a filter of its own.
+    await filterTo("performance");
+    await browser.waitUntil(async () => (await shownIds()).join() === id, { timeout: 5_000, timeoutMsg: "the new label's filter did not narrow to it" });
+    await filterTo(null);
+    // Any spelling of code review is the built-in label, not a look-alike.
+    await addLabel(row(id), "Code Review");
+    await browser.waitUntil(async () => (await labelsOn(id)).includes("code-review"), { timeout: 5_000, timeoutMsg: "Code Review was not the built-in label" });
+    await browser.execute((sel) => {
+      const chip = document.querySelector(`${sel} [data-testid="prompt-label"][data-label="performance"] [data-testid="prompt-label-remove"]`) as HTMLElement;
+      chip.click();
+    }, row(id));
+    await browser.waitUntil(async () => (await labelsOn(id)).join() === "code-review", { timeout: 5_000, timeoutMsg: "removing the label did not take" });
+  });
+
+  it("offers exactly the Code review prompts in the dialog, and links back to them", async () => {
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
     await openDialog();
     const ids = await promptIds();
-    expect(new Set(ids)).toEqual(new Set(["builtin:review", "builtin:security-review", customId]));
-    await closeDialog();
+    expect(new Set(ids)).toEqual(new Set(["builtin:review", "builtin:security-review", ...made]));
+    // The link opens Settings, Prompts on the review prompts.
+    await clickWhenVisible('[data-testid="review-pr-manage-prompts"]');
+    await waitGone(DIALOG);
+    await waitVisible('[data-testid="prompt-label-filter"] [data-label="code-review"][aria-pressed="true"]');
+    await filterTo(null);
   });
 
-  it("says where to tag one when nothing is tagged, and cannot start", async () => {
-    await browser.execute((id) => {
+  it("says where to label one when nothing is, and cannot start", async () => {
+    await browser.execute((ids) => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
-      for (const p of ["builtin:review", "builtin:security-review", id]) s.setForReview(p, false);
-    }, customId);
+      for (const p of ["builtin:review", "builtin:security-review", ...ids]) s.removeLabel(p, "code-review");
+    }, made);
+    await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
     await openDialog();
     await waitVisible('[data-testid="review-pr-no-prompts"]');
     await setInputValue(INPUT, "12");
     expect(await startDisabled()).toBe(true);
-    await snap("review-pr-02-no-prompts.png");
-    // The link goes to the place that fixes it.
-    await clickByText("Tag one in Settings, Prompts");
+    await clickByText("Label one Code review in Settings, Prompts");
     await waitGone(DIALOG);
-    await waitVisible("[data-prompt-id]");
-    await browser.execute((id) => {
+    await waitVisible('[data-testid="prompt-label-empty"]');
+    await browser.execute((ids) => {
       const s = window.__termic!.usePromptLibrary.getState() as any;
-      for (const p of ["builtin:review", "builtin:security-review", id]) s.setForReview(p, true);
-    }, customId);
+      for (const p of ["builtin:review", "builtin:security-review", ...ids]) s.addLabel(p, "code-review");
+      s.setFilterLabel(null);
+    }, made);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
   });
 });

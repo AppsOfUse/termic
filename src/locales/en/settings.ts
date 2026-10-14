@@ -811,10 +811,15 @@ export default {
     desc: "Reusable prompts for the Prompts menu in the top bar. When you fire one, you pick where it goes: an existing agent (queued if it is busy) or a new agent. Drag to reorder. Built-ins can be edited and reset. Open the palette with {{combo}} to search and fire them by keyboard.",
     new: "New prompt",
     empty: "No prompts. Add one, or restore the built-ins below.",
-    // The tag that puts a prompt in the Review a PR dialog.
+    // Labels. "Code review" is the built-in one: it puts a prompt in the
+    // Review a PR dialog.
     forReview: "Code review",
-    forReviewTip: "Offer this prompt when reviewing a pull request",
-    forReviewEditor: "Use for code review (offered in Review a PR)",
+    allLabels: "All",
+    addLabel: "Label",
+    addLabelTip: "Add a label. Code review offers this prompt in Review a PR.",
+    removeLabel: "Remove the {{label}} label",
+    labelPlaceholder: "Label name",
+    labelEmpty: "No prompts labelled {{label}} yet. New prompt adds one with this label.",
     dragTip: "Drag to reorder",
     titlePlaceholder: "Prompt title",
     builtIn: "Built-in",
