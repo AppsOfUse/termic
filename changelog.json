@@ -1,6 +1,11 @@
 {
   "versions": [
     {
+      "version": "1.16.0",
+      "date": "2026-10-14",
+      "summary": "A guided first launch, Review a PR, History by PR, and new-file previews."
+    },
+    {
       "version": "1.15.0",
       "date": "2026-10-12",
       "summary": "Shared scratchpads, Ghostty and Warp themes, markdown review comments, pinned folders, and a Linux pass."

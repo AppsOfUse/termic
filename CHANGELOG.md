@@ -4,6 +4,71 @@ All notable changes to Termic, newest first. This file is the human-authored
 source of truth: the in-app Update card and the /changelog page on termic.dev
 are generated from it. See the `release` skill for how entries are added.
 
+## [1.16.0] - 2026-10-14
+
+A guided first launch, Review a PR, History by PR, and new-file previews.
+
+### Features
+- **A shorter welcome and a short tour.** The first-launch wizard is one
+  screen now: the agents Termic found, and two ways out. "Show me around"
+  walks you through five cards that point at the real controls (add a
+  project, where the agent works, naming the task, starting it, the
+  sidebar's status marks), each with a step count and a Got it. Pressing
+  the control a card points at moves you on.
+- **Tips, once.** Small cards point at a feature the moment it is useful
+  (an agent waiting in another task, changes ready to review, an account
+  near its limit, a status line keeping usage numbers out) and never come
+  back once seen. If you already had Termic set up, you only get tips for
+  features added after this release. Settings, General can replay the tour
+  or show every tip again, or turn tips off.
+- **Review a PR.** Paste a PR number or link, pick a worktree or the main
+  checkout, an agent and a review prompt, and Termic fetches the PR and
+  starts the review with the PR's details in front of the prompt, which you
+  can edit for that review. Open it from the command palette or a project's
+  `+` menu, or bind a shortcut. In Settings, Prompts, tag any prompt (your
+  own review skill, say) as a code review prompt. `termic review <pr>` and
+  the MCP `task_review` tool do the same.
+- **History by pull request.** The History page is a wide table with each
+  task's branch, what it was cut from, and its PR: number, last known
+  state and title. Search a PR number (`#123`, or the link) to find the
+  task behind it and restore it.
+- **Preview new files from the Git tab.** A new Markdown, HTML or SVG file
+  opens rendered, with a switch back to source. A new file's diff no longer
+  paints every line as an insertion.
+- **A schedule can run once,** on a date you pick, beside daily, weekdays
+  and weekly. Thanks to [@GabrielDumbrava](https://github.com/GabrielDumbrava).
+- **Right-click a tab row in the sidebar** to open a new tab below it or
+  close it, and drag tab rows to reorder them. Thanks to
+  [@AppsOfUse](https://github.com/AppsOfUse).
+- **`is:open` in the task filter** and an action chip find the tasks that
+  have an agent running. Thanks to [@nvkvin](https://github.com/nvkvin).
+
+### Improvements
+- **Add Project asks where your repos live** and lists what is in a folder
+  as soon as you stop typing its path.
+- **The status line fix prompt covers context too,** asks whether to change
+  the repo or a git-ignored local file, and is in each project's settings
+  for later.
+- **Recently used tabs and Search everywhere take your own keys.** Record
+  the hold-and-tap gesture, and bind a chord to Search everywhere. Thanks
+  to [@AppsOfUse](https://github.com/AppsOfUse).
+- **The theme list names the current theme** beside the search box and
+  scrolls to it on open. Thanks to [@wagoodman](https://github.com/wagoodman).
+- **Agents can delete scratchpads:** `termic scratchpad rm` and `clear`, and
+  the matching MCP tools.
+
+### Bug fixes
+- A task an agent created from inside another task could land in an
+  unrelated task group that shared its group's name.
+- macOS: Termic could crash when the pointer rested over selected text, on
+  macOS versions with Writing Tools. Thanks to [@nvkvin](https://github.com/nvkvin).
+- macOS: Ctrl+P reaches the shell in a terminal again. Thanks to
+  [@jeromewir](https://github.com/jeromewir).
+- A PR closed without merging shows as a muted red, struck through, and the
+  sidebar's mode mark sits beside the task name.
+- The "pi" agent's name was nearly invisible in the New Task agent picker
+  on dark themes.
+
 ## [1.15.0] - 2026-10-12
 
 Shared scratchpads, Ghostty and Warp themes, markdown review comments, pinned folders, and a Linux pass.
