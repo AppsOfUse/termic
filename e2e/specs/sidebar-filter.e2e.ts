@@ -556,9 +556,14 @@ describe("sidebar filter bar", () => {
     const ids = [a, b, c, wt];
     const before = await activeTaskId();
     const pass = async (name: string, wanted: Mark[]) => {
-      // Off macOS a Seatbelt mode draws nothing (see setSandbox above): the
-      // same row carries Docker instead, so it still has a mark to place.
-      const marks = SEATBELT ? wanted : wanted.map(m => (m.mode ? { ...m, mode: undefined, docker: true } : m));
+      // Off macOS a Seatbelt mode draws nothing (see setSandbox above). A
+      // sleeping row (c, wt) carries Docker instead, so it still has a mark
+      // to place. A LIVE row (a, b) just drops it: a cage under a live agent
+      // is a YOLO flip that raises a restart prompt and takes the window's
+      // one confirm slot (see setYolo below), and that row expects no mark.
+      const live = new Set([a, b]);
+      const marks = SEATBELT ? wanted : wanted.map((m, i) => (!m.mode ? m
+        : live.has(ids[i]) ? { ...m, mode: undefined } : { ...m, mode: undefined, docker: true }));
       await dress(Object.fromEntries(ids.map((id, i) => [id, marks[i]])));
       const want = marks.map(m => ({ mode: !!(m.yolo || m.mode || m.docker), pr: !!m.pr }));
       await browser.waitUntil(async () => (await read(ids)).every((r, i) =>
