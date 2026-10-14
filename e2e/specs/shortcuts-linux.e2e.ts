@@ -445,7 +445,8 @@ const ptyBytes = () => browser.execute(() => {
     // go to the PTY as an escape sequence. The terminal's own three stay.
     const own = new Set(["terminal-copy", "terminal-paste", "find-in-files"]);
     const shouldReach = Object.entries(bindings)
-      .filter(([id, b]) => b.cmd && (b.shift || b.alt) && !own.has(id)).map(([id]) => id);
+      // `b?`: an unbound shortcut (search-everywhere, review-pr) is null.
+      .filter(([id, b]) => b?.cmd && (b.shift || b.alt) && !own.has(id)).map(([id]) => id);
     expect(shouldReach.filter(id => kept.includes(id)).sort()).toEqual([]);
     expect(unmatched).toEqual([]);
   });
@@ -663,6 +664,8 @@ type Group = "task" | "tab" | "pane" | "bottom" | "leaves" | "chrome" | "setting
     { id: "find-in-files", group: "ui", modes: ["ctrl"] },
     { id: "broadcast", group: "ui" },
     { id: "prompt-palette", group: "ui" },
+    // Opens the palette straight onto its theme list.
+    { id: "change-theme", group: "ui" },
     { id: "open-settings", group: "settings" },
     { id: "toggle-left-sidebar", group: "chrome", undo: async () => { await store(() => { const s = window.__termic!.useApp.getState() as any; if (s.compactSidebar) s.toggleCompactSidebar(); }); } },
     { id: "toggle-right-sidebar", group: "chrome", undo: async () => { await store(() => { const s = window.__termic!.useApp.getState() as any; if (s.rightPanelHidden) s.toggleRightPanel(); }); } },
@@ -686,6 +689,10 @@ type Group = "task" | "tab" | "pane" | "bottom" | "leaves" | "chrome" | "setting
     "create-pr": "needs a branch with a remote (git.e2e.ts)",
     "stage-file": "handled by the Git panel on its selected row (git.e2e.ts)",
     "discard-file": "handled by the Git panel on its selected row (git.e2e.ts)",
+    // Unbound by default: no key to press. Each has another way in, covered
+    // where it lives.
+    "search-everywhere": "ships unbound; its double-Shift gesture is covered in codenav.e2e.ts",
+    "review-pr": "ships unbound; the dialog is opened from the palette in review-pr.e2e.ts",
   };
 
   before(async function () {

@@ -686,10 +686,15 @@ describe("a tip for a moment: an agent waiting", () => {
 
   it("says nothing about a wait in the task you are looking at", async () => {
     await setWaiting(here, true);
-    await waitVisible('[data-testid="waiting-agents-pill"]');
-    // The pill is up, and the tip is not even armed: you are looking at it.
-    expect((await present()).agentWaiting).toBeUndefined();
-    expect(await shownTip()).toBe(null);
+    // Not the pill: a focused window marks a finished turn in the task on
+    // screen as read at once (CI's window is focused, a local hidden run's
+    // is not), so whether the pill shows depends on the runner. The claim is
+    // about the TIP: for longer than the hold it needs, it never arms.
+    const armed = await browser.waitUntil(
+      async () => (await present()).agentWaiting !== undefined || (await shownTip()) !== null,
+      { timeout: 4_000, interval: 250 },
+    ).then(() => true, () => false);
+    expect(armed).toBe(false);
     await setWaiting(here, false);
   });
 

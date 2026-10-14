@@ -66,6 +66,9 @@ async function waitTree(ids: string[], want: (shown: string[]) => boolean, msg: 
   await browser.waitUntil(async () => want(await treeShows(ids)), { timeout: 5_000, timeoutMsg: msg });
 }
 
+/** Seatbelt, and so the Seatbelt sandbox modes, exist on macOS only. */
+const SEATBELT = process.platform === "darwin";
+
 describe("sidebar filter bar", () => {
   let a = "";
   let b = "";
@@ -392,8 +395,11 @@ describe("sidebar filter bar", () => {
       await seed(null, { state: "closed", checks: "none", review: "none" });
       await waitMark({ state: "closed", struck: true, closedRed: true, ticked: false }, "live closed");
       await snap("sidebar-pr-closed.png");
-      // Through the middle of the digits. The font's own strikeout was not.
-      expect((await mark())!.strikeOff).toBeLessThan(1);
+      // Through the middle of the digits. The font's own strikeout was not:
+      // it sat several px low. Up to 1px, because the drawn line is 1px and
+      // snaps to the pixel grid: CI's runner, with its fallback font, lands
+      // it exactly 1px off the digits' centre, which is the line's own width.
+      expect((await mark())!.strikeOff).toBeLessThanOrEqual(1);
       await seed({ state: "closed", checks: "none", review: "none" }, null);
       await waitMark({ state: "closed", cached: true, struck: true, closedRed: true }, "remembered closed");
       await seed(null, { state: "open", checks: "passing", review: "changes_requested" });
@@ -463,12 +469,18 @@ describe("sidebar filter bar", () => {
           : w),
       }));
     }, ids, on);
-    const setSandbox = (id: string, mode: string | null) => browser.execute((id, mode) => {
+    // Seatbelt is macOS only: elsewhere every Seatbelt mode reads as off
+    // (effectiveSandboxMode) and draws no mark, so the row is dressed in the
+    // cage that platform has, Docker. The layout rule is the same for both.
+    const setSandbox = (id: string, mode: string | null) => browser.execute((id, mode, seatbelt) => {
       window.__termic!.useApp.setState((s: any) => ({
         tasks: s.tasks.map((w: any) => w.id === id
-          ? { ...w, sandbox_enabled: !!mode, sandbox_mode: mode ?? "off" } : w),
+          ? seatbelt
+            ? { ...w, sandbox_enabled: !!mode, sandbox_mode: mode ?? "off" }
+            : { ...w, docker_sandbox_enabled: !!mode }
+          : w),
       }));
-    }, id, mode);
+    }, id, mode, SEATBELT);
     const edges = () => browser.execute((plain, marked) => {
       const of = (id: string) => {
         const row = document.querySelector(`[data-sidebar-task-row="${id}"]`);
@@ -543,7 +555,10 @@ describe("sidebar filter bar", () => {
     }), ids);
     const ids = [a, b, c, wt];
     const before = await activeTaskId();
-    const pass = async (name: string, marks: Mark[]) => {
+    const pass = async (name: string, wanted: Mark[]) => {
+      // Off macOS a Seatbelt mode draws nothing (see setSandbox above): the
+      // same row carries Docker instead, so it still has a mark to place.
+      const marks = SEATBELT ? wanted : wanted.map(m => (m.mode ? { ...m, mode: undefined, docker: true } : m));
       await dress(Object.fromEntries(ids.map((id, i) => [id, marks[i]])));
       const want = marks.map(m => ({ mode: !!(m.yolo || m.mode || m.docker), pr: !!m.pr }));
       await browser.waitUntil(async () => (await read(ids)).every((r, i) =>
