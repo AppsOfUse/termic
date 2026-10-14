@@ -104,6 +104,11 @@ export default {
     untitledPrompt: "未命名提示词",
   },
 
+  scratchCli: {
+    removedOne: "智能体移除了暂存本「{{title}}」。",
+    removedMany: "智能体移除了 {{count}} 个暂存本。",
+  },
+
   scratchTabs: {
     createFailed: "无法创建暂存本：{{error}}",
     deleteFailed: "无法删除暂存本：{{error}}",

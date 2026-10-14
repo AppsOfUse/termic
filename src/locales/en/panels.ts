@@ -33,6 +33,10 @@ export default {
 
   diff: {
     staleNotice: "This file changed since you opened it.",
+    // New markdown / HTML / SVG files only: the file is new, so the useful
+    // view is the rendered document.
+    sourceTip: "Source",
+    previewTip: "Preview",
     unifiedTip: "Unified (inline)",
     sideBySideTip: "Side by side",
     sideBySideUnavailable: "Side by side is unavailable: new or deleted file, nothing to compare",

@@ -190,7 +190,8 @@ read what it produced (`logs`, `result`); retitle your own task \
 the task's sidebar row (`prop ticket ABC-1`); and keep notes, plans, findings, logs and reports the user \
 should READ in a scratchpad (`scratchpad new`, `scratchpad write`), a tab \
 in your task that updates live and stays out of git: use one instead of \
-dropping temporary .md files into the repo. Coordinate by prompting \
+dropping temporary .md files into the repo, and tidy up after yourself with \
+`scratchpad rm` (one pad) or `scratchpad clear` (all of a task's). Coordinate by prompting \
 each other rather than blocking: end a prompt with the `send` back to your task \
 you want run when the work is done. Without $TERMIC_TASK_ID you are driving \
 Termic from outside it: name tasks explicitly."
@@ -478,6 +479,64 @@ unknown project or agent, duplicate task), 3 agent stopped needing input, \
         timeout: Option<String>,
         /// Run from inside a task, the new task joins YOUR task's group in
         /// the sidebar (see `group`). This keeps it out.
+        #[arg(long)]
+        no_group: bool,
+    },
+
+    /// Review a pull request: fetch it, check it out, start an agent on it
+    /// with a code-review prompt.
+    #[command(
+        after_help = "The same task the app's Review a PR dialog starts. <PR> is a number \
+(123, #123, !123) or a PR / MR link. The PR's head is fetched and checked out \
+in a new worktree (--main switches the project's main checkout to it \
+instead, stashing local work), the task is named review-pr-<n>, and the \
+agent's first prompt is the PR's title, link, description and the commands \
+that show its diff and discussion, followed by a library prompt tagged \
+\"Code review\" (Settings, Prompts). -P picks one by id or title; without it \
+the first tagged prompt is used, and a library with none tagged is an \
+error. -p adds your own text after the library prompt.
+
+The project resolves like `new`: --project, or the current directory. \
+--wait, --timeout, --open, --no-group, the output formats and the exit codes \
+are `new`'s: see `termic new --help`. A second review of the same PR fails \
+on the existing review-pr-<n> task; `send` to it instead."
+    )]
+    Review {
+        /// The pull request: 123, #123, !123 or its link.
+        pr: String,
+        /// Extra text after the review prompt. `-` reads stdin.
+        #[arg(short, long)]
+        prompt: Option<String>,
+        /// Review prompt: a library prompt id or exact title. Default: the
+        /// first prompt tagged "Code review". See `termic prompts`.
+        #[arg(short = 'P', long = "library", value_name = "SEL")]
+        library: Option<String>,
+        /// Agent CLI id. Default: the project's default agent.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Check the PR out in the project's main checkout instead of a
+        /// new worktree. Local changes are stashed first.
+        #[arg(long)]
+        main: bool,
+        /// Sandbox mode for the task. Default: the project's sandbox seeds.
+        #[arg(long, value_parser = ["off", "monitor", "enforce", "enforce-fs"])]
+        sandbox: Option<String>,
+        /// Skip agent permission prompts (the agent's YOLO flag).
+        #[arg(long)]
+        yolo: bool,
+        /// Project name (default: resolved from the current directory).
+        #[arg(long)]
+        project: Option<String>,
+        /// Select the new task in the GUI and raise the window.
+        #[arg(long)]
+        open: bool,
+        /// Block until the review's first turn settles.
+        #[arg(long)]
+        wait: bool,
+        /// Give up waiting after this long (exit 7). E.g. 90, 30s, 5m, 1h.
+        #[arg(long, requires = "wait", value_name = "DURATION")]
+        timeout: Option<String>,
+        /// Keep the review task out of your task's sidebar group.
         #[arg(long)]
         no_group: bool,
     },
@@ -1446,6 +1505,36 @@ running, 5 CLI disabled, 6 refused, 8 connection lost."
         #[command(flatten)]
         target: PadTarget,
     },
+    /// Delete one scratchpad for good.
+    #[command(
+        name = "rm",
+        alias = "remove",
+        after_help = "<PAD> is the pad's id or its exact title, case-insensitive. A title shared by two pads is an error listing their ids. The pad's text, its record and its tab all go, including edits the human has not saved anywhere. There is no undo, so remove only what you created or were asked to remove.
+
+Prints `removed pad <id>`. With --output-format json, one object: {\"task_id\", \"pads\": [the pad that was removed]}.
+
+Exit codes: 0 removed, 1 error (unknown or ambiguous pad or task), 4 app not running, 5 CLI disabled, 6 refused, 8 connection lost."
+    )]
+    Rm {
+        /// Pad id or exact title.
+        pad: String,
+        #[command(flatten)]
+        target: PadTarget,
+    },
+    /// Delete every scratchpad in the target, for good.
+    #[command(
+        after_help = "Removes every pad `scratchpad list` shows for the same target: your own task by default, another task with --task, or one shared scope with --scope project|profile|global (or --global). Their text, records and tabs all go, and there is no undo. A shared scope holds the human's notes too, so clear one only when asked to.
+
+To empty ONE pad and keep it, write empty text instead: `termic scratchpad write <PAD> -c \"\"`.
+
+Prints how many were removed. With --output-format json, one object: {\"task_id\", \"pads\": [every pad that was removed]}.
+
+Exit codes: 0 cleared (also when there was nothing to remove), 1 error (unknown task or scope), 4 app not running, 5 CLI disabled, 6 refused, 8 connection lost."
+    )]
+    Clear {
+        #[command(flatten)]
+        target: PadTarget,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1732,7 +1821,16 @@ fn pre_connect_guard(cmd: &Cmd) -> Result<(), CliError> {
     }
     // `-P` is a selector, never stdin; an empty one fails here rather
     // than as a server lookup.
+    if let Cmd::Review { pr, .. } = cmd {
+        if proto::parse_pr_ref(pr).is_none() {
+            return Err(CliError::new(
+                exit_code::ERROR,
+                format!("\"{pr}\" is not a pull request: pass its number (123, #123) or its link"),
+            ));
+        }
+    }
     if let Cmd::New { library: Some(l), .. }
+    | Cmd::Review { library: Some(l), .. }
     | Cmd::Send { library: Some(l), .. }
     | Cmd::Tab { library: Some(l), .. }
     | Cmd::Schedule(ScheduleCmd::Set { library: Some(l), .. }) = cmd
@@ -1828,12 +1926,14 @@ outside.",
     let has_library = matches!(
         &cli.cmd,
         Cmd::New { library: Some(_), .. }
+            | Cmd::Review { library: Some(_), .. }
             | Cmd::Send { library: Some(_), .. }
             | Cmd::Tab { library: Some(_), .. }
             | Cmd::Schedule(ScheduleCmd::Set { library: Some(_), .. })
     );
     let prompt = match &cli.cmd {
         Cmd::New { prompt: Some(p), .. }
+        | Cmd::Review { prompt: Some(p), .. }
         | Cmd::Send { prompt: Some(p), .. }
         | Cmd::Tab { prompt: Some(p), .. }
         | Cmd::Schedule(ScheduleCmd::Set { prompt: Some(p), .. }) => Some(resolve_prompt(p, has_library)?),
@@ -1890,6 +1990,7 @@ outside.",
     match &cli.cmd {
         Cmd::Help { .. } => unreachable!("handled above"),
         Cmd::New { .. } => execute_new(cli, &mut conn, &token, format, &paths, prompt),
+        Cmd::Review { .. } => execute_review(cli, &mut conn, &token, format, &paths, prompt),
         Cmd::Send { .. } => execute_send(cli, &mut conn, &token, format, prompt),
         Cmd::Attach { task, project, shell, tab, resize, detach_keys } => {
             let seq = attach::parse_detach_keys(detach_keys)?;
@@ -2203,6 +2304,9 @@ outside.",
                     name: name.clone(),
                     color: color.clone(),
                     cwd: std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()),
+                    // Who is asking, which is not the same as `task` when an
+                    // agent names another task's group.
+                    caller_task: parent_task_from_env(),
                 },
                 &token,
             )?;
@@ -2328,9 +2432,61 @@ fn execute_new(
         timeout_ms,
         cwd,
         parent_task: if *no_group { None } else { parent_task_from_env() },
+        pr: None,
     };
+    run_new_wire(conn, wire, *wait, token, format, paths)
+}
 
-    if *wait && format == OutputFormat::Text {
+/// `termic review`: `new` with a PR. Everything after the wire is `new`'s.
+fn execute_review(
+    cli: &Cli,
+    conn: &mut client::Conn,
+    token: &str,
+    format: OutputFormat,
+    paths: &client::SocketPaths,
+    prompt: Option<String>,
+) -> Result<Output, CliError> {
+    let Cmd::Review { pr, library, agent, main, sandbox, yolo, project, open, wait, timeout, no_group, .. } = &cli.cmd
+    else {
+        unreachable!()
+    };
+    let number = proto::parse_pr_ref(pr)
+        .ok_or_else(|| CliError::new(exit_code::ERROR, format!("\"{pr}\" is not a pull request")))?;
+    let timeout_ms = timeout.as_deref().map(parse_duration_ms).transpose()?;
+    let wire = proto::Command::New {
+        name: String::new(),
+        prompt,
+        prompt_ref: library.clone(),
+        agent: agent.clone(),
+        agent_args: Vec::new(),
+        mode: Some(if *main { "main" } else { "worktree" }.to_string()),
+        base: None,
+        checkout: None,
+        from: None,
+        resume: None,
+        sandbox: sandbox.clone(),
+        yolo: *yolo,
+        project: project.clone(),
+        open: *open,
+        wait: *wait,
+        timeout_ms,
+        cwd: std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned()),
+        parent_task: if *no_group { None } else { parent_task_from_env() },
+        pr: Some(number),
+    };
+    run_new_wire(conn, wire, *wait, token, format, paths)
+}
+
+/// Send a `new` and stream it to the end: shared by `new` and `review`.
+fn run_new_wire(
+    conn: &mut client::Conn,
+    wire: proto::Command,
+    wait: bool,
+    token: &str,
+    format: OutputFormat,
+    paths: &client::SocketPaths,
+) -> Result<Output, CliError> {
+    if wait && format == OutputFormat::Text {
         eprintln!("termic: watching the agent (Ctrl-C stops watching; the task keeps running)");
     }
     let data = match run_streamed(conn, wire.clone(), token, format) {
@@ -2748,6 +2904,19 @@ fn execute_pad(
             pad: pad.clone(),
             cwd,
         },
+        PadCmd::Rm { pad, target } => proto::Command::PadRemove {
+            task: pad_task(target),
+            project: target.project.clone(),
+            scope: pad_scope(target),
+            pad: pad.clone(),
+            cwd,
+        },
+        PadCmd::Clear { target } => proto::Command::PadClear {
+            task: pad_task(target),
+            project: target.project.clone(),
+            scope: pad_scope(target),
+            cwd,
+        },
     };
     let data = client::request(conn, wire, token)?;
     let proto::ReplyData::Pad(d) = data else {
@@ -2761,6 +2930,12 @@ fn execute_pad(
             .first()
             .map(|p| format!("wrote pad {}", p.id))
             .unwrap_or_default(),
+        PadCmd::Rm { .. } => d
+            .pads
+            .first()
+            .map(|p| format!("removed pad {}", p.id))
+            .unwrap_or_default(),
+        PadCmd::Clear { .. } => output::pad_cleared_text(d.pads.len()),
         PadCmd::Read { .. } => {
             if d.truncated && format == OutputFormat::Text {
                 eprintln!("termic: the pad was truncated to fit the reply; read the rest in Termic");
@@ -3913,6 +4088,7 @@ mod tests {
     fn prompts_render_contract() {
         let entries = vec![
             proto::PromptEntry {
+                review: true,
                 id: "builtin:review".into(),
                 title: "Review".into(),
                 builtin: true,
@@ -3922,6 +4098,7 @@ mod tests {
                 truncated: false,
             },
             proto::PromptEntry {
+                review: false,
                 id: "3f1c0d6e-aaaa-bbbb-cccc-1234567890ab".into(),
                 title: "Ship it".into(),
                 builtin: false,
@@ -3938,7 +4115,10 @@ mod tests {
         assert!(lines[0].starts_with("ID"), "{text}");
         assert!(lines[1].starts_with("builtin:review"), "{text}");
         assert!(lines[1].contains("builtin") && lines[1].contains("yes"), "{text}");
-        assert!(lines[2].contains("custom") && lines[2].ends_with("-"), "{text}");
+        // Last column is REVIEW: the tag `termic review` picks by.
+        assert!(lines[0].ends_with("REVIEW"), "{text}");
+        assert!(lines[1].ends_with("yes"), "{text}");
+        assert!(lines[2].contains("custom") && lines[2].contains(" - ") && lines[2].ends_with("no"), "{text}");
         assert_eq!(output::prompts_text(&[]), "The prompt library is empty.");
         // The wire's internal "kind" tag must not leak into --json output.
         let v: serde_json::Value = serde_json::from_str(&output::json(
@@ -3949,6 +4129,24 @@ mod tests {
         assert!(v.get("kind").is_none());
         // The list omits bodies (additive contract: absent, not null).
         assert!(v["prompts"][0].get("body").is_none());
+    }
+
+    #[test]
+    fn review_parses_a_pr_and_refuses_anything_else_before_connecting() {
+        for ok in ["123", "#123", "!7", "https://github.com/acme/web/pull/77"] {
+            assert!(pre_connect_guard(&Cli::try_parse_from(["termic", "review", ok]).unwrap().cmd).is_ok(), "{ok}");
+        }
+        for bad in ["abc", "0", "https://github.com/acme/web/issues/4"] {
+            let e = pre_connect_guard(&Cli::try_parse_from(["termic", "review", bad]).unwrap().cmd).unwrap_err();
+            assert!(e.message.contains("is not a pull request"), "{bad}: {}", e.message);
+        }
+        let cli = Cli::try_parse_from(["termic", "review", "#9", "-P", "Deep review", "--main", "--project", "web"]).unwrap();
+        let Cmd::Review { pr, library, main, project, .. } = &cli.cmd else { panic!("not review") };
+        assert_eq!(pr, "#9");
+        assert_eq!(library.as_deref(), Some("Deep review"));
+        assert!(main);
+        assert_eq!(project.as_deref(), Some("web"));
+        assert!(Cli::try_parse_from(["termic", "review"]).is_err(), "the PR is required");
     }
 
     #[test]
@@ -3988,6 +4186,24 @@ mod tests {
         // `pad` alone is not a verb.
         assert!(Cli::try_parse_from(["termic", "pad"]).is_err());
         // The canonical name parses to the same command as the alias.
+        // rm takes the same selector as read and write; `remove` is the long
+        // spelling of the same verb.
+        for verb in ["rm", "remove"] {
+            let rm = Cli::try_parse_from(["termic", "pad", verb, "findings", "--task", "t1"]).unwrap();
+            let Cmd::Pad(PadCmd::Rm { pad, target }) = &rm.cmd else { panic!("not pad rm") };
+            assert_eq!(pad, "findings");
+            assert_eq!(target.task.as_deref(), Some("t1"));
+        }
+        // A pad is required: `rm` with no selector must not quietly mean "all".
+        assert!(Cli::try_parse_from(["termic", "pad", "rm"]).is_err());
+        // clear takes a target and nothing else, and reaches a shared scope
+        // the way every pad verb does.
+        let clear = Cli::try_parse_from(["termic", "scratchpad", "clear", "--global"]).unwrap();
+        let Cmd::Pad(PadCmd::Clear { target }) = &clear.cmd else { panic!("not pad clear") };
+        assert!(target.global);
+        assert_eq!(pad_scope(target).as_deref(), Some("global"));
+        assert!(Cli::try_parse_from(["termic", "scratchpad", "clear", "findings"]).is_err());
+
         let full = Cli::try_parse_from(["termic", "scratchpad", "write", "findings", "-c", "x"]).unwrap();
         assert!(matches!(full.cmd, Cmd::Pad(PadCmd::Write { .. })));
     }
@@ -4000,6 +4216,9 @@ mod tests {
         ];
         assert_eq!(output::pad_list_text(&pads), "a  findings\nb  Untitled  (not open)");
         assert_eq!(output::pad_list_text(&[]), "no scratchpads");
+        assert_eq!(output::pad_cleared_text(0), "no scratchpads to remove");
+        assert_eq!(output::pad_cleared_text(1), "removed 1 scratchpad");
+        assert_eq!(output::pad_cleared_text(3), "removed 3 scratchpads");
     }
 
     #[test]
@@ -4181,6 +4400,7 @@ mod tests {
             "project list",
             "project remove", "help", "prompts", "prompts show",
             "scratchpad list", "scratchpad new", "scratchpad write", "scratchpad read",
+            "scratchpad rm", "scratchpad clear",
             "schedule list", "schedule show", "schedule set", "schedule run", "schedule delete",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");

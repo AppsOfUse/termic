@@ -1,5 +1,5 @@
-// The webview half of `termic scratchpad list|new|write|read`: an agent's notes for
-// the human, in the task's scratchpads.
+// The webview half of `termic scratchpad list|new|write|read|rm|clear`: an
+// agent's notes for the human, in the task's scratchpads.
 //
 // The server resolves the task; everything about pads happens here, because
 // an OPEN pad's truth is its editor buffer (lib/scratchLive). A write to an
@@ -12,6 +12,8 @@ import { livePad, padDiskSettled, trackPadDiskWrite } from "@/lib/scratchLive";
 import { scratchTab, scratchTargetId } from "@/lib/scratchTabs";
 import { deriveScratchTitle, SCRATCH_UNTITLED } from "@/lib/scratchTitle";
 import type { ScratchTab } from "@/lib/types";
+import { useUI } from "@/store/ui";
+import { i18n } from "@/lib/i18n";
 
 export interface PadInfo {
   id: string;
@@ -22,7 +24,7 @@ export interface PadInfo {
 
 interface PadParams {
   taskId: string;
-  op: "list" | "new" | "write" | "read";
+  op: "list" | "new" | "write" | "read" | "remove" | "clear";
   pad?: string;
   title?: string | null;
   content?: string | null;
@@ -171,6 +173,45 @@ async function writePad(taskId: string, info: PadInfo, content: string, append: 
   return info;
 }
 
+/** Delete one pad for good: every tab showing it, then its file and record.
+ *
+ *  The TAB goes first, and the order is the whole point. An open pad's editor
+ *  writes its buffer back on a debounce and once more when it unmounts, and
+ *  both are skipped only once the tab is out of the store (EditorPane's
+ *  unmount flush checks exactly that). Deleting the file first would leave a
+ *  live editor to write it straight back, and the note an agent was asked to
+ *  remove would reappear a second later. So: close, let any write already on
+ *  its way to disk land, then delete.
+ *
+ *  A pad in a shared scope can be open under whichever task the user opened
+ *  it from, so the tabs are looked for in every task, not only the target. */
+async function removePad(taskId: string, info: PadInfo): Promise<PadInfo> {
+  const s = useApp.getState();
+  for (const [hostId, list] of Object.entries(s.tabs)) {
+    for (const tab of list) {
+      if (tab.type !== "scratch" || tab.scratchId !== info.id) continue;
+      // An index pad, not a named file from a scope's tree: those have a
+      // path and are not what `scratchpad list` shows.
+      if (tab.path || scratchTargetId(tab, hostId) !== taskId) continue;
+      s.closeTab(hostId, tab.id);
+    }
+  }
+  await padDiskSettled(taskId, info.id);
+  await trackPadDiskWrite(taskId, info.id, ipc.scratchDelete(taskId, info.id));
+  return { ...info, open: false };
+}
+
+/** Tell the human their notes went, in one line. An agent removing a pad is
+ *  the one pad verb that takes something AWAY from the person it was written
+ *  for, and a tab vanishing without a word looks like a bug. */
+function announceRemoved(removed: PadInfo[]) {
+  if (removed.length === 0) return;
+  const text = removed.length === 1
+    ? i18n.t("backend:scratchCli.removedOne", { title: removed[0].title || SCRATCH_UNTITLED })
+    : i18n.t("backend:scratchCli.removedMany", { count: removed.length });
+  useUI.getState().pushToast(text, "info");
+}
+
 export async function padHandler(raw: unknown): Promise<{ pads: PadInfo[]; content?: string }> {
   const p = raw as PadParams;
   if (typeof p?.taskId !== "string" || !p.taskId) throw new Error("pad requires a taskId");
@@ -194,6 +235,22 @@ export async function padHandler(raw: unknown): Promise<{ pads: PadInfo[]; conte
       const live = livePad(p.taskId, info.id);
       const content = live ? live.text() : await ipc.scratchRead(p.taskId, info.id);
       return { pads: [info], content };
+    }
+    case "remove": {
+      if (typeof p.pad !== "string") throw new Error("pad remove requires a pad");
+      const info = await resolvePad(p.taskId, p.pad);
+      const removed = [await removePad(p.taskId, info)];
+      announceRemoved(removed);
+      return { pads: removed };
+    }
+    case "clear": {
+      // Exactly what `list` would show, taken once: a pad created while this
+      // runs is not swept up with the ones the caller asked about.
+      const infos = await padInfos(p.taskId);
+      const removed: PadInfo[] = [];
+      for (const info of infos) removed.push(await removePad(p.taskId, info));
+      announceRemoved(removed);
+      return { pads: removed };
     }
     default:
       throw new Error(`unknown pad op ${String((p as { op?: unknown }).op)}`);

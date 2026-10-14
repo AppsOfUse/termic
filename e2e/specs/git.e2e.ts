@@ -260,6 +260,76 @@ describe("git dirty tree", () => {
       { timeoutMsg: "re-opening the same diff did not re-read it" });
   });
 
+  it("shows a new file as the file, and keeps the add/remove washes for a changed one", async () => {
+    const dir = await browser.execute((id) =>
+      (window.__termic!.useApp.getState().tasks.find((t: any) => t.id === id))!.path as string, taskId);
+    writeFileSync(path.join(dir, "NEW-NOTES.md"), "# Notes\n\nfirst line\nsecond line\n");
+    // The VISIBLE pane: README's diff tab from the cases above stays mounted
+    // (display: none) beside the new one.
+    const washes = () => browser.execute(() => {
+      const pane = [...document.querySelectorAll<HTMLElement>('[data-testid="diff-pane"]')].find(el => el.offsetParent !== null);
+      return {
+        inserted: pane?.querySelectorAll(".cm-insertedLine, .cm-changedLine").length ?? 0,
+        lines: pane?.querySelectorAll(".cm-line").length ?? 0,
+        text: pane?.querySelector(".cm-content")?.textContent ?? "",
+      };
+    });
+    const open = async (file: string) => {
+      await browser.execute((id, f) => {
+        window.__termic!.useApp.getState().openPreviewTab(id, { type: "diff", path: f, title: f, scope: "unstaged" });
+      }, taskId, file);
+      await browser.waitUntil(async () => (await washes()).text.length > 0,
+        { timeout: 8_000, timeoutMsg: `the diff of ${file} never loaded` });
+    };
+    const inVisible = (sel: string) => browser.execute((q) => {
+      const pane = [...document.querySelectorAll<HTMLElement>('[data-testid="diff-pane"]')].find(el => el.offsetParent !== null);
+      const el = pane?.querySelector<HTMLElement>(q);
+      return el ? { shown: el.offsetParent !== null, text: el.textContent ?? "", sandbox: el.getAttribute("sandbox"), kind: el.getAttribute("data-kind") } : null;
+    }, sel);
+    try {
+      await browser.execute(() => localStorage.removeItem("diffNewFileView"));
+      await open("NEW-NOTES.md");
+      // A new markdown file opens RENDERED: the heading is a heading.
+      await browser.waitUntil(async () => (await inVisible('[data-testid="diff-new-preview"] h1'))?.text === "Notes",
+        { timeout: 8_000, timeoutMsg: "the new markdown file was not rendered" });
+      expect((await inVisible('[data-testid="diff-new-preview"]'))?.kind).toBe("markdown");
+      expect((await inVisible('[data-testid="diff-new-preview"]'))?.shown).toBe(true);
+      await snap("git-diff-new-file-preview.png");
+      // Source shows the text, with no insertion wash, and is remembered.
+      await clickWhenVisible('[data-testid="diff-new-view-source"]');
+      await browser.waitUntil(async () => !(await inVisible('[data-testid="diff-new-preview"]')),
+        { timeout: 5_000, timeoutMsg: "Source did not leave the preview" });
+      expect(await browser.execute(() => localStorage.getItem("diffNewFileView"))).toBe("source");
+      await browser.waitUntil(async () => (await washes()).text.includes("second line"),
+        { timeout: 8_000, timeoutMsg: "the new file's text never showed" });
+      const fresh = await washes();
+      // Every line is there, and none is painted as an insertion.
+      expect(fresh.lines).toBeGreaterThanOrEqual(4);
+      expect(fresh.inserted).toBe(0);
+      await snap("git-diff-new-file.png");
+      // A new HTML file renders in the same empty sandbox HtmlPane uses.
+      writeFileSync(path.join(dir, "NEW-REPORT.html"), "<h2>Report</h2><p>ok</p>\n");
+      await open("NEW-REPORT.html");
+      // Source was chosen above and is remembered, so this opens as source.
+      await waitVisible('[data-testid="diff-new-view-source"][aria-checked="true"]');
+      await clickWhenVisible('[data-testid="diff-new-view-preview"]');
+      await browser.waitUntil(async () => (await inVisible('[data-testid="diff-new-preview"] iframe')) != null,
+        { timeout: 8_000, timeoutMsg: "the new HTML file was not rendered" });
+      expect((await inVisible('[data-testid="diff-new-preview"] iframe'))?.sandbox).toBe("");
+      // The control: a file with a before still gets its washes, and has no
+      // preview switch, because a rendered page cannot show what changed.
+      await open("README.md");
+      await browser.waitUntil(async () => (await washes()).inserted > 0,
+        { timeout: 8_000, timeoutMsg: "a changed file lost its add/remove washes" });
+      expect(await inVisible('[data-testid="diff-new-preview"]')).toBe(null);
+      expect(await inVisible('[data-testid="diff-new-view-source"]')).toBe(null);
+    } finally {
+      rmSync(path.join(dir, "NEW-NOTES.md"), { force: true });
+      rmSync(path.join(dir, "NEW-REPORT.html"), { force: true });
+      await browser.execute(() => localStorage.removeItem("diffNewFileView"));
+    }
+  });
+
   it("collapses the Unstaged section to its header", async () => {
     // The panel's 4s git poll is skipped while the window is unfocused, and a
     // parallel suite run leaves it unfocused. Drive the fetch instead of

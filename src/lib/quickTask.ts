@@ -159,6 +159,9 @@ export async function createQuickTask(opts: {
   cli: string;
   name: string;
   branch?: string;
+  /** `branch` names an EXISTING branch to check out (a fetched PR head),
+   *  never one to cut. */
+  checkoutExisting?: boolean;
   command?: string;
   id?: string;
 }): Promise<Task> {
@@ -205,6 +208,7 @@ export async function createQuickTask(opts: {
         cli,
         base_branch: null,
         branch: opts.branch?.trim() || undefined,
+        checkout_existing: opts.checkoutExisting || undefined,
         // Sandbox pins are left unset so Rust falls back to the project's
         // defaults (quick create doesn't expose the sandbox panel — that's
         // what "Advanced…" is for).

@@ -85,6 +85,7 @@ export interface TermicApi {
   /** Profiles registry as this window sees it (src/store/profiles.ts, GH
    *  #280). Read for setup/teardown; the strip is what the spec asserts on. */
   useProfiles: { getState: () => any; setState: (p: any) => void };
+  useGuide: { getState: () => any; setState: (p: any) => void };
   /** Plan usage (src/store/agentUsage.ts). Seeded by specs: no fixture agent
    *  reports a real reading. */
   useAgentUsage: { getState: () => any; setState: (p: any) => void };

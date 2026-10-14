@@ -3,14 +3,16 @@
 // with EditorPane). Side-by-side uses MergeView; unified uses
 // unifiedMergeView in a single read-only editor.
 
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffTab, Task, GitFile } from "@/lib/types";
 import { taskFileDiffSides, taskGitStatus, taskGitCompare, type DiffSides } from "@/lib/ipc";
 import { BinaryDiffBody } from "./BinaryDiffBody";
 import { orderedFiles, readView } from "./GitPanel";
 import { Button } from "@/components/ui/Button";
-import { FolderOpen, Columns2, AlignJustify, Eye, CircleAlert, X } from "lucide-react";
+import { FolderOpen, Columns2, AlignJustify, Eye, CircleAlert, X, Code2, BookOpen } from "lucide-react";
+import { htmlPreviewSrcdoc } from "@/lib/htmlPreview";
+import { svgDataUrl } from "@/lib/previewPaths";
 import { useApp } from "@/store/app";
 import { useFileViewed, useIsViewed } from "@/store/fileViewed";
 import { usePrefs, resolveTheme } from "@/store/prefs";
@@ -55,6 +57,31 @@ function writeMode(m: Mode) {
   try { localStorage.setItem(LS_DIFF_MODE, m); } catch {}
 }
 
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview").then(m => ({ default: m.MarkdownPreview })),
+);
+
+/** What a NEW file can be rendered as instead of read as text. A new file's
+ *  diff is the whole file, so for a document the useful view is the
+ *  document. Files with a before keep the diff only: a rendered page cannot
+ *  show what changed. Images already render in the diff (BinaryDiffBody). */
+export function newFilePreviewKind(path: string): "markdown" | "html" | "svg" | null {
+  const base = path.split("/").pop() ?? path;
+  const ext = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (ext === "md" || ext === "markdown") return "markdown";
+  if (ext === "html" || ext === "htm") return "html";
+  if (ext === "svg") return "svg";
+  return null;
+}
+
+/** Source or rendered, for a new previewable file. One choice for every
+ *  file, remembered on this machine; rendered unless the user said source. */
+const LS_DIFF_NEW_FILE_VIEW = "diffNewFileView";
+type NewFileView = "source" | "preview";
+function readNewFileView(): NewFileView {
+  try { return localStorage.getItem(LS_DIFF_NEW_FILE_VIEW) === "source" ? "source" : "preview"; } catch { return "preview"; }
+}
+
 export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
   // `t` is taken by the @lezer/highlight tags import above, so the
   // translation function is `tr`.
@@ -75,6 +102,14 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
   // header's "Viewed" toggle anchors to the same fp the Git panel rows use
   // (GH #42). Empty for a deletion → the toggle is hidden.
   const [fp, setFp] = useState("");
+  // A new file's text, labeled with the path it was read for (a recycled
+  // tab swaps the path before the next read lands), for the preview.
+  const [newText, setNewText] = useState<{ path: string; text: string } | null>(null);
+  const [newView, setNewView] = useState<NewFileView>(() => readNewFileView());
+  const setNewViewAndPersist = (v: NewFileView) => {
+    setNewView(v);
+    try { localStorage.setItem(LS_DIFF_NEW_FILE_VIEW, v); } catch {}
+  };
   // Staleness (GH #266). The pane does not live-update: content moving under
   // a reader mid-review is worse than content being old. Instead the tab says
   // it is out of date and re-reads when asked, which is how GitHub handles a
@@ -243,6 +278,7 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
     setCommentable(false);
     setBinary(null);
     setStale(false);
+    setNewText(null);
     // Grammars come from CodeMirror's registry now, so resolving one is a
     // chunk fetch. It rides ALONGSIDE the diff read rather than after it, and
     // needs no guard of its own: `alive` already covers the whole load, the
@@ -271,6 +307,7 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
       // still has two real sides to compare.
       const degenerate = !sides.original_exists || !sides.modified_exists;
       setOneSided(degenerate);
+      setNewText(!sides.original_exists && sides.modified_exists ? { path: tab.path, text: sides.modified } : null);
       // Tear any prior view down before mounting the new one.
       mergeRef.current?.destroy();
       mergeRef.current = null;
@@ -406,6 +443,19 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
           diffConfig,
         });
         setCommentable(!isCommitScope);
+      } else if (!sides.original_exists) {
+        // A NEW file is shown as the file, not as a diff against nothing:
+        // every line painted as an insertion is a wall of green that says
+        // only "this file is new", which the file list already says. The
+        // add/remove washes are kept for files that have a before to compare
+        // with, where they carry the signal. (A deleted file keeps its red
+        // view: the removed text is the only thing left to show.)
+        editorRef.current = new EditorView({
+          parent: hostRef.current,
+          doc: sides.modified,
+          extensions: [...baseExt, commentExt],
+        });
+        setCommentable(!isCommitScope);
       } else {
         editorRef.current = new EditorView({
           parent: hostRef.current,
@@ -435,6 +485,12 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
   }, [task.id, tab.path, tab.scope, editorFontSize, mode, editorThemeId, appIsLight, tab.reloadNonce]);
 
   const effectiveMode: Mode = oneSided ? "unified" : mode;
+
+  const previewKind = newText && newText.path === tab.path ? newFilePreviewKind(tab.path) : null;
+  const showingPreview = !!previewKind && newView === "preview";
+  const themeDark = !appIsLight;
+  const loadRemoteImages = usePrefs(s => s.loadRemoteImages);
+  const memberDirs = useMemo(() => task.composition?.map(m => m.dir_name), [task.composition]);
 
   return (
     // bg MUST be opaque: tab swap keeps the codex/claude terminal
@@ -501,12 +557,37 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {/* Source ⇄ Preview, for a NEW markdown / HTML / SVG file only. */}
+          {previewKind && (
+            <div className="mr-1 inline-flex items-stretch rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[2px]" role="radiogroup">
+              {([
+                ["source", Code2, tr("diff.sourceTip")],
+                ["preview", BookOpen, tr("diff.previewTip")],
+              ] as const).map(([v, Icon, tip]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={newView === v}
+                  data-testid={`diff-new-view-${v}`}
+                  title={tip}
+                  onClick={() => setNewViewAndPersist(v)}
+                  className={cn(
+                    "h-6 rounded-[5px] px-1.5 text-[11.5px] transition-colors",
+                    newView === v
+                      ? "bg-[var(--color-bg-3)] text-[var(--color-fg)]"
+                      : "text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]",
+                  )}
+                ><Icon className="h-3.5 w-3.5" /></button>
+              ))}
+            </div>
+          )}
           {/* Side-by-side ⇄ Unified toggle. Persisted in localStorage
               so the user's preference sticks across launches. Hidden for an
               image/binary diff: both modes are line-based. */}
           <div className={cn(
             "mr-1 inline-flex items-stretch rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[2px]",
-            binary && "hidden",
+            (binary || showingPreview) && "hidden",
           )}>
             <button
               type="button"
@@ -535,7 +616,7 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
           </div>
           {/* Whole-file comment. Targets the modified pane: the `b` editor in
               side-by-side, the single editor in unified. */}
-          {commentable && (
+          {commentable && !showingPreview && (
             <Button size="sm" variant="ghost" title={tr("diff.commentFileTip")} onClick={() => {
               const v = mergeRef.current?.b ?? editorRef.current;
               if (v) { v.focus(); dispatchFileComment(v); }
@@ -569,8 +650,50 @@ export function DiffPane({ task, tab }: { task: Task; tab: DiffTab }) {
         <div
           ref={hostRef}
           data-selectable
-          className={cn("min-h-0 flex-1 overflow-auto", binary && "hidden")}
+          className={cn("min-h-0 flex-1 overflow-auto", (binary || showingPreview) && "hidden")}
         />
+      )}
+      {/* The rendered new file. The source editor above stays mounted
+          (hidden), so switching back keeps its scroll and comments. */}
+      {!err && showingPreview && newText && (
+        <div data-testid="diff-new-preview" data-kind={previewKind} className="min-h-0 flex-1 overflow-hidden">
+          {previewKind === "markdown" && (
+            <Suspense fallback={<div className="p-4 text-[13px] text-[var(--color-fg-dim)]">{tr("shared.loadingPreview")}</div>}>
+              <MarkdownPreview
+                text={newText.text}
+                themeDark={themeDark}
+                ctx={{ taskId: task.id, filePath: tab.path, epoch: fsRev, memberDirs }}
+                ownsFind={false}
+                remoteImagesAllowed={loadRemoteImages}
+                onAlwaysLoadRemoteImages={loadRemoteImages ? undefined : () => usePrefs.getState().setLoadRemoteImages(true)}
+              />
+            </Suspense>
+          )}
+          {previewKind === "html" && (
+            // The same boundary as HtmlPane: an empty sandbox (opaque
+            // origin, no script) and the CSP the srcdoc carries.
+            <iframe
+              title={tab.path}
+              sandbox=""
+              srcDoc={htmlPreviewSrcdoc(newText.text, loadRemoteImages)}
+              className="h-full w-full border-0 bg-[var(--color-html-canvas)]"
+            />
+          )}
+          {previewKind === "svg" && (
+            <div
+              className="flex h-full items-center justify-center overflow-auto p-4"
+              style={{
+                backgroundImage:
+                  "linear-gradient(45deg, var(--color-bg-2) 25%, transparent 25%, transparent 75%, var(--color-bg-2) 75%), " +
+                  "linear-gradient(45deg, var(--color-bg-2) 25%, transparent 25%, transparent 75%, var(--color-bg-2) 75%)",
+                backgroundSize: "16px 16px",
+                backgroundPosition: "0 0, 8px 8px",
+              }}
+            >
+              <img src={svgDataUrl(newText.text)} alt={tab.path} className="max-h-full max-w-full object-contain" />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

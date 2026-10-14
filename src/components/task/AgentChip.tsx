@@ -25,7 +25,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PopoverRoot, PopoverTrigger, PopoverContent } from "@/components/ui/Popover";
 import { CliIcon, CLI_BRAND_COLOR, resolveIconId } from "@/icons/cli";
-import { CircleSlash, Copy, Check } from "lucide-react";
+import { CircleSlash } from "lucide-react";
 import * as ipc from "@/lib/ipc";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { cn } from "@/lib/utils";
@@ -34,13 +34,15 @@ import { AGENT_HOOKS_HIGHLIGHT } from "@/components/settings/AgentHooksBlock";
 import {
   formatPercent, formatReset, formatUsd, formatConsumed, formatPeriod, usageLevel, drivingWindow, shortWindowWords,
   USAGE_WARN_PERCENT, USAGE_CRITICAL_PERCENT,
-  blocksUsageFeed, blockedReason, statusLineAgentPrompt,
+  blocksUsageFeed, blockedReason,
   type UsageLevel, type UsageWindow, type StatusLineOwner,
 } from "@/lib/agentUsage";
 import { builtinBaseId, agentDisplayName } from "@/lib/agents";
 import { useAgentAccounts, type AgentAccounts } from "@/hooks/useAgentAccounts";
 import { useAccountSwitching } from "@/hooks/useAccountSwitching";
 import { AccountSwitcher } from "@/components/task/AccountSwitcher";
+import { CopyStatusLinePrompt } from "@/components/task/StatusLinePrompt";
+import { useTip } from "@/lib/guide/useTip";
 import { pillVisible } from "@/lib/accountPill";
 import { KeyRound, ArrowRightLeft } from "lucide-react";
 import { useUsageUnknownDismissed } from "@/store/usageUnknownDismissed";
@@ -49,7 +51,6 @@ import { useApp } from "@/store/app";
 import { usePrefs } from "@/store/prefs";
 import { useAgentContext, contextKey, type ContextEntry } from "@/store/agentContext";
 import { contextLevel, formatTokens, CONTEXT_WARN_PERCENT, footerSources, footerNeedsHooks, type FooterSources } from "@/lib/agentContext";
-import { writeClipboardText } from "@/lib/clipboard";
 
 /** How long a pulled reading stands before the chip asks again.
  *
@@ -186,13 +187,16 @@ export function AgentChip({ taskId, agentId, cwd, docker, accounts, visible, cla
   const [owner, setOwner] = useState<StatusLineOwner | null>(null);
   const known = hideUsage || usageKnown(entry, spend);
   useEffect(() => {
-    if (base !== "claude" || !visible || !cwd || known) { setOwner(null); return; }
+    // Asked while there is nothing to show (it may be the reason), and again
+    // whenever the panel is open: a script that already reports is still a
+    // custom one, and the panel is where its owner finds the prompt again.
+    if (base !== "claude" || !visible || !cwd || (known && !detailOpen)) { setOwner(null); return; }
     let cancelled = false;
     ipc.usageStatusLineOwner(agentId, cwd)
       .then(o => { if (!cancelled) setOwner(o); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [agentId, base, cwd, visible, known]);
+  }, [agentId, base, cwd, visible, known, detailOpen]);
 
   // The pull transports only. claude arrives on its own through the terminal,
   // and asking it as well would spend a request to learn what it already told
@@ -284,6 +288,30 @@ export function AgentChip({ taskId, agentId, cwd, docker, accounts, visible, cla
   const dismissed = useUsageUnknownDismissed(s => s.byAgent[agentId] === true);
   const hooksInstalled = useApp(s => s.agentHooksInstalled[agentId] === true);
   const quiet = unknown && dismissed && !hooksInstalled;
+  // Which tip may point at this chip (docs/guide.md). The chip picks the ONE
+  // that is true of it and announces that, because only this component knows:
+  //
+  //   agentHooks  nothing to show, and the reason is hooks: none installed, an
+  //             agent whose readouts come from them, and a user who has not
+  //             already waved the label away. `=== true`, not `!== false`:
+  //             before the status read lands the answer is unknown, and a tip
+  //             must not act on a guess.
+  //   addCredentials  the session or the weekly window has reached its limit and
+  //             there is no second login to switch to. Same condition as the
+  //             panel's "add a second set" row, plus the limit.
+  //   (none)    working as intended. No tip: someone reading their numbers
+  //             here already knows what the chip is.
+  const hooksSupported = useApp(s => s.agentHooksSupported[agentId] === true);
+  const nudgeHooks = unknown && !dismissed && !hooksInstalled && hooksSupported
+    && footerNeedsHooks(sources, { usage: !hideUsage, context: !hideContext });
+  const worst = entry ? drivingWindow(entry) : null;
+  const atLimit = !!worst && usageLevel(worst.window.usedPercent) === "critical"
+    && !!accountsView?.supported && accountsView.accounts.length < 1;
+  // Announced only from the chip on screen (every visited task stays
+  // mounted), and not while the "usage n/a" chip stands in for this one,
+  // which announces its own.
+  const replaced = blocked && !hasNumbers && !hasAccounts && !hasContext;
+  const tip = useTip(visible && !replaced && (nudgeHooks ? "agentHooks" : atLimit ? "addCredentials" : null));
   if (!hasNumbers && !hasAccounts && !hasContext) {
     if (blocked) return <BlockedChip owner={owner!} className={className} />;
     if (!unknown) return null;
@@ -316,6 +344,7 @@ export function AgentChip({ taskId, agentId, cwd, docker, accounts, visible, cla
         <button
           type="button"
           data-testid="usage-chip"
+          data-guide={tip}
           // The values the chip is CLAIMING, so a spec asserts the number the
           // user reads rather than the store field behind it. Percentages are
           // rounded here exactly as they are rendered.
@@ -465,6 +494,15 @@ export function AgentChip({ taskId, agentId, cwd, docker, accounts, visible, cla
           accountsView={accountsView} refreshAccounts={refreshAccounts}
           onNavigate={() => setDetailOpen(false)}
         />
+        {/* A custom status line that already reports. The "usage n/a" chip was
+            the only place its prompt lived, and that chip is gone as soon as
+            one number arrives, so this is the way back to it. */}
+        {blocked && (hasNumbers || hasContext) && (
+          <div data-testid="usage-custom-status-line" className="border-t border-[var(--color-border-soft)] px-3 py-2 text-[12.5px]">
+            <p className="mb-1.5 text-[var(--color-fg-dim)]">{t("agentChip.customStatusLine")}</p>
+            <CopyStatusLinePrompt owner={owner!} />
+          </div>
+        )}
         {/* The credentials half of the same panel. Rendered here rather than
             in its own popover: one control, one panel. */}
         {hasAccounts && accountsView && (
@@ -883,13 +921,17 @@ function UsageRow({ label, sub, window: w, driving, level, source }: {
  */
 function BlockedChip({ owner, className }: { owner: StatusLineOwner; className?: string }) {
   const { t } = useTranslation("task");
-  const [copied, setCopied] = useState(false);
+  // Mounted only while a custom status line is positively in the way, and
+  // only from the visible task's footer (the owner is not even asked for a
+  // hidden one), so being here at all is the state the tip waits for.
+  const tip = useTip("statusLine");
   return (
     <PopoverRoot>
       <PopoverTrigger asChild>
         <button
           type="button"
           data-testid="usage-blocked-chip"
+          data-guide={tip}
           data-usage-owner={owner.owner}
           title={t("agentChip.blockedTitle")}
           className={cn(
@@ -929,21 +971,7 @@ function BlockedChip({ owner, className }: { owner: StatusLineOwner; className?:
             {/* The way out, as work someone else does. The user does not have
                 to learn the wire format: they paste this at the agent that
                 owns the script and it makes the edit. */}
-            <button
-              type="button"
-              onClick={() => {
-                void writeClipboardText(statusLineAgentPrompt(owner))
-                  .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600); })
-                  .catch(() => {});
-              }}
-              className="flex items-center gap-1.5 text-[12px] text-[var(--color-fg-dim)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-fg)]"
-            >
-              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied ? t("common:copied") : t("agentChip.copyPrompt")}
-            </button>
-            <p className="mt-1 text-[12px] text-[var(--color-fg-faint)]">
-              {t("agentChip.copyPromptHint")}
-            </p>
+            <CopyStatusLinePrompt owner={owner} />
           </div>
         </div>
       </PopoverContent>

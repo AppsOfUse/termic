@@ -184,6 +184,8 @@ export default {
     customCommandHint: "ssh、开发服务器、REPL…",
     startRace: "发起竞赛…",
     startRaceHint: "一个提示词，多个智能体，选出胜者。",
+    reviewPr: "审查拉取请求…",
+    reviewPrHint: "获取 PR 并开始审查。",
     worktreesUnavailable: "工作树不可用",
     worktreesUnavailableHint: "此文件夹不是 git 仓库。将项目指向一个 git 仓库（或在此文件夹执行 git init）即可启用工作树。",
     advanced: "高级…",

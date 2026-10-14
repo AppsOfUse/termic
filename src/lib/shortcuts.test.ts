@@ -36,10 +36,11 @@ describe("the shortcut table", () => {
 
   it("ships without a chord only where another way in exists", () => {
     // An unbound command nobody can reach is a dead feature. Search everywhere
-    // is the one exception, and it has double-Shift.
+    // has double-Shift; Review a PR is in the command palette and the project
+    // + menu (its palette row is checked by CommandPalette.coverage.test.ts).
     const unbound = SHORTCUT_DEFS.filter(d => d.defaultBinding === null);
-    expect(unbound.map(d => d.id)).toEqual(["search-everywhere"]);
-    for (const d of unbound) expect(d.gesture, d.id).toBe("double-shift");
+    expect(unbound.map(d => d.id)).toEqual(["search-everywhere", "review-pr"]);
+    expect(SHORTCUT_DEFS.find(d => d.id === "search-everywhere")?.gesture).toBe("double-shift");
   });
 
   it("hands each default chord to exactly one shortcut", () => {

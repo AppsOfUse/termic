@@ -394,9 +394,9 @@ reminder subagents under their own `session_id`, and a subagent's `Stop` ends
 the tab's turn early. If the agent has subagents, check what their hook
 payloads look like before trusting a Done.
 
-**There is no UI step.** Settings → Agents' hooks row and the welcome wizard's
-list are both driven by `SUPPORTED` crossed with what is on PATH, so adding the
-id there is what makes the agent appear. It also puts the agent under "Install
+**There is no UI step.** Settings → Agents' hooks row is driven by `SUPPORTED`
+crossed with what is on PATH, so adding the id there is what makes the agent
+appear. It also puts the agent under "Install
 hooks for every agent": a user with that switch on gets the new agent's hooks
 installed on the next sync, without doing anything, so the install must be
 safe to run unattended (no prompt, no failure that leaves a half-written

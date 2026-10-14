@@ -9,6 +9,8 @@
 //   - deletedBuiltins built-ins the user removed
 //   - disabled:       prompts hidden from the menu
 //   - order:          display order of ids
+//   - review:         "Code review" tags that differ from the default
+//                     (id -> on/off); see REVIEW_BY_DEFAULT
 // An UNEDITED built-in therefore always renders the current app default, so a
 // better default shipped in a future version reaches users who never touched it.
 
@@ -32,6 +34,19 @@ export interface Prompt {
   enabled: boolean;
   /** Built-in only: true once the user edited it away from the shipped text. */
   modified: boolean;
+  /** Tagged "Code review": offered by the Review a PR dialog and picked by
+   *  `termic review` when no prompt is named. */
+  forReview: boolean;
+}
+
+/** Built-ins tagged for code review until the user says otherwise. Every
+ *  other prompt, custom ones included, starts untagged. */
+export const REVIEW_BY_DEFAULT: readonly string[] = ["builtin:review", "builtin:security-review"];
+
+/** The prompts the Review a PR dialog offers, in library order: tagged,
+ *  enabled, and with something in them. */
+export function reviewPrompts(prompts: readonly Prompt[]): Prompt[] {
+  return prompts.filter(p => p.forReview && p.enabled && p.body.trim() !== "");
 }
 
 interface BuiltinDef { id: string; title: string; body: string }
@@ -111,10 +126,11 @@ interface Persisted {
   deletedBuiltins: string[];
   disabled: string[];
   order: string[];
+  review: Record<string, boolean>;
 }
 
 const EMPTY: Persisted = {
-  customs: [], overrides: {}, deletedBuiltins: [], disabled: [], order: [],
+  customs: [], overrides: {}, deletedBuiltins: [], disabled: [], order: [], review: {},
 };
 
 function isCustom(c: unknown): c is StoredCustom {
@@ -135,6 +151,9 @@ function load(): Persisted {
       deletedBuiltins: Array.isArray(s.deletedBuiltins) ? s.deletedBuiltins : [],
       disabled: Array.isArray(s.disabled) ? s.disabled : [],
       order: Array.isArray(s.order) ? s.order : [],
+      review: s.review && typeof s.review === "object" && !Array.isArray(s.review)
+        ? Object.fromEntries(Object.entries(s.review).filter(([, v]) => typeof v === "boolean"))
+        : {},
     };
   } catch {
     return { ...EMPTY };
@@ -143,6 +162,10 @@ function load(): Persisted {
 
 function save(p: Persisted) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch {}
+}
+
+function isForReview(p: Persisted, id: string): boolean {
+  return p.review[id] ?? REVIEW_BY_DEFAULT.includes(id);
 }
 
 /** Resolve the persisted delta into the ordered list the UI / dropdown use. */
@@ -158,12 +181,14 @@ function computePrompts(p: Persisted): Prompt[] {
       builtin: true,
       enabled: !p.disabled.includes(d.id),
       modified: !!ov,
+      forReview: isForReview(p, d.id),
     });
   }
   for (const c of p.customs) {
     items.push({
       id: c.id, title: c.title, body: c.body, builtin: false,
       enabled: !p.disabled.includes(c.id), modified: false,
+      forReview: isForReview(p, c.id),
     });
   }
   // Apply explicit order; anything not listed (new built-in / freshly added)
@@ -188,6 +213,8 @@ interface PromptStore {
   /** Built-in only: drop the override so it renders the shipped default again. */
   resetPrompt: (id: string) => void;
   toggleEnabled: (id: string) => void;
+  /** Tag or untag a prompt for code review. */
+  setForReview: (id: string, on: boolean) => void;
   reorderPrompts: (from: number, to: number) => void;
   /** Re-add any built-ins the user deleted. */
   restoreBuiltins: () => void;
@@ -270,13 +297,18 @@ export const usePromptLibrary = create<PromptStore>((set) => {
       if (at >= 0) order.splice(at + 1, 0, newId); else order.push(newId);
       // The suffix is minted into storage at clone time, like a tab title:
       // a clone is a user object, so it keeps the wording of the moment.
-      commit({ ...p, customs: [...p.customs, { id: newId, title: `${eff.title}${i18n.t("backend:copySuffix")}`, body: eff.body }], order });
+      // A clone keeps the source's review tag: copying "Review" to tweak it
+      // should not drop it out of the Review a PR dialog.
+      const review = isForReview(p, id) ? { ...p.review, [newId]: true } : p.review;
+      commit({ ...p, customs: [...p.customs, { id: newId, title: `${eff.title}${i18n.t("backend:copySuffix")}`, body: eff.body }], order, review });
       return newId;
     },
 
     deletePrompt: (id) => {
       const order = p.order.filter(x => x !== id);
       const disabled = p.disabled.filter(x => x !== id);
+      const review = { ...p.review }; delete review[id];
+      p = { ...p, review };
       if (builtinDef(id)) {
         const overrides = { ...p.overrides }; delete overrides[id];
         commit({ ...p, deletedBuiltins: Array.from(new Set([...p.deletedBuiltins, id])), overrides, order, disabled });
@@ -303,6 +335,14 @@ export const usePromptLibrary = create<PromptStore>((set) => {
       const [moved] = ids.splice(from, 1);
       ids.splice(to, 0, moved);
       commit({ ...p, order: ids });
+    },
+
+    setForReview: (id, on) => {
+      const review = { ...p.review };
+      // Back to the default is stored as nothing, like an unedited built-in.
+      if (on === REVIEW_BY_DEFAULT.includes(id)) delete review[id];
+      else review[id] = on;
+      commit({ ...p, review });
     },
 
     restoreBuiltins: () => {

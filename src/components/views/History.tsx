@@ -4,12 +4,15 @@ import type { TFunction } from "i18next";
 import { useApp } from "@/store/app";
 import { useUI } from "@/store/ui";
 import { i18n } from "@/lib/i18n";
-import { taskRestore, taskDelete } from "@/lib/ipc";
+import { taskRestore, taskDelete, openPath } from "@/lib/ipc";
+import { historyMatches } from "@/lib/historySearch";
+import { prRef } from "@/lib/forge";
+import { PR_STATE_STYLE } from "@/components/task/PrCard";
 import { CliIcon, CLI_BRAND_COLOR, resolveIconId } from "@/icons/cli";
 import { TaskLocationIcon } from "@/components/TaskLocationIcon";
 import { DropdownRoot, DropdownTrigger, DropdownMenu, DropdownItem, DropdownSeparator } from "@/components/ui/Dropdown";
 import { cn } from "@/lib/utils";
-import { Check, ChevronDown, ChevronRight, Search, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Search, Trash2 } from "lucide-react";
 import type { Task } from "@/lib/types";
 
 function groupLabel(iso: string, t: TFunction): string {
@@ -83,12 +86,9 @@ export function HistoryView() {
     return [...archivedAll.filter(w => {
       if (activeProject && w.project_id !== activeProject.id) return false;
       if (!q) return true;
-      const p = projects.find(x => x.id === w.project_id);
-      return (
-        w.name.toLowerCase().includes(q) ||
-        w.branch.toLowerCase().includes(q) ||
-        (p?.name ?? "").toLowerCase().includes(q)
-      );
+      // Name, branches, project, agent, and the PR: its number in any
+      // spelling (exact), title, link and last known state.
+      return historyMatches(w, projects.find(x => x.id === w.project_id)?.name ?? "", q);
     })].sort((a, b) => (b.archived_at ?? b.created).localeCompare(a.archived_at ?? a.created));
   }, [archivedAll, projects, query, activeProject]);
 
@@ -171,6 +171,7 @@ export function HistoryView() {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder={t("history.filterPlaceholder")}
+          data-testid="history-search"
           className="flex-1 bg-transparent text-[13.5px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-faint)] outline-none"
         />
         {/* Project filter. Single-select; lives in the store (view.projectId)
@@ -227,7 +228,19 @@ export function HistoryView() {
 
       {/* List */}
       <div className="min-h-0 flex-1 overflow-auto px-6 py-4" data-testid="history-list">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-[1400px]">
+          {archived.length > 0 && (
+            // Column heads, on the same grid as the rows.
+            <div className={cn(HISTORY_GRID, "px-3 pb-1 text-[11px] uppercase tracking-[0.08em] text-[var(--color-fg-faint)]")}>
+              <span />
+              <span>{t("history.colProject")}</span>
+              <span>{t("history.colTask")}</span>
+              <span>{t("history.colBranch")}</span>
+              <span>{t("history.colPr")}</span>
+              <span className="text-right">{t("history.colArchived")}</span>
+              <span />
+            </div>
+          )}
           {archived.length === 0 ? (
             <p className="py-8 text-[13.5px] text-[var(--color-fg-dim)]">
               {query ? t("history.noMatch")
@@ -251,56 +264,67 @@ export function HistoryView() {
                     data-history-row={w.id}
                     onMouseEnter={() => setHoveredId(w.id)}
                     onMouseLeave={() => setHoveredId(null)}
+                    data-history-pr={w.pr_number ?? undefined}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-[13px] select-none",
+                      HISTORY_GRID,
+                      "rounded-md px-3 py-2 text-[13px] select-none",
                       isRestoring ? "opacity-50" : "",
                       isHovered ? "bg-[var(--color-hover)]" : "",
                     )}
                   >
-                    {/* CLI icon */}
                     <span className={cn("shrink-0", CLI_BRAND_COLOR[iconId] || "text-[var(--color-fg-faint)]")}>
                       <CliIcon cli={iconId} className="h-4 w-4" />
                     </span>
 
-                    {/* Project name */}
-                    <span className="w-[130px] shrink-0 truncate text-[var(--color-fg-dim)]">
+                    <span className="min-w-0 truncate text-[var(--color-fg-dim)]">
                       {proj?.name ?? t("history.unknownProject")}
                     </span>
 
-                    {/* Separator */}
-                    <ChevronRight className="h-3 w-3 shrink-0 text-[var(--color-fg-faint)]" />
-
-                    {/* Task name */}
-                    <span className="min-w-0 truncate font-medium text-[var(--color-fg)]">
-                      {w.name}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <TaskLocationIcon isMainCheckout={w.is_main_checkout} size="h-3 w-3" />
+                      <span className="min-w-0 truncate font-medium text-[var(--color-fg)]" title={w.name}>{w.name}</span>
                     </span>
 
-                    {/* Location icon + branch */}
-                    <TaskLocationIcon isMainCheckout={w.is_main_checkout} size="h-3 w-3" />
-                    {!w.is_main_checkout && w.branch ? (
-                      <span className="min-w-0 truncate text-[var(--color-fg-faint)]">· {w.branch}</span>
-                    ) : null}
+                    {/* The branch, and what it was cut from. A main-checkout
+                        task has no branch of its own. */}
+                    <span className="flex min-w-0 flex-col font-mono text-[11.5px] leading-tight">
+                      {!w.is_main_checkout && w.branch ? (
+                        <>
+                          <span className="truncate text-[var(--color-fg-dim)]" title={w.branch}>{w.branch}</span>
+                          {w.base_branch && (
+                            <span className="truncate text-[var(--color-fg-faint)]" title={w.base_branch}>
+                              {t("history.fromBase", { base: w.base_branch })}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-[var(--color-fg-faint)]">{t("history.mainCheckout")}</span>
+                      )}
+                    </span>
 
-                    {/* Right: date + restore button */}
-                    <div className="ml-auto shrink-0 pl-6 flex items-center gap-3">
+                    <HistoryPrCell task={w} />
+
+                    <span className="text-right text-[12.5px] tabular-nums text-[var(--color-fg-faint)]">
+                      {fmtDate(w.archived_at ?? w.created)}
+                    </span>
+
+                    <span className="flex justify-end">
                       {isRestoring ? (
                         <span className="text-[12.5px] text-[var(--color-fg-dim)]">{t("history.restoring")}</span>
                       ) : (
-                        <>
-                          <span className="text-[12.5px] tabular-nums text-[var(--color-fg-faint)]">
-                            {fmtDate(w.archived_at ?? w.created)}
-                          </span>
-                          {isHovered && (
-                            <button
-                              onClick={() => restore(w.id)}
-                              className="text-[12.5px] font-medium text-[var(--color-accent)] hover:underline"
-                            >
-                              {t("history.restore")}
-                            </button>
+                        <button
+                          onClick={() => restore(w.id)}
+                          className={cn(
+                            "text-[12.5px] font-medium text-[var(--color-accent)] hover:underline",
+                            // Always there for the keyboard and for a reader
+                            // scanning for one PR; quiet until the row is.
+                            !isHovered && "opacity-0 focus:opacity-100",
                           )}
-                        </>
+                        >
+                          {t("history.restore")}
+                        </button>
                       )}
-                    </div>
+                    </span>
                   </div>
                 );
               })}
@@ -309,6 +333,48 @@ export function HistoryView() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Agent | project | task | branch | PR | archived | restore. One template
+ *  for the head and every row so the columns line up. */
+const HISTORY_GRID = "grid grid-cols-[20px_minmax(90px,140px)_minmax(140px,1.4fr)_minmax(140px,1.2fr)_minmax(180px,2fr)_76px_72px] items-center gap-x-4";
+
+/** The PR as this task last knew it: state, number (opens it), title, and
+ *  when that state was seen. A dash for a task that never had one. */
+function HistoryPrCell({ task }: { task: Task }) {
+  const { t } = useTranslation("chrome");
+  const { t: tp } = useTranslation("panels");
+  if (!task.pr_number) return <span className="text-[var(--color-fg-faint)]">-</span>;
+  const style = task.pr_state ? PR_STATE_STYLE[task.pr_state] : null;
+  const Icon = style?.Icon;
+  const seen = task.pr_state_at ? fmtDate(task.pr_state_at) : null;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" data-testid="history-pr">
+      {Icon && <Icon className="h-3.5 w-3.5 shrink-0" style={{ color: style!.color }} />}
+      <button
+        type="button"
+        disabled={!task.pr_url}
+        onClick={(e) => { e.stopPropagation(); if (task.pr_url) void openPath(task.pr_url).catch(() => {}); }}
+        title={task.pr_url ?? undefined}
+        className="shrink-0 font-mono text-[12px] text-[var(--color-fg)] hover:underline disabled:no-underline"
+      >
+        {prRef(task.pr_provider, task.pr_number)}
+      </button>
+      {style && (
+        <span
+          data-pr-state={task.pr_state}
+          title={seen ? t("history.prStateSeen", { date: seen }) : undefined}
+          className="shrink-0 text-[11.5px]"
+          style={{ color: style.color }}
+        >
+          {tp(style.labelKey)}
+        </span>
+      )}
+      {task.pr_title && (
+        <span className="min-w-0 truncate text-[12px] text-[var(--color-fg-dim)]" title={task.pr_title}>{task.pr_title}</span>
+      )}
+    </span>
   );
 }
 

@@ -151,12 +151,80 @@ export default {
     titleRunning: "{{held}} 仍在运行",
     carriedOver: "委托的工作被遗留下来（{{held}}）",
   },
+  // 引导提示（components/guide/GuideLayer.tsx）。
+  guide: {
+    tipEyebrow: "提示",
+    skipGuide: "跳过导览",
+    gotIt: "知道了",
+    stepCount: "{{n}}/{{total}}",
+    // lib/guide/guides.ts 中每个导览一块。每行只用几个词。
+    guides: {
+      welcome: {
+        name: "快速上手",
+        steps: {
+          addProject: {
+            title: "添加你的第一个项目",
+            body: "选择一个仓库文件夹开始。",
+          },
+          taskMode: {
+            title: "智能体在哪里工作",
+            main: "直接编辑你的仓库。",
+            worktree: "独立的文件夹和分支，可同时运行多个。归档会删除该文件夹。",
+          },
+          nameTask: {
+            title: "给任务起个名字",
+            body: "它也会成为智能体会话的名称。",
+          },
+          newTask: {
+            title: "开始一个任务",
+            body: "选择一个智能体在此项目中运行。",
+          },
+          taskStatus: {
+            title: "在侧边栏关注进度",
+            body: "标记显示智能体正在做什么。",
+          },
+        },
+      },
+    },
+    // lib/guide/tips.ts 中每条提示一项。
+    tips: {
+      agentWaiting: {
+        title: "有智能体在等你",
+        body: "点击跳转过去。",
+      },
+      reviewChanges: {
+        title: "查看更改",
+        body: "查看差异、提交，或创建拉取请求。",
+      },
+      commandPalette: {
+        title: "查找任何命令",
+        body: "所有操作都在这个列表里。",
+      },
+      statusLine: {
+        title: "你的状态栏挡住了用量",
+        body: "点击复制一段修复它的提示词。",
+      },
+      agentHooks: {
+        title: "开启智能体钩子",
+        body: "用量和状态需要它们。点击进行设置。",
+      },
+      addCredentials: {
+        title: "这个账号快用完了",
+        body: "点击添加第二个账号。",
+      },
+    },
+  },
   workMarkLegend: {
     working: "智能体正在工作。",
     delegated: "在等待它启动的子智能体或脚本。没有任何计算在进行，这可能持续数小时。",
     partial: "部分完成。部分委托的工作已返回，其余仍在运行。",
     done: "工作完成。",
     attention: "需要你的关注：权限请求、提问，或任何它自己无法越过的事情。",
+    workingShort: "正在工作",
+    delegatedShort: "在等子智能体或脚本",
+    partialShort: "部分完成，仍在等待",
+    doneShort: "已完成",
+    attentionShort: "需要你",
   },
   taskLocation: {
     main: "主检出",
@@ -183,7 +251,15 @@ export default {
     emptyBody: "从磁盘添加一个 git 仓库，即可在其中创建智能体任务。",
   },
   history: {
-    filterPlaceholder: "筛选任务…",
+    filterPlaceholder: "按任务、分支、项目或 PR 筛选（#123、链接或标题）",
+    colProject: "项目",
+    colTask: "任务",
+    colBranch: "分支",
+    colPr: "拉取请求",
+    colArchived: "归档于",
+    fromBase: "基于 {{base}}",
+    mainCheckout: "主检出",
+    prStateSeen: "最后一次看到此状态：{{date}}",
     emptyArchiveTip: "永久删除所有已归档任务",
     emptying: "正在清空…",
     emptyArchive: "清空归档",

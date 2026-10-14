@@ -131,3 +131,93 @@ describe("pad list", () => {
     ]);
   });
 });
+
+describe("pad remove", () => {
+  it("closes the pad's tab, then deletes it, and says which pad went", async () => {
+    vi.mocked(ipc.scratchList).mockResolvedValue([rec("p1", "findings"), rec("p2", "keep me")]);
+    useApp.setState({
+      tabs: { [TASK]: [
+        { id: "t1", type: "scratch", scratchId: "p1", title: "findings" },
+        { id: "t2", type: "scratch", scratchId: "p2", title: "keep me" },
+      ] as ScratchTab[] },
+      activeTab: { [TASK]: "t2" },
+    });
+    // The tab must already be gone when the file is deleted: a mounted
+    // editor would otherwise write its buffer straight back.
+    let tabsAtDelete: string[] | null = null;
+    vi.mocked(ipc.scratchDelete).mockImplementation(async () => { tabsAtDelete = pads().map(t => t.scratchId); });
+
+    const r = await padHandler({ taskId: TASK, op: "remove", pad: "Findings" });
+    expect(r.pads).toEqual([{ id: "p1", title: "findings", open: false }]);
+    expect(ipc.scratchDelete).toHaveBeenCalledTimes(1);
+    expect(ipc.scratchDelete).toHaveBeenCalledWith(TASK, "p1");
+    expect(tabsAtDelete).toEqual(["p2"]);
+    expect(pads().map(t => t.scratchId)).toEqual(["p2"]);
+  });
+
+  it("removes a pad that is not open, by id", async () => {
+    vi.mocked(ipc.scratchList).mockResolvedValue([rec("p9", "closed one")]);
+    const r = await padHandler({ taskId: TASK, op: "remove", pad: "p9" });
+    expect(r.pads.map(p => p.id)).toEqual(["p9"]);
+    expect(ipc.scratchDelete).toHaveBeenCalledWith(TASK, "p9");
+  });
+
+  it("deletes nothing when the selector matches no pad, or two", async () => {
+    vi.mocked(ipc.scratchList).mockResolvedValue([rec("a", "Notes"), rec("b", "notes")]);
+    await expect(padHandler({ taskId: TASK, op: "remove", pad: "nope" })).rejects.toThrow(/no pad "nope"/);
+    await expect(padHandler({ taskId: TASK, op: "remove", pad: "notes" })).rejects.toThrow(/a, b/);
+    await expect(padHandler({ taskId: TASK, op: "remove" })).rejects.toThrow(/requires a pad/);
+    expect(ipc.scratchDelete).not.toHaveBeenCalled();
+  });
+
+  it("closes a shared pad's tab wherever it is open, and leaves a named scratch file alone", async () => {
+    // A global pad opened from another task, and a named file from the
+    // global tree that happens to carry the same id: only the first is a pad
+    // `scratchpad list` shows.
+    vi.mocked(ipc.scratchList).mockResolvedValue([rec("g1", "shared")]);
+    useApp.setState({
+      tabs: { other: [
+        { id: "t1", type: "scratch", scratchId: "g1", title: "shared", scope: "global" },
+        { id: "t2", type: "scratch", scratchId: "g1", title: "notes.md", scope: "global", path: "notes.md" },
+      ] as ScratchTab[] },
+      activeTab: { other: "t2" },
+    });
+    await padHandler({ taskId: "global", op: "remove", pad: "g1" });
+    expect(ipc.scratchDelete).toHaveBeenCalledWith("global", "g1");
+    expect((useApp.getState().tabs.other ?? []).map(t => t.id)).toEqual(["t2"]);
+  });
+});
+
+describe("pad clear", () => {
+  it("removes every pad the list shows, open or not, and reports them", async () => {
+    vi.mocked(ipc.scratchList).mockResolvedValue([rec("p1", "a"), rec("p2", "b"), rec("p3", "")]);
+    useApp.setState({
+      tabs: { [TASK]: [{ id: "t1", type: "scratch", scratchId: "p2", title: "b" }] as ScratchTab[] },
+      activeTab: { [TASK]: "t1" },
+    });
+    const r = await padHandler({ taskId: TASK, op: "clear" });
+    expect(r.pads.map(p => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(vi.mocked(ipc.scratchDelete).mock.calls).toEqual([[TASK, "p1"], [TASK, "p2"], [TASK, "p3"]]);
+    expect(pads()).toEqual([]);
+  });
+
+  it("is not an error when there is nothing to remove", async () => {
+    vi.mocked(ipc.scratchList).mockResolvedValue([]);
+    expect(await padHandler({ taskId: TASK, op: "clear" })).toEqual({ pads: [] });
+    expect(ipc.scratchDelete).not.toHaveBeenCalled();
+  });
+
+  it("touches only the target: another task's pads stay", async () => {
+    vi.mocked(ipc.scratchList).mockImplementation(async (id: string) => (id === TASK ? [rec("p1", "mine")] : [rec("x1", "theirs")]));
+    useApp.setState({
+      tabs: {
+        [TASK]: [{ id: "t1", type: "scratch", scratchId: "p1", title: "mine" }] as ScratchTab[],
+        other: [{ id: "t9", type: "scratch", scratchId: "x1", title: "theirs" }] as ScratchTab[],
+      },
+      activeTab: { [TASK]: "t1", other: "t9" },
+    });
+    await padHandler({ taskId: TASK, op: "clear" });
+    expect(vi.mocked(ipc.scratchDelete).mock.calls).toEqual([[TASK, "p1"]]);
+    expect((useApp.getState().tabs.other ?? []).map(t => t.id)).toEqual(["t9"]);
+  });
+});

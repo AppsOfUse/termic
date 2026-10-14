@@ -31,6 +31,8 @@ export default {
   },
 
   diff: {
+    sourceTip: "源码",
+    previewTip: "预览",
     staleNotice: "此文件在你打开后已被修改。",
     unifiedTip: "统一视图（内联）",
     sideBySideTip: "并排视图",

@@ -242,6 +242,7 @@ Deeper references — read when working in that area:
 - [docs/themes.md](docs/themes.md) — custom theme file format (`~/.config/termic/themes/*.json`), ui/terminal key reference
 - [docs/lsp.md](docs/lsp.md) — language servers: the rules a new one must obey, and `make lsp-smoke`
 - [docs/ui.md](docs/ui.md) — UI conventions, window chrome/drag, right-panel footer, settled detection
+- [docs/guide.md](docs/guide.md) — guides (multi-step walkthroughs, the welcome tour is one) and tips (one situation, shown once): how to add either (`useTip` / `useOfferGuide` + a registry entry), what is remembered, what the layer guarantees
 - [docs/gotchas.md](docs/gotchas.md) — common bugs (encountered + fixed), React/Zustand traps
 - [docs/automation.md](docs/automation.md) — automation bridge, E2E testing (use the `e2e` skill, don't improvise)
 - [docs/e2e-tests.md](docs/e2e-tests.md) — written WebdriverIO e2e suite (run via `make e2e`); authoring lives in the `e2e` skill

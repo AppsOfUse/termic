@@ -11,8 +11,15 @@ import { usePrefs } from "@/store/prefs";
 import { Tip } from "@/components/ui/Tooltip";
 import { Bell } from "lucide-react";
 import { bindingGlyphs, bindingText } from "@/lib/shortcuts";
-import { waitingAttentionCount, waitingDoneCount, jumpToNextWaiting } from "@/lib/waitingAgents";
+import { waitingAttentionCount, waitingDoneCount, waitingElsewhere, jumpToNextWaiting } from "@/lib/waitingAgents";
+import { useGuide } from "@/store/guide";
+import { useHeld, useTip } from "@/lib/guide/useTip";
 import { cn } from "@/lib/utils";
+
+/** How long an agent has to have been waiting, somewhere the user is not
+ *  looking, before the tip about this pill is worth showing. */
+const WAITING_TIP_AFTER_MS = 2500;
+const NEVER = () => false;
 
 export function WaitingAgentsPill() {
   const { t } = useTranslation("chrome");
@@ -32,6 +39,16 @@ export function WaitingAgentsPill() {
   const count = attention + done;
   const binding = usePrefs(s => s.shortcuts["jump-next-waiting"]);
 
+  // The tip that points at this pill (docs/guide.md), once: an agent is
+  // waiting in a task the user is NOT looking at, and has been for a couple
+  // of seconds. A wait in the task on screen needs no pointer, and one that
+  // clears as the user switches tasks is not news. The extra selector runs
+  // only until the tip has been seen; after that this is the pill it always
+  // was.
+  const tipUnseen = useGuide(s => !s.seen.includes("agentWaiting"));
+  const elsewhere = useApp(tipUnseen ? waitingElsewhere : NEVER);
+  const tip = useTip(useHeld(settled && elsewhere, WAITING_TIP_AFTER_MS) && "agentWaiting");
+
   if (!settled || count < 1) return null;
 
   const glyphs = binding ? bindingText(binding) : "";
@@ -45,6 +62,7 @@ export function WaitingAgentsPill() {
         onClick={() => { jumpToNextWaiting(); }}
         aria-label={label}
         data-testid="waiting-agents-pill"
+        data-guide={tip}
         data-attention={attention}
         data-done={done}
         // Warn-toned only while something is BLOCKED. A pill that is amber

@@ -11,7 +11,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   Search, Plus, FileText, Pencil, GitBranch, Archive, Zap, ShieldCheck,
   PanelLeft, PanelRight, PanelBottom, Palette, Keyboard, Settings as SettingsIcon,
-  FolderCog, RefreshCw, ScrollText, CalendarClock, Bug, SlidersHorizontal, Bot, BookText,
+  FolderCog, RefreshCw, ScrollText, Compass, CalendarClock, Bug, SlidersHorizontal, Bot, BookText,
   Check, ChevronLeft, ListTodo, Bell, SquareTerminal, FolderPlus, History, Square,
   Play, Swords, Megaphone, Columns2, Rows2, Clock, UserPen, GitPullRequest, Activity, Code2,
   NotepadText, Waypoints, CircleDot, UsersRound, WrapText, ListFilter, ListX, FolderOpen, type LucideIcon } from "lucide-react";
@@ -29,6 +29,7 @@ import {
 } from "@/lib/paletteRecent";
 import { usePrefs, resolveTheme, type BuiltinThemeMode, type ThemeMode } from "@/store/prefs";
 import { useUpdate } from "@/store/update";
+import { useGuide } from "@/store/guide";
 import { fuzzyMatch, Highlighted } from "@/lib/fuzzy";
 import { bindingGlyphs, type ShortcutId, bindingText } from "@/lib/shortcuts";
 import { confirmAndArchive } from "@/lib/archiveTask";
@@ -119,9 +120,16 @@ export function CommandPalette() {
   const { t } = useTranslation("dialogs");
   const open = useUI(s => s.commandPaletteOpen);
   const close = useUI(s => s.closeCommandPalette);
+  // However it was opened (the button, the shortcut, another command), the
+  // palette has now been found, and the tip about it is for people who have
+  // not found it.
+  useEffect(() => { if (open) useGuide.getState().noteUsed("command-palette"); }, [open]);
   const activeTaskId = useApp(s => s.activeTaskId);
   const tasks = useApp(s => s.tasks);
   const projects = useApp(s => s.projects);
+  // A boolean, so the command list rebuilds when the first git project
+  // appears and not on every other project edit.
+  const hasGitProject = useApp(s => s.projects.some(p => !p.non_git));
   const themeMode = usePrefs(s => s.themeMode);
   const customThemes = usePrefs(s => s.customThemes);
   const importedThemes = usePrefs(s => s.importedThemes);
@@ -431,6 +439,18 @@ export function CommandPalette() {
       icon: Bell, shortcutId: "jump-next-waiting", keywords: "attention blocked done next cycle",
       run: act(() => { jumpToNextWaiting(); }),
     });
+    if (hasGitProject) {
+      // Opens on the active task's project, else the first git project (read
+      // when run, not when the list was built); the dialog can switch.
+      cmds.push({
+        id: "review-pr", section: "Agent", label: t("commandPalette.cmd.reviewPr"),
+        icon: GitPullRequest, shortcutId: "review-pr", keywords: "pr mr pull merge request code review fetch",
+        run: act(() => {
+          const target = proj && !proj.non_git ? proj : useApp.getState().projects.find(p => !p.non_git);
+          if (target) useUI.getState().openReviewPr(target.id);
+        }),
+      });
+    }
     if (proj) {
       cmds.push({
         id: "race", section: "Agent", label: t("commandPalette.cmd.agentRace"),
@@ -634,6 +654,11 @@ export function CommandPalette() {
       run: act(() => useUI.getState().openChangelog()),
     });
     cmds.push({
+      id: "replay-tour", section: "Application", label: t("commandPalette.cmd.replayTour"),
+      icon: Compass, keywords: "welcome onboarding tips guide getting started help tutorial",
+      run: act(() => useGuide.getState().startGuide("welcome")),
+    });
+    cmds.push({
       id: "new-schedule", section: "Application", label: t("commandPalette.cmd.newSchedule"),
       icon: CalendarClock, keywords: "recurring scheduled run daily weekly cron",
       run: act(() => useUI.getState().openScheduleDialog({})),
@@ -665,7 +690,7 @@ export function CommandPalette() {
     }
 
     return cmds;
-  }, [view, task, proj, committedTheme, visibleThemes, inlineBlame, editorWordWrap, useBranchAsTaskName, activeEditTab, sidebarFiltered, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, task, proj, committedTheme, visibleThemes, inlineBlame, editorWordWrap, useBranchAsTaskName, activeEditTab, sidebarFiltered, hasGitProject, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Recents, re-read on every open so an hour spent with the palette closed
   // expires them (the list is only ever consulted at build time). Empty query

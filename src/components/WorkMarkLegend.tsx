@@ -1,7 +1,8 @@
 // What the marks on a tab mean, in one place.
 //
-// Two surfaces show this: the welcome wizard's hooks step (where the marks
-// are about to start appearing and nobody has seen one yet) and Settings ->
+// Two surfaces show this: the getting-started tour's tip on the sidebar row
+// (components/guide, where the marks are about to start appearing and nobody
+// has seen one yet) and Settings ->
 // Notifications (under the two toggles that gate them, because "what is that
 // dot" gets asked in the same breath as "can I turn it off").
 //
@@ -52,7 +53,13 @@ export const WORK_MARKS: Array<{ key: string; badge: React.ReactNode; whatKey: s
   },
 ];
 
-export function WorkMarkLegend({ className }: { className?: string }) {
+export function WorkMarkLegend({ className, compact }: {
+  className?: string;
+  /** A few words per mark, for the tour's card. Settings keeps the full
+   *  sentences: someone who went there to ask "what is that dot" wants the
+   *  answer, and someone being shown round wants to get on. */
+  compact?: boolean;
+}) {
   const { t } = useTranslation("chrome");
   return (
     <div className={className} data-testid="work-mark-legend">
@@ -63,7 +70,7 @@ export function WorkMarkLegend({ className }: { className?: string }) {
               {badge}
             </span>
             <span className="text-[12.5px] leading-snug text-[var(--color-fg-dim)]">
-              {t(whatKey)}
+              {t(compact ? `${whatKey}Short` : whatKey)}
             </span>
           </div>
         ))}

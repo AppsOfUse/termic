@@ -2,11 +2,148 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { archiveTask, clickByText, clickMenuItemUntil, clickWhenVisible, cliRpc, dashboardBadge, dismissOverlays, ensureActiveTask, openTask, pointerDrag, requireTermicApi, requireWorkBadges, keysIn, rmTree, setWindowPresence, snap, submitToAgent, typeIntoAgent, waitForAgentReady, waitForAppShell, waitForText, waitForTextGone, waitForWorkBadge, waitGone, waitVisible  } from "../helpers";
+import { archiveTask, clickByText, clickMenuItemUntil, clickWhenVisible, cliRpc, dashboardBadge, dismissOverlays, ensureActiveTask, openTask, pointerDrag, requireTermicApi, requireWorkBadges, keysIn, rmTree, setInputValue, setWindowPresence, snap, submitToAgent, typeIntoAgent, waitForAgentReady, waitForAppShell, waitForText, waitForTextGone, waitForWorkBadge, waitGone, waitVisible  } from "../helpers";
 
 // Seatbelt is macOS only: elsewhere a Seatbelt default reads as Off and the
 // picker's cages aren't offered, so tests that need the fields skip.
 const seatbeltIt = process.platform === "darwin" ? it : it.skip;
+
+// The repos folder is asked for IN the Add project dialog, now that the
+// welcome screen no longer asks. Cases: with none set the form is there and
+// the list is not; a folder is scanned, saved to settings and its repos
+// listed; a path that cannot be read is reported and saves nothing; a folder
+// that is set can be changed; one with nothing in it says so.
+describe("add project: the repos folder", () => {
+  let parent = "";
+  let empty = "";
+  let savedDir = "";
+  const FORM = '[data-testid="repos-dir-form"]';
+  const INPUT = '[data-testid="repos-dir-input"]';
+  const reposDir = () => browser.execute(async () => (await window.__termic!.ipc.settingsLoad()).repos_dir as string);
+  const setReposDir = (dir: string) => browser.execute(async (d) => {
+    const t = window.__termic!;
+    const cur = await t.ipc.settingsLoad();
+    await t.ipc.settingsSave({ ...cur, repos_dir: d });
+  }, dir);
+  const openDialogFresh = async () => {
+    await browser.execute(() => {
+      const ui = window.__termic!.useUI.getState();
+      ui.closeNewProject();
+    });
+    await waitGone('[data-testid="new-project-path"]');
+    await browser.execute(() => window.__termic!.useUI.getState().openNewProject());
+    await waitVisible('[data-testid="new-project-path"]');
+  };
+  const rowNames = () => browser.execute(() => {
+    const d = [...document.querySelectorAll('[role="dialog"]')].find(x => x.querySelector('[data-testid="new-project-path"]'));
+    return [...(d?.querySelectorAll("div.group") ?? [])].map(r => r.textContent ?? "").filter(Boolean);
+  });
+
+  before(async () => {
+    await waitForAppShell();
+    await requireTermicApi();
+    await dismissOverlays();
+    // Two repos and one plain folder, so "lists the repos" is not satisfied
+    // by listing every directory.
+    parent = realpathSync(mkdtempSync(path.join(os.tmpdir(), "e2e-repos-")));
+    for (const name of ["alpha-api", "beta-web"]) {
+      const dir = path.join(parent, name);
+      mkdirSync(dir);
+      execSync(`git -C "${dir}" init -q && git -C "${dir}" -c user.email=e2e@termic.dev -c user.name=e2e commit -q --allow-empty -m init`);
+    }
+    mkdirSync(path.join(parent, "notes"));
+    empty = realpathSync(mkdtempSync(path.join(os.tmpdir(), "e2e-norepos-")));
+    savedDir = await reposDir();
+    await setReposDir("");
+  });
+
+  after(async () => {
+    await browser.execute(() => window.__termic!.useUI.getState().closeNewProject());
+    await browser.keys("Escape");
+    await setReposDir(savedDir);
+    rmTree(parent, { bestEffort: true });
+    rmTree(empty, { bestEffort: true });
+  });
+
+  it("asks where the repos are when no folder is set, and lists nothing yet", async () => {
+    await openDialogFresh();
+    await waitVisible(FORM);
+    await waitForText("Where do you keep your repos?");
+    expect(await browser.execute(() => !!document.querySelector('[data-testid="discovered-select-all"]'))).toBe(false);
+    // The manual path stays available under it.
+    expect(await browser.execute(() => !!document.querySelector('[data-testid="new-project-path"]'))).toBe(true);
+    await snap("add-project-repos-dir-form.png");
+  });
+
+  it("reports a path it cannot read, and saves nothing", async () => {
+    await setInputValue(INPUT, path.join(parent, "does-not-exist"));
+    await clickWhenVisible('[data-testid="repos-dir-apply"]');
+    await waitForText("Couldn't read");
+    expect(await reposDir()).toBe("");
+    // Still asking: a typo has not replaced the question with an empty list.
+    expect(await browser.execute((s) => !!document.querySelector(s), FORM)).toBe(true);
+  });
+
+  it("lists a typed folder's repos once typing stops, without saving it", async () => {
+    await setInputValue(INPUT, path.join(parent, "nope"));
+    await browser.waitUntil(() => browser.execute(() =>
+      document.querySelector('[data-testid="repos-dir-status"]')?.getAttribute("data-status") === "missing"),
+    { timeout: 5_000, timeoutMsg: "a folder that is not there was never reported under the field" });
+    await setInputValue(INPUT, parent);
+    // No Enter, no "Find repos": the list arrives on its own.
+    await waitVisible('[data-testid="discovered-select-all"]');
+    const names = (await rowNames()).join(" | ");
+    expect(names).toContain("alpha-api");
+    expect(names).toContain("beta-web");
+    expect(await browser.execute(() => !!document.querySelector('[data-testid="repos-dir-status"]'))).toBe(false);
+    // Listed, not chosen: the form is still asking and nothing was saved.
+    expect(await browser.execute((s) => !!document.querySelector(s), FORM)).toBe(true);
+    expect(await reposDir()).toBe("");
+    await snap("add-project-repos-dir-typed.png");
+    // A folder with nothing in it says so under the field.
+    await setInputValue(INPUT, empty);
+    await browser.waitUntil(() => browser.execute(() =>
+      document.querySelector('[data-testid="repos-dir-status"]')?.getAttribute("data-status") === "empty"),
+    { timeout: 5_000, timeoutMsg: "an empty folder was never reported under the field" });
+    await waitGone('[data-testid="discovered-select-all"]');
+    expect(await reposDir()).toBe("");
+  });
+
+  it("scans the folder, saves it to settings, and lists its repos", async () => {
+    await setInputValue(INPUT, parent);
+    await clickWhenVisible('[data-testid="repos-dir-apply"]');
+    await waitVisible('[data-testid="discovered-select-all"]');
+    await waitGone(FORM);
+    expect(await reposDir()).toBe(parent);
+    const names = (await rowNames()).join(" | ");
+    expect(names).toContain("alpha-api");
+    expect(names).toContain("beta-web");
+    expect(names).not.toContain("notes");
+    await snap("add-project-repos-dir-list.png");
+  });
+
+  it("remembers the folder: the next open lists the repos without asking", async () => {
+    await openDialogFresh();
+    await waitVisible('[data-testid="discovered-select-all"]');
+    expect(await browser.execute((s) => !!document.querySelector(s), FORM)).toBe(false);
+  });
+
+  it("lets the folder be changed, and says so when the new one has no repos", async () => {
+    await clickWhenVisible('[data-testid="repos-dir-change"]');
+    await waitVisible(FORM);
+    // Prefilled with the folder in force, so changing it is an edit.
+    expect(await browser.execute((s) => (document.querySelector(s) as HTMLInputElement).value, INPUT)).toBe(parent);
+    await setInputValue(INPUT, empty);
+    await clickWhenVisible('[data-testid="repos-dir-apply"]');
+    await waitVisible('[data-testid="repos-dir-empty"]');
+    await waitGone(FORM);
+    // An empty folder is a true answer about a folder the user chose.
+    expect(await reposDir()).toBe(empty);
+    expect(await browser.execute(() => !!document.querySelector('[data-testid="discovered-select-all"]'))).toBe(false);
+    // And the way back is on screen.
+    expect(await browser.execute(() => !!document.querySelector('[data-testid="repos-dir-change"]'))).toBe(true);
+  });
+});
 
 // P1: adding/removing a project. Cases: a git repo can be added as a project
 // (shows in the store); removing it drops it. Uses a throwaway temp repo and

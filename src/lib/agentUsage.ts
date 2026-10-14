@@ -295,6 +295,58 @@ export function blockedReason(o: StatusLineOwner): string {
   }
 }
 
+/** WHERE the edit goes, which is the user's call and not the agent's.
+ *
+ *  A status line set in the committed `.claude/settings.json` belongs to
+ *  the repo, and the person holding this prompt may not be able to change it:
+ *  a team repo, a vendored one, a review they do not want to open for a
+ *  terminal feature. Claude reads `.claude/settings.local.json` over the
+ *  committed file, so there is a second way that touches nothing tracked. The
+ *  two have different blast radii (everyone, or this checkout), so the prompt
+ *  makes the agent ASK before it writes anything, and spells out both so the
+ *  answer is informed.
+ *
+ *  The other two owners have nothing to ask: a local or a user-level status
+ *  line is already the user's own file. */
+function statusLineWhere(o: StatusLineOwner): string {
+  if (o.owner !== "project") {
+    return `
+This file is the user's own (it is not committed to the repository), so edit
+the script it runs in place. If that script turns out to be a file tracked by
+git, stop and ask before changing it.
+`;
+  }
+  return `
+BEFORE CHANGING ANYTHING, ask the user which of these two they want, and wait
+for the answer. That file is committed to the repository, so this is their
+decision, not yours. Describe both options to them in your own words:
+
+  A. Change it in the repository. Edit the status line script the committed
+     settings point at, and commit it. Everyone who uses this repo gets the
+     change. It does nothing for them unless they also run Termic, because of
+     the environment guard below. Pick this when the user owns the repo or is
+     happy to send the change for review.
+
+  B. Leave the repository untouched. Use this when the user cannot or does not
+     want to change the committed files. Create .claude/settings.local.json in
+     this project (or edit it if it exists, keeping everything else in it)
+     with a "statusLine" entry of its own. Claude reads that file over the
+     committed one, so it takes the slot for this checkout only. Point it at a
+     small wrapper script, kept next to it under .claude/, that:
+       1. reads all of stdin once and keeps it,
+       2. runs the ORIGINAL command shown above with that same input on its
+          stdin, and prints that command's output unchanged, so the status
+          line looks exactly as it does today,
+       3. then does the reporting described below from the kept input.
+     Neither file may end up in git. Check each with "git check-ignore", and
+     if either is not ignored add it to .git/info/exclude, NOT to .gitignore,
+     which is itself a committed file. Do not stage or commit anything.
+
+If the user picks A, everything below applies to the existing script. If they
+pick B, it applies to the wrapper, and the original script is not modified.
+`;
+}
+
 /** A prompt to hand to the agent whose status line is in the way.
  *
  *  The point is that the user does not have to understand the wire format to
@@ -308,15 +360,17 @@ export function blockedReason(o: StatusLineOwner): string {
  *  the "print nothing extra" rule is because stdout IS the status line, and
  *  the dash convention is what stops a missing field being read as a zero. */
 export function statusLineAgentPrompt(o: StatusLineOwner): string {
-  return `Add Termic plan-usage reporting to the status line script this project uses.
+  return `Add Termic reporting (plan usage and the context window) to the status line script this project uses.
 
 The status line is configured in ${o.path} and runs:
   ${o.command}
-
-Termic reads Claude's plan usage from the status line, but that slot is taken
-by this script, so Termic currently receives nothing and its usage indicator
-stays empty. Teach this script to report it as well. Do not change what it
-prints.
+${statusLineWhere(o)}
+Termic reads Claude's plan usage and context window from the status line, but
+that slot is taken by this script, so Termic currently receives nothing and
+its usage and context indicators stay empty. Teach this script to report both
+as well. Do not change what it prints. If the script already reports usage to
+Termic from an earlier version of these instructions, keep that and add what
+is missing.
 
 The script already receives Claude's status line JSON on stdin. From that JSON
 read:
@@ -338,6 +392,23 @@ open the file named by $TERMIC_PTY and write exactly this, with no newline:
 for example:
   \\033]777;notify;termic;usage 58 41 1788530400 1788937200 0.2231\\007
 
+The context window is a SECOND, separate write to the same file. From the same
+JSON read:
+  context_window.total_input_tokens         (tokens in the window right now)
+  context_window.context_window_size        (the window's size, in tokens)
+
+and, under the same environment guard, write exactly this, with no newline:
+
+  \\033]777;notify;termic;ctx <usedTokens> <windowSize>\\007
+
+for example:
+  \\033]777;notify;termic;ctx 48213 200000\\007
+
+Send the ctx sequence ONLY when both values are whole numbers greater than
+zero. Zero tokens is a session before its first call, which is no reading:
+send nothing for it, and never a "-" in this one. Send the raw token counts,
+not a percentage; Termic divides.
+
 Rules that matter:
 - Write "-" for any of the five values that is missing or is not a number.
   Never substitute 0, which would report a limit as unused or a cost as free.
@@ -351,6 +422,9 @@ Rules that matter:
   cost is the whole point.
 - Print NOTHING extra on stdout. Whatever this script prints is what renders in
   the status line, so the sequence must go to $TERMIC_PTY and nowhere else.
+- If the write to $TERMIC_PTY fails, try /proc/1/fd/1 and then /dev/tty, in
+  that order, and stop at the first that works. Inside a Docker sandbox
+  $TERMIC_PTY names a path on the host that the container cannot see.
 - Wrap the write so any failure is ignored. A status line that errors is one
   the user sees fail on every turn.
 - The environment guard is required, not optional: with it, this is a complete

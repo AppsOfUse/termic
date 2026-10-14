@@ -1,6 +1,6 @@
 // Add Project dialog with discovered-repos shortcut.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useUI } from "@/store/ui";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { bulkAddSummary, pathsToAdd, type BulkAddResult } from "@/lib/bulkAdd";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { projectAdd, projectAddMulti, discoverRepos, discoveryDismiss, settingsLoad, pathIsGitRepo, pathExists, cachedHomeDir } from "@/lib/ipc";
+import { projectAdd, projectAddMulti, discoverRepos, discoveryDismiss, settingsLoad, settingsSave, pathIsGitRepo, pathExists, cachedHomeDir } from "@/lib/ipc";
 import { repoNameFromUrl } from "@/lib/cloneUrl";
 import { expandTilde } from "@/lib/pathMatch";
 import { joinPath } from "@/lib/osPath";
@@ -38,6 +38,12 @@ const CONFIRM_COPY: Record<ConfirmKind, { titleKey: string; bodyKey: string }> =
     bodyKey: "newProject.confirmMemberBody",
   },
 };
+
+/** How long typing in the repos-folder field has to pause before the folder
+ *  is scanned. Long enough that `~/Pro` is not read on the way to
+ *  `~/Projects`, short enough to feel like it answered the moment you
+ *  stopped. */
+const REPOS_DIR_SETTLE_MS = 400;
 
 export function NewProjectDialog() {
   const { t } = useTranslation("dialogs");
@@ -88,6 +94,23 @@ export function NewProjectDialog() {
   // add, so an index or an object reference would go stale under the user.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reposDir, setReposDir] = useState("");
+  // The repos-folder question, asked HERE now that the welcome screen no
+  // longer does. `reposDirKnown` is false until settings have been read, so
+  // the form does not flash at a user who already has a folder set.
+  const [reposDirKnown, setReposDirKnown] = useState(false);
+  const [reposDirDraft, setReposDirDraft] = useState("");
+  const [reposDirEditing, setReposDirEditing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  // The folder the discovered list below was read from. Usually `reposDir`,
+  // but while the user types a new one it follows the typing (see the
+  // debounced scan below) and is only saved once they act on it. The ref
+  // mirrors it for the effect, which must not re-run when the list lands.
+  const [listedDir, setListedDirState] = useState("");
+  const listedDirRef = useRef("");
+  const setListedDir = (dir: string) => { listedDirRef.current = dir; setListedDirState(dir); };
+  // The typed-folder scan: "scanning" once typing has paused, "missing" when
+  // the folder could not be read.
+  const [previewStatus, setPreviewStatus] = useState<null | "scanning" | "missing">(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Filter for the discovered-repos list. Shows when >5 repos so the
@@ -117,10 +140,13 @@ export function NewProjectDialog() {
     // a clone the user walked away from, never reappears against a new one.
     setCloneUrl(""); setCloneStarted(null); setCloneLanded(false);
     setCloneParent("");
+    setReposDirKnown(false); setReposDirEditing(false); setReposDirDraft(""); setScanning(false);
+    setListedDir(""); setPreviewStatus(null);
     (async () => {
       try {
         const s = await settingsLoad();
         setReposDir(s.repos_dir || "");
+        setReposDirDraft(s.repos_dir || "");
         // PROPOSE the repos folder when there is one, and leave the field
         // empty when there is not. Nothing is invented here: a default the
         // user never chose would be carried straight into a shell command and
@@ -129,10 +155,85 @@ export function NewProjectDialog() {
         if (s.repos_dir) {
           const repos = await discoverRepos(s.repos_dir);
           setDiscovered(repos.filter(r => !r.already_added));
+          setListedDir(s.repos_dir);
         } else { setDiscovered([]); }
       } catch { setDiscovered([]); }
+      finally { setReposDirKnown(true); }
     })();
   }, [open]);
+
+  /** Scan a folder for repos and remember it as THE repos folder.
+   *
+   *  Scanned first, saved second: a path that cannot be read is reported and
+   *  nothing is written, so a typo never replaces a folder that worked. An
+   *  empty result IS saved, because "there are none here yet" is a true
+   *  answer about a folder the user chose. Saved to `settings.repos_dir`,
+   *  the same setting Settings, General edits, so this dialog never asks
+   *  twice and the clone tab proposes the same folder. */
+  async function applyReposDir(raw: string) {
+    const dir = raw.trim();
+    if (!dir || scanning) return;
+    setScanning(true); setErr(null);
+    try {
+      const repos = await discoverRepos(dir);
+      const cur = await settingsLoad();
+      await settingsSave({ ...cur, repos_dir: dir });
+      setReposDir(dir); setReposDirDraft(dir); setReposDirEditing(false);
+      setDiscovered(repos.filter(r => !r.already_added)); setListedDir(dir);
+      setSelected(new Set()); setFilter("");
+      setCloneParent(prev => prev || dir);
+    } catch {
+      setErr(t("newProject.reposDirError", { dir }));
+    } finally { setScanning(false); }
+  }
+
+  // List what is in a TYPED folder once the user stops typing, without
+  // waiting for Enter or "Find repos". Only listed, not saved: a half-typed
+  // path that happens to exist (`~/`) must not become the repos folder. It
+  // is saved by "Find repos" / Enter as before, or when a repo is added from
+  // this list (rememberListedDir), which is the user saying it was right.
+  // A stale scan is dropped, so a slow `~/` never overwrites `~/code`.
+  const reposFormShown = reposDirKnown && (!reposDir || reposDirEditing);
+  useEffect(() => {
+    if (!reposFormShown) return;
+    setPreviewStatus(null);
+    const dir = reposDirDraft.trim() || reposDir;
+    if (dir === listedDirRef.current) return;
+    if (!dir) { setDiscovered([]); setListedDir(""); return; }
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      setPreviewStatus("scanning");
+      discoverRepos(dir).then(repos => {
+        if (cancelled) return;
+        setDiscovered(repos.filter(r => !r.already_added)); setListedDir(dir);
+        setSelected(new Set()); setFilter(""); setPreviewStatus(null);
+        // A folder that reads clears the error an earlier bad one left.
+        setErr(null);
+      }).catch(() => { if (!cancelled) setPreviewStatus("missing"); });
+    }, REPOS_DIR_SETTLE_MS);
+    return () => { cancelled = true; window.clearTimeout(id); };
+  }, [reposFormShown, reposDirDraft, reposDir]);
+
+  /** Adding a repo from a list read out of a typed folder is the user
+   *  confirming that folder: save it as THE repos folder, as "Find repos"
+   *  would have. A no-op when the list came from the saved folder. */
+  async function rememberListedDir() {
+    const dir = listedDirRef.current;
+    if (!dir || dir === reposDir) return;
+    try {
+      const cur = await settingsLoad();
+      await settingsSave({ ...cur, repos_dir: dir });
+      setReposDir(dir); setReposDirDraft(dir); setReposDirEditing(false);
+      setCloneParent(prev => prev || dir);
+    } catch {}
+  }
+
+  async function browseReposDir() {
+    const sel = await openDialog({ directory: true, multiple: false });
+    if (typeof sel !== "string") return;
+    setReposDirDraft(sel);
+    await applyReposDir(sel);
+  }
 
   // Resolve the pending confirm dialog with the user's decision.
   function resolveConfirm(ok: boolean) {
@@ -244,9 +345,11 @@ export function NewProjectDialog() {
       setProjectCollapsed(proj.id, false);
       await loadAll();
       pushToast(t("newProject.toastAdded", { name: proj.name }), "success");
-      // Refresh discovery in case the same repos_dir has more candidates.
-      if (reposDir) {
-        const repos = await discoverRepos(reposDir).catch(() => []);
+      const listed = listedDirRef.current;
+      if (listed && discovered.some(r => r.path === p)) await rememberListedDir();
+      // Refresh discovery in case the same folder has more candidates.
+      if (listed) {
+        const repos = await discoverRepos(listed).catch(() => []);
         const nextDiscovered = repos.filter(r => !r.already_added);
         setDiscovered(nextDiscovered);
         // If the current filter would leave the list empty after the
@@ -299,8 +402,10 @@ export function NewProjectDialog() {
     // them would make the user find them again in a list that just shrank.
     const stillFailing = new Set(results.filter(r => r.error).map(r => r.path));
     setSelected(stillFailing);
-    if (reposDir) {
-      const repos = await discoverRepos(reposDir).catch(() => []);
+    const listed = listedDirRef.current;
+    if (listed) {
+      if (results.some(r => !r.error)) await rememberListedDir();
+      const repos = await discoverRepos(listed).catch(() => []);
       setDiscovered(repos.filter(r => !r.already_added));
     }
     setBusy(false);
@@ -692,6 +797,69 @@ export function NewProjectDialog() {
         </>
       ) : (
       <>
+      {/* Where the repos are. OFFERED, not demanded: it does not take focus
+          and its button is not the dialog's primary action, because adding
+          one repo by path is a complete use of this dialog and plenty of
+          people keep repos in more than one place. Shown when no folder is
+          set, and again only when the user asks to change it: with a folder known the list
+          below IS the answer and this would be a field in its way. Picking a
+          project by typing a path one repo at a time is the thing this
+          exists to prevent. */}
+      {reposDirKnown && (!reposDir || reposDirEditing) && (
+        <div className="mb-3 rounded-md border border-[var(--color-border-soft)] bg-[var(--color-bg)] p-3" data-testid="repos-dir-form">
+          <div className="text-[13.5px] font-medium">{t("newProject.reposDirTitle")}</div>
+          <div className="mt-0.5 text-[12px] leading-snug text-[var(--color-fg-dim)]">{t("newProject.reposDirHint")}</div>
+          <div className="mt-2 flex gap-2">
+            <Input
+              data-testid="repos-dir-input"
+              value={reposDirDraft}
+              onChange={e => setReposDirDraft(e.target.value)}
+              onKeyDown={submitOnEnter(!!reposDirDraft.trim() && !scanning, () => void applyReposDir(reposDirDraft))}
+              placeholder="~/Projects"
+              className="flex-1 font-mono"
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+            />
+            <Button variant="secondary" size="lg" onClick={browseReposDir} disabled={scanning}>{t("common:browse")}</Button>
+            <Button variant="secondary" size="lg" data-testid="repos-dir-apply"
+              disabled={!reposDirDraft.trim() || scanning}
+              onClick={() => void applyReposDir(reposDirDraft)}>
+              {scanning || previewStatus === "scanning" ? t("newProject.reposDirScanning") : t("newProject.reposDirApply")}
+            </Button>
+          </div>
+          {/* What the typed folder holds, said under the field: a folder that
+              cannot be read, or one with nothing left to add. A folder WITH
+              repos needs no line here, the list below is the answer. */}
+          {previewStatus === "missing" && reposDirDraft.trim() && (
+            <div data-testid="repos-dir-status" data-status="missing" className="mt-1.5 break-words text-[12px] text-[var(--color-fg-faint)]">
+              {t("newProject.reposDirError", { dir: reposDirDraft.trim() })}
+            </div>
+          )}
+          {previewStatus === null && listedDir && listedDir === reposDirDraft.trim()
+            && discovered.every(r => r.dismissed) && (
+            <div data-testid="repos-dir-status" data-status="empty" className="mt-1.5 break-words text-[12px] text-[var(--color-fg-faint)]">
+              {t("newProject.reposDirNone", { dir: listedDir })}
+            </div>
+          )}
+          {/* Same divider the list uses, so the single-path field under this
+              reads as the other way in and not as a second required field.
+              Only while nothing is listed: the list below brings its own,
+              and two in a row read as a rendering glitch. */}
+          {!discovered.some(r => !r.dismissed) && <div className="relative mt-3 text-center">
+            <div className="absolute inset-x-0 top-1/2 h-px bg-[var(--color-border-soft)]" />
+            <span className="relative bg-[var(--color-bg)] px-2 text-[11.5px] uppercase tracking-wider text-[var(--color-fg-faint)]">{t("newProject.orAddManually")}</span>
+          </div>}
+        </div>
+      )}
+      {/* A folder is set and holds nothing left to add. Said out loud, with
+          the way to point somewhere else: the list below renders nothing in
+          this case, which read as "discovery is broken". */}
+      {reposDirKnown && reposDir && !reposDirEditing && discovered.length === 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 text-[12.5px] text-[var(--color-fg-dim)]" data-testid="repos-dir-empty">
+          <span className="min-w-0 break-words">{t("newProject.reposDirNone", { dir: reposDir })}</span>
+          <button type="button" data-testid="repos-dir-change" onClick={() => setReposDirEditing(true)}
+            className="shrink-0 text-[var(--color-accent)] hover:underline">{t("newProject.reposDirChange")}</button>
+        </div>
+      )}
       {(() => {
         // Dismissed repos (Rust flags them via settings.discovery_dismissed)
         // are still discovered but hidden from the main list — a dormant local
@@ -724,10 +892,16 @@ export function NewProjectDialog() {
               />
               <span>{t("newProject.discoveredRepos")}</span>
             </span>
-            <span className="font-mono normal-case text-[11.5px] text-[var(--color-fg-faint)]">
-              {q
-                ? t("newProject.discoveredIn", { shown: t("newProject.filteredOf", { filtered: filtered.length, total: visible.length }), dir: reposDir })
-                : t("newProject.discoveredIn", { shown: visible.length, dir: reposDir })}
+            <span className="flex min-w-0 items-center gap-2 normal-case">
+              <span className="truncate font-mono text-[11.5px] text-[var(--color-fg-faint)]">
+                {q
+                  ? t("newProject.discoveredIn", { shown: t("newProject.filteredOf", { filtered: filtered.length, total: visible.length }), dir: listedDir })
+                  : t("newProject.discoveredIn", { shown: visible.length, dir: listedDir })}
+              </span>
+              {!reposFormShown && (
+                <button type="button" data-testid="repos-dir-change" onClick={() => setReposDirEditing(true)}
+                  className="shrink-0 text-[11.5px] tracking-normal text-[var(--color-accent)] hover:underline">{t("newProject.reposDirChange")}</button>
+              )}
             </span>
           </div>
           {visible.length > 5 && (

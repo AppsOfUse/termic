@@ -18,6 +18,7 @@
 // PUSHES it down to the Rust cache instead (one less moving part, and
 // `wait` works even while this webview is busy).
 
+import { fetchPrForReview, checkoutPrInMain, prReviewPrompt } from "@/lib/prReview";
 import { invoke } from "@tauri-apps/api/core";
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -144,6 +145,11 @@ interface NewTaskParams {
   /** The task whose agent ran `termic new` / MCP `task_new`, already checked
    *  live by the server. The new task joins its sidebar group. */
   parentTaskId?: string;
+  /** `termic review` / MCP `task_review` (v21): review this PR. Its head is
+   *  fetched and becomes the checkout; the prompt (the server already
+   *  resolved the review library prompt into it) gets the PR's details in
+   *  front. The server derived `name` as review-pr-<n> when none was given. */
+  pr?: number;
 }
 
 /** The main checkout stays uncaged unless explicitly opted in, and
@@ -244,6 +250,26 @@ async function createTask(p: NewTaskParams, mode: NewTaskMode): Promise<Task> {
 /** The branch `new --checkout` asked for, or undefined for any other create. */
 function checkoutBranchOf(p: NewTaskParams): string | undefined {
   return typeof p.checkout === "string" && p.checkout.trim() ? p.checkout.trim() : undefined;
+}
+
+/** Turn a review request into an ordinary create: a worktree checks out the
+ *  fetched PR branch, the main checkout is switched onto it (refusing when
+ *  the switch conflicts, rather than reviewing the wrong tree), and the
+ *  prompt gets the PR's details in front. */
+async function reviewParams(p: NewTaskParams, n: number): Promise<NewTaskParams> {
+  if (!useApp.getState().projects.some(pr => pr.id === p.projectId)) {
+    await useApp.getState().loadAll();
+  }
+  const { pr, branch } = await fetchPrForReview(p.projectId, n);
+  const prompt = typeof p.prompt === "string" && p.prompt ? prReviewPrompt(pr, p.prompt) : p.prompt;
+  if (p.mode === "main") {
+    const res = await checkoutPrInMain(p.projectId, branch);
+    if (res.conflicted) {
+      throw new Error(`checking out ${branch} in the main checkout conflicted with local changes; they are stashed, resolve it in Termic or review in a worktree`);
+    }
+    return { ...p, prompt };
+  }
+  return { ...p, prompt, checkout: branch, mode: "worktree" };
 }
 
 /** Rust's import refusals cross the string-only RPC error channel with the
@@ -347,8 +373,12 @@ async function injectPromptTracked(
  *  setup-output streaming and tracked prompt injection. Returns at
  *  spawn; the server owns all waiting. */
 async function newTaskHandler(raw: unknown, progress: Progress): Promise<{ taskId: string; spawned: boolean }> {
-  const p = raw as NewTaskParams;
+  let p = raw as NewTaskParams;
   if (typeof p?.projectId !== "string" || !p.projectId) throw new Error("new_task requires a projectId");
+  // A review: the same task the Review a PR dialog makes (lib/prReviewTask),
+  // reached through the ordinary create below. Fetched first, so a PR the
+  // forge does not know fails before anything exists.
+  if (typeof p.pr === "number" && p.pr > 0) p = await reviewParams(p, p.pr);
   const importing = typeof p.from === "string" && !!p.from;
   const checkout = checkoutBranchOf(p);
   // Importing and checking out derive a missing name from the branch.
@@ -775,14 +805,22 @@ async function renameTaskHandler(params: unknown): Promise<null> {
  *  first, coloured like any founding, so an orchestrator can name its group
  *  before it spawns anyone. The server validated the colour key.
  *
- *  Unless the project already HAS a group with that name: then the ungrouped
- *  task joins it (`groupMemberByName`). A caller outside any task has no
- *  parent for its tasks to group under, so the name is how it says "these
- *  belong together", and founding per call gave it two groups with one name
- *  and two colours. A task already in a group is renamed, never moved. */
+ *  Unless `joinByName` is set AND the project already has a group with that
+ *  name: then the ungrouped task joins it (`groupMemberByName`). The server
+ *  sets it only for a caller OUTSIDE any task, which has no parent for its
+ *  tasks to group under, so the name is how it says "these belong together"
+ *  (founding per call gave it two groups with one name and two colours).
+ *
+ *  An agent inside a task never joins by name. It used to: two orchestrators
+ *  in one project that both called their batch "Review", or one whose name
+ *  matched a group still following a lead task of that name, were merged, and
+ *  every task the second one launched afterwards landed in the first one's
+ *  group. Absent means false, so a caller that does not say is not merged.
+ *  A task already in a group is renamed, never moved. */
 export async function setTaskGroupHandler(params: unknown): Promise<null> {
-  const p = params as { taskId?: unknown; name?: unknown; color?: unknown };
+  const p = params as { taskId?: unknown; name?: unknown; color?: unknown; joinByName?: unknown };
   const taskId = p?.taskId;
+  const joinByName = p?.joinByName === true;
   if (typeof taskId !== "string" || !taskId) throw new Error("set_task_group requires a taskId");
   const name = typeof p.name === "string" ? p.name.trim() : undefined;
   const color = typeof p.color === "string" && p.color ? p.color : undefined;
@@ -794,7 +832,7 @@ export async function setTaskGroupHandler(params: unknown): Promise<null> {
     const task = all.find(t => t.id === taskId);
     if (!task) throw new Error("no such task");
     if (!task.group) {
-      const peer = name ? groupMemberByName(all, task.project_id, name, taskId) : undefined;
+      const peer = name && joinByName ? groupMemberByName(all, task.project_id, name, taskId) : undefined;
       if (peer) {
         await taskGroupJoin(taskId, peer.id);
         await useApp.getState().loadAll();
@@ -903,6 +941,8 @@ export function listPromptsHandler(params?: unknown): {
   prompts: {
     id: string; title: string; body: string;
     builtin: boolean; enabled: boolean; modified: boolean;
+    /** Tagged "Code review": what `termic review` picks without -P. */
+    review: boolean;
   }[];
 } {
   const bodies = (params as { bodies?: unknown })?.bodies !== false;
@@ -914,6 +954,7 @@ export function listPromptsHandler(params?: unknown): {
       builtin: p.builtin,
       enabled: p.enabled,
       modified: p.modified,
+      review: p.forReview,
     })),
   };
 }

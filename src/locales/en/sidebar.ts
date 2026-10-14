@@ -184,6 +184,8 @@ export default {
     customCommandHint: "ssh, a dev server, a REPL, …",
     startRace: "Start a race…",
     startRaceHint: "One prompt, several agents, pick a winner.",
+    reviewPr: "Review a pull request…",
+    reviewPrHint: "Fetch a PR and start a review on it.",
     worktreesUnavailable: "Worktrees unavailable",
     worktreesUnavailableHint: "This folder isn't a git repo. Point the project at a git repo (or git-init this folder) to enable worktrees.",
     advanced: "Advanced…",

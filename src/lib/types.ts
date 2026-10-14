@@ -427,6 +427,13 @@ export interface Task {
   pr_url?: string | null;
   pr_number?: number | null;
   pr_provider?: ForgeProvider | null;
+  /** The PR's title and state as the last status poll saw them, and when
+   *  that last changed (lib.rs `pr_cache_differs`). Not live: the PR card
+   *  re-fetches. What an archived task, which nothing polls, still knows
+   *  about its PR, and what the History page shows and searches. */
+  pr_title?: string | null;
+  pr_state?: "open" | "draft" | "merged" | "closed" | null;
+  pr_state_at?: string | null;
   /** Comment-watcher opt-in (the PR card bell). Watching only runs while
    *  the task has a LIVE agent - there's nobody to tell otherwise. */
   pr_watch?: boolean;

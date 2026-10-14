@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { useUI } from "@/store/ui";
 import { usePrefs } from "@/store/prefs";
 import { bindingGlyphs, bindingText } from "@/lib/shortcuts";
+import { useTip, useUnused } from "@/lib/guide/useTip";
 
 export function CommandPaletteButton() {
   const { t } = useTranslation("chrome");
@@ -25,6 +26,11 @@ export function CommandPaletteButton() {
   const binding = usePrefs(s => s.shortcuts["command-palette"]);
   const glyphs = binding ? bindingText(binding) : "";
   const label = `${t("commandPalette.label")}${glyphs ? ` (${glyphs})` : ""}`;
+
+  // The tip about this button (docs/guide.md): for someone who has had the
+  // app for a few days and has never opened the palette, by this button or
+  // by its shortcut. Anyone who has opened it once never sees it.
+  const tip = useTip(useUnused("command-palette", { days: 3, launches: 3 }) && "commandPalette");
 
   // Radix's dismissable layer closes the open palette on document pointerdown,
   // BEFORE our click ever fires, so a click handler that reads
@@ -48,6 +54,7 @@ export function CommandPaletteButton() {
         variant="icon"
         data-no-drag
         data-testid="command-palette-button"
+        data-guide={tip}
         aria-label={label}
         onPointerDown={(e) => { if (e.button !== 0) return; handledRef.current = true; toggle(); }}
         onClick={() => {

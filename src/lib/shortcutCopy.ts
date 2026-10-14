@@ -65,6 +65,7 @@ const DEF_KEY: Record<ShortcutId, string> = {
   "toggle-right-sidebar": "toggleRightSidebar",
   "broadcast": "broadcast",
   "prompt-palette": "promptPalette",
+  "review-pr": "reviewPr",
   "zoom-in": "zoomIn",
   "zoom-out": "zoomOut",
   "zoom-reset": "zoomReset",

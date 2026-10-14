@@ -31,6 +31,8 @@ import { RaceBoard } from "@/components/task/RaceBoard";
 import { Settings } from "@/components/settings/Settings";
 import { Dialogs } from "@/components/dialogs/Dialogs";
 import { Toaster } from "@/components/ui/Toaster";
+import { GuideLayer } from "@/components/guide/GuideLayer";
+import { useGuide } from "@/store/guide";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useShortcuts } from "@/hooks/useShortcuts";
 import { useAttentionNotifier } from "@/hooks/useAttentionNotifier";
@@ -106,6 +108,9 @@ export function App() {
     // greets you at every launch. After loadAll so it does not compete with
     // the first paint.
     void loaded.then(() => maybePromptDesktopEntry());
+    // Tips (docs/guide.md) read "no projects" as "show how to add one", which
+    // is also what an unloaded store looks like. Nothing is drawn before this.
+    void loaded.then(() => useGuide.getState().setReady());
     // Config sync (docs/ideas/config-sync.md): the pull on launch, another
     // when the window regains focus if the last one is old, and the
     // listeners that reload this window when another one syncs. After
@@ -283,6 +288,7 @@ export function App() {
         </div>
       )}
       <Dialogs />
+      <GuideLayer />
       <Toaster />
     </>
   );

@@ -474,10 +474,6 @@ specs and get an issue at the same time. That is the whole promotion path:
   there is nothing to turn. What the knobs should be, and which of them a
   user should ever see, is undecided.
   [docs/ideas/lsp-tuning.md](docs/ideas/lsp-tuning.md).
-- **Pointing at a new feature, once.** A shipped control nobody can find is
-  not shipped. A tip that fires once after an upgrade, next to the thing it
-  is about, is the missing rung between a changelog line and a 16px button.
-  [docs/ideas/feature-tips.md](docs/ideas/feature-tips.md).
 - **Config sync, beyond manual.** Syncing your setup through a private git
   repo you own ships as an experimental feature: syncing (pull and push) at launch,
   when a window comes forward, and a "Sync now" button. What is left: pushing on

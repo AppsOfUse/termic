@@ -59,6 +59,7 @@ export type ShortcutId =
   | "toggle-right-sidebar"
   | "broadcast"
   | "prompt-palette"
+  | "review-pr"
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
@@ -213,6 +214,9 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
     defaultBinding: B("b", { cmd: true, shift: true }) },
   { id: "prompt-palette", group: "General",
     defaultBinding: B("p", { cmd: true, alt: true }) },
+  // Ships unbound: the palette and the project + menu both reach it, and
+  // every free chord near "review" is taken. Bind it in Settings.
+  { id: "review-pr", group: "General", defaultBinding: null },
   { id: "zoom-in", group: "General",
     defaultBinding: B("=", { cmd: true }) },
   { id: "zoom-out", group: "General",

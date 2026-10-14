@@ -50,8 +50,8 @@ from the filesystem every time the page opens. A toggle implies we own the
 value; we do not, since the user can delete the file and Gear Lever or
 AppImageLauncher can write one.
 
-Two places ask, and they do not overlap. The welcome wizard carries it as an
-unticked checkbox on its last step, for a user who is new. The standalone
+Two places ask, and they do not overlap. The welcome screen carries it as a
+checkbox, for a user who is new. The standalone
 prompt (`src/lib/desktopEntryPrompt.ts`) covers everyone who is not, and
 stands down while `settings.welcomed` is false, because both are modal and
 the wizard blocks Escape: without that, a brand new Linux user met a second
@@ -448,6 +448,29 @@ the document listeners and the transform, and an unmount leaves no
 listener behind to reorder on a later pointermove.
 
 ## Task groups in the sidebar
+
+**Which group a new task lands in, and the two ways it used to land in the
+wrong one.** A task an agent creates joins the group of the task that created
+it, and nothing else decides it:
+
+- **A name never merges an agent's task into another group.** `group --name`
+  on an ungrouped task joins an existing group of that name ONLY for a caller
+  with no task of its own (`joinByName`, set by `handle_group` from
+  `caller_task`): one outside Termic has no parent to group under, so a
+  shared name is its only handle. For an agent inside a task it founds a
+  group. It used to join for everyone, and the label matched is the one the
+  sidebar shows, so an unnamed group matched on its LEAD TASK's name: two
+  orchestrators that both called their batch "Review" were merged, and every
+  task the second launched afterwards followed it into the first one's group.
+- **A lead that left its group founds a new one.** A group's id is its lead's
+  task id. Leaving touches nobody else, so the old workers keep that id, and
+  founding on it again (`apply_group_join`) dropped the next task the lead
+  launched into the old block. It now takes a fresh id, named after the lead,
+  exactly as `apply_group_new` already did.
+
+Still by design: a task launched by a MEMBER of a group joins that group's
+root, not a new one (groups stay flat), and a task launched into another
+project joins no group and is only linked.
 
 When an agent inside task A creates task B (`termic new`, or MCP `task_new`)
 in A's own project, both land in one group led by A. In ANOTHER project B

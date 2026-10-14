@@ -6,6 +6,7 @@ import {
   formatConsumed, formatPeriod, type PeriodConsumption,
 } from "./agentUsage";
 import { firstPollDelay } from "@/store/agentUsage";
+import { CONTEXT_BODY_PREFIX } from "./agentContext";
 import { HOOK_OSC_BODY, HOOK_OSC_READY_BODY, parseNotifyBody, hookOscHandlerData } from "./agentHooks";
 import { useAgentUsage, usageKey, foldCost, costTotal, costChipVisible, usageKnown, type UsageEntry } from "@/store/agentUsage";
 
@@ -536,6 +537,63 @@ describe("the blocked-feed explanation", () => {
     expect(p).toContain("TERMIC_TASK_ID");
     expect(p).toMatch(/Print NOTHING extra on stdout/i);
     expect(p).toMatch(/Never substitute 0/i);
+  });
+
+  it("makes the agent ASK where to put the change when the status line is committed", () => {
+    // The committed `.claude/settings.json` is the repo's, and the person
+    // holding the prompt may not be able to change it. Both ways are offered
+    // and the choice is the user's, before a single file is written.
+    const p = statusLineAgentPrompt(own("project"));
+    expect(p).toMatch(/BEFORE CHANGING ANYTHING, ask the user/);
+    expect(p).toMatch(/wait\s+for the answer/);
+    // A: in the repo, committed, for everyone.
+    expect(p).toMatch(/A\. Change it in the repository/);
+    // B: a local override that outranks the committed file and touches
+    // nothing tracked.
+    expect(p).toContain(".claude/settings.local.json");
+    expect(p).toMatch(/Claude reads that file over the\s+committed one/);
+    // The wrapper keeps the status line the user already has: it runs the
+    // original command and prints its output unchanged.
+    expect(p).toMatch(/runs the ORIGINAL command/);
+    expect(p).toMatch(/prints that command's output unchanged/);
+    // Git-ignored without editing a committed file to make it so.
+    expect(p).toContain("git check-ignore");
+    expect(p).toContain(".git/info/exclude");
+    expect(p).toMatch(/NOT to \.gitignore/);
+    expect(p).toMatch(/Do not stage or commit anything/);
+  });
+
+  it("does not ask when the status line is already the user's own file", () => {
+    // A local override or a user-level status line has one owner and one
+    // place to edit. Asking there would be a question with one answer.
+    for (const kind of ["project-local", "user"] as const) {
+      const p = statusLineAgentPrompt(own(kind));
+      expect(p).not.toMatch(/ask the user which of these two/);
+      expect(p).not.toContain("settings.local.json in");
+      expect(p).toMatch(/edit\s+the script it runs in place/);
+      // Still guarded: the script it runs may itself be tracked.
+      expect(p).toMatch(/tracked by\s+git, stop and ask/);
+    }
+  });
+
+  it("teaches the CONTEXT WINDOW, which termic's own status line also reports", () => {
+    // The prompt taught usage alone, so a custom status line taught by it
+    // filled half the footer: percentages, and a context gauge that stayed
+    // empty for good, with nothing on screen saying why.
+    const p = statusLineAgentPrompt(own("project"));
+    // The wire format, exactly as agent_hooks.rs writes it: the `ctx ` body,
+    // raw tokens then the window size.
+    expect(p).toContain(`777;notify;termic;${CONTEXT_BODY_PREFIX}<usedTokens> <windowSize>`);
+    // The two fields, with their PATH under `context_window`.
+    expect(p).toContain("context_window.total_input_tokens");
+    expect(p).toContain("context_window.context_window_size");
+    // Zero tokens is "before the first call", which the parser drops; a "-"
+    // here would not parse at all, unlike in the usage body.
+    expect(p).toMatch(/whole numbers greater than\s+zero/);
+    // A script taught by the older prompt is extended, not rewritten.
+    expect(p).toMatch(/keep that and add what\s+is missing/);
+    // Docker: $TERMIC_PTY is a host path the container cannot see.
+    expect(p).toContain("/proc/1/fd/1");
   });
 
   it("teaches the COST field, which is the only signal some accounts have", () => {

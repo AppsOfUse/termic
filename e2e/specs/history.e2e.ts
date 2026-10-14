@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dataDir } from "../../wdio.conf.js";
 import os from "node:os";
 import path from "node:path";
 import { clickByText, dismissOverlays, requireTermicApi, snap, waitForAppShell, waitVisible } from "../helpers";
@@ -201,5 +202,118 @@ describe("history project filter", () => {
       timeout: 10_000, timeoutMsg: "filter never fell back to All",
     });
     await waitHistory((t) => t.includes("e2e-hist-fx-1") && !t.includes(OTHER), "Empty archive should only delete the filtered project");
+  });
+});
+
+// History as the way back to an old PR: the table shows each task's branch,
+// base, and the PR it last knew (number, state, title), and the search finds
+// a task by that PR in any spelling, exactly. The PR fields are written into
+// the task records here, as the status poll would have before archiving:
+// the fixture repo is not on a forge, so no poll can produce them.
+describe("history by pull request", () => {
+  const ids: string[] = [];
+  const WITH_PR = "e2e-hist-pr-fix";
+  const NO_PR = "e2e-hist-pr-none-4242";
+
+  const rows = () => browser.execute(() =>
+    [...document.querySelectorAll<HTMLElement>("[data-history-row]")].map(r => r.innerText));
+  const search = (value: string) => browser.execute((v) => {
+    const input = document.querySelector('[data-testid="history-search"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, v);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value);
+  const shown = async () => (await rows()).map(r => (r.includes(WITH_PR) ? "pr" : r.includes(NO_PR) ? "none" : "other"));
+
+  before(async () => {
+    await waitForAppShell();
+    await requireTermicApi();
+    await dismissOverlays();
+    for (const name of [WITH_PR, NO_PR]) {
+      ids.push(await browser.execute(async (n) => {
+        const t = window.__termic!;
+        const pid = t.useApp.getState().projects.find((p: any) => p.name === "fixture-repo").id;
+        const task = await t.ipc.taskOpenRepo(pid, "fakeagent", n);
+        await t.ipc.taskArchive(task.id);
+        return task.id as string;
+      }, name) as string);
+    }
+    const file = path.join(dataDir, "tasks", `${ids[0]}.json`);
+    const rec = JSON.parse(readFileSync(file, "utf8"));
+    writeFileSync(file, JSON.stringify({
+      ...rec,
+      pr_number: 4242, pr_provider: "github", pr_url: "https://github.com/acme/web/pull/4242",
+      pr_title: "Fix the login redirect loop", pr_state: "merged", pr_state_at: "2026-09-30T10:00:00Z",
+    }, null, 2));
+    await browser.execute(() => window.__termic!.useApp.getState().loadAll());
+    await clickByText("Dashboard");
+    await clickByText("History");
+    await waitVisible('[data-testid="history-search"]');
+  });
+
+  after(async () => {
+    await browser.execute(async (list) => {
+      const t = window.__termic!;
+      for (const id of list) { try { await t.ipc.taskDelete(id); } catch { /* gone */ } }
+      await t.useApp.getState().loadAll();
+    }, ids);
+  });
+
+  it("shows the branch, its base, and the PR's number, last state and title", async () => {
+    await search(WITH_PR);
+    await browser.waitUntil(async () => (await shown()).join() === "pr", { timeout: 8_000, timeoutMsg: "the PR task never showed alone" });
+    const cell = await browser.execute((id) => {
+      const row = document.querySelector(`[data-history-row="${id}"]`)!;
+      const pr = row.querySelector('[data-testid="history-pr"]') as HTMLElement;
+      return { text: pr.innerText, state: pr.querySelector("[data-pr-state]")?.getAttribute("data-pr-state"), pr: row.getAttribute("data-history-pr") };
+    }, ids[0]);
+    expect(cell.text).toContain("#4242");
+    expect(cell.text).toContain("Fix the login redirect loop");
+    expect(cell.state).toBe("merged");
+    expect(cell.pr).toBe("4242");
+    // A task that never had a PR says so with a dash, not an empty cell.
+    await search(NO_PR);
+    await browser.waitUntil(async () => (await shown()).join() === "none", { timeout: 8_000, timeoutMsg: "the no-PR task never showed alone" });
+    expect(await browser.execute((id) =>
+      (document.querySelector(`[data-history-row="${id}"]`) as HTMLElement).innerText, ids[1])).toContain("-");
+    await search("");
+    await snap("history-pr-table.png");
+  });
+
+  it("finds the task by its PR in every spelling, and only that PR", async () => {
+    for (const q of ["#4242", "https://github.com/acme/web/pull/4242", "login redirect", "merged"]) {
+      await search(q);
+      await browser.waitUntil(async () => (await shown()).includes("pr"), { timeout: 8_000, timeoutMsg: `"${q}" did not find the PR task` });
+      expect(await shown()).not.toContain("none");
+    }
+    // A bare number finds the PR AND a task that only names that number.
+    await search("4242");
+    await browser.waitUntil(async () => {
+      const s = await shown();
+      return s.includes("pr") && s.includes("none");
+    }, { timeout: 8_000, timeoutMsg: "a bare number did not find both" });
+    // A PR reference is exact: #424 is another PR, and a task merely named
+    // with the number is not one.
+    await search("#424");
+    await browser.waitUntil(async () => (await shown()).filter(x => x !== "other").length === 0,
+      { timeout: 8_000, timeoutMsg: "#424 matched PR 4242" });
+  });
+
+  it("restores the task found by its PR", async () => {
+    await search("#4242");
+    await browser.waitUntil(async () => (await shown()).join() === "pr", { timeout: 8_000, timeoutMsg: "the PR task never showed alone" });
+    await browser.execute((id) => {
+      const row = document.querySelector(`[data-history-row="${id}"]`) as HTMLElement;
+      const btn = [...row.querySelectorAll("button")].find(b => b.textContent?.includes("Restore")) as HTMLButtonElement;
+      btn.click();
+    }, ids[0]);
+    await browser.waitUntil(
+      () => browser.execute((id) => window.__termic!.useApp.getState().tasks.some((t: any) => t.id === id && !t.archived), ids[0]),
+      { timeout: 10_000, timeoutMsg: "the task was not restored" },
+    );
+    // Restoring kept what it knew about its PR.
+    expect(await browser.execute((id) =>
+      window.__termic!.useApp.getState().tasks.find((t: any) => t.id === id)?.pr_number, ids[0])).toBe(4242);
+    await browser.execute(async (id) => { await window.__termic!.ipc.taskArchive(id); }, ids[0]);
   });
 });

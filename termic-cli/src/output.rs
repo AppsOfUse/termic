@@ -544,10 +544,10 @@ pub fn prompts_text(prompts: &[PromptEntry]) -> String {
     // narrower than their headers.
     let idw = prompts.iter().map(|p| p.id.chars().count()).max().unwrap_or(0).max("ID".len());
     let tw = prompts.iter().map(|p| p.title.chars().count()).max().unwrap_or(0).max("TITLE".len());
-    let mut out = format!("{:<idw$} {:<tw$} KIND     ENABLED  MODIFIED\n", "ID", "TITLE");
+    let mut out = format!("{:<idw$} {:<tw$} KIND     ENABLED  MODIFIED  REVIEW\n", "ID", "TITLE");
     for p in prompts {
         out.push_str(&format!(
-            "{:<idw$} {:<tw$} {:<8} {:<8} {}\n",
+            "{:<idw$} {:<tw$} {:<8} {:<8} {:<9} {}\n",
             p.id,
             p.title,
             if p.builtin { "builtin" } else { "custom" },
@@ -555,6 +555,8 @@ pub fn prompts_text(prompts: &[PromptEntry]) -> String {
             // A dash for custom prompts: modified only means something
             // for a builtin (edited away from the shipped text).
             if !p.builtin { "-" } else if p.modified { "yes" } else { "no" },
+            // Tagged "Code review": what `termic review` picks without -P.
+            if p.review { "yes" } else { "no" },
         ));
     }
     out.trim_end().to_string()
@@ -1264,6 +1266,16 @@ pub fn pad_list_text(pads: &[termic_proto::PadInfo]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// What `scratchpad clear` prints. Zero is said as zero: "removed 0" reads
+/// like something happened.
+pub fn pad_cleared_text(n: usize) -> String {
+    match n {
+        0 => "no scratchpads to remove".to_string(),
+        1 => "removed 1 scratchpad".to_string(),
+        n => format!("removed {n} scratchpads"),
+    }
 }
 
 pub fn cadence_text(c: &termic_proto::ScheduleCadence) -> String {

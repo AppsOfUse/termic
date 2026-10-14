@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/Input";
 import { usePrefs } from "@/store/prefs";
 import { useUI } from "@/store/ui";
 import { useApp } from "@/store/app";
+import { useGuide } from "@/store/guide";
 import { ExcludeEditor } from "./ExcludeEditor";
 import { BrowserCommandField } from "./BrowserCommandField";
 import { LINK_CLICK_MODIFIER as CLICK_MOD } from "@/lib/previewBrowser";
@@ -212,6 +213,10 @@ export function GeneralSection() {
         <ForgeStatusBlock />
       </Block>
 
+      <Block>
+        <TipsBlock />
+      </Block>
+
       {/* Linux AppImage only, and the row is ABSENT elsewhere rather than
           disabled: on macOS and Windows the bundle and the installer register
           everything this writes. */}
@@ -344,6 +349,49 @@ export function GeneralSection() {
  *  write one, so a remembered boolean would be a claim the system disagrees
  *  with. That is also why the button is never "on/off" but "create"/"remove".
  */
+/** Tips (docs/guide.md): the switch for the ones that introduce a feature,
+ *  and a way back into the getting-started tour for someone who skipped it. */
+function TipsBlock() {
+  const { t } = useTranslation("settings");
+  const tipsEnabled = useGuide(s => s.tipsEnabled);
+  const setTipsEnabled = useGuide(s => s.setTipsEnabled);
+  const replay = () => {
+    // The welcome guide's own steps only. A tip the user has seen stays
+    // seen: replaying the tour is not asking to be told everything again.
+    useGuide.getState().startGuide("welcome");
+    // The tour points at the app, which the settings overlay covers.
+    useApp.getState().closeSettings();
+  };
+  const [done, setDone] = useState(false);
+  const reset = () => {
+    useGuide.getState().resetAll();
+    setDone(true);
+    window.setTimeout(() => setDone(false), 1600);
+  };
+  return (
+    <>
+      <Toggle
+        label={t("general.tips.label")}
+        hint={t("general.tips.hint")}
+        value={tipsEnabled}
+        onChange={setTipsEnabled}
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button variant="secondary" data-testid="replay-tour" onClick={replay}>
+          {t("general.tips.replay")}
+        </Button>
+        {/* The one place "seen" is ever cleared, and only because someone
+            asked: everything the app has already shown may be shown once
+            more. It does not start the tour; the button beside it does. */}
+        <Button variant="ghost" data-testid="reset-tips" onClick={reset}>
+          {done ? t("general.tips.resetDone") : t("general.tips.reset")}
+        </Button>
+      </div>
+      <div className="mt-1.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("general.tips.resetHint")}</div>
+    </>
+  );
+}
+
 function DesktopEntryBlock() {
   const { t } = useTranslation("settings");
   const [st, setSt] = useState<DesktopIntegration | null>(null);

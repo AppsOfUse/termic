@@ -108,6 +108,11 @@ export default {
     untitledPrompt: "Untitled prompt",
   },
 
+  scratchCli: {
+    removedOne: "An agent removed the scratchpad \"{{title}}\".",
+    removedMany: "An agent removed {{count}} scratchpads.",
+  },
+
   scratchTabs: {
     createFailed: "Couldn't create the scratchpad: {{error}}",
     deleteFailed: "Couldn't delete the scratchpad: {{error}}",

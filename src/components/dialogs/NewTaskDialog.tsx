@@ -7,12 +7,14 @@ import { listen } from "@tauri-apps/api/event";
 import { useUI } from "@/store/ui";
 import { useApp } from "@/store/app";
 import { usePrefs } from "@/store/prefs";
+import { parsePrRef } from "@/lib/prReview";
 import { usePr } from "@/store/pr";
 import { AppDialog, dialogTitleAction } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
 import { CliIcon, CLI_BRAND_COLOR } from "@/icons/cli";
+import { AgentPills } from "./AgentPills";
 import { defaultCliFirst, visibleCliIds, isTerminalCli, agentDisplayName } from "@/lib/agents";
 import { taskCreate, taskCreateMulti, settingsLoad, taskImportableWorktrees, taskImportWorktree, sandboxAvailable, taskOpenRepo, projectGitBranches, projectBranchContext, dockerImageStatus, type DockerImageStatus, projectForgePrs, projectFetchPrBranch, projectGitCheckout} from "@/lib/ipc";
 import { launchSetupTab } from "@/lib/runTabs";
@@ -1009,15 +1011,6 @@ export function NewTaskDialog() {
     enterPrs();
   }
 
-  /** A pasted "123", "#123" or a full PR URL, reduced to a number. Returns 0
-   *  for anything else, which the caller reports rather than guessing at. */
-  function parsePrQuery(raw: string): number {
-    const t = raw.trim();
-    const fromUrl = t.match(/\/pull\/(\d+)/) ?? t.match(/\/merge_requests\/(\d+)/) ?? t.match(/\/pullrequest\/(\d+)/i);
-    // "#123" is the gh spelling, "!123" the glab/ado one Termic itself renders.
-    const n = Number(fromUrl ? fromUrl[1] : t.replace(/^[#!]/, ""));
-    return Number.isInteger(n) && n > 0 ? n : 0;
-  }
 
   /** Turn a PR into a branch this repo has, then hand over to the ordinary
    *  check-out-a-branch flow: nothing about worktree creation is special here,
@@ -1102,7 +1095,7 @@ export function NewTaskDialog() {
 
   async function pickPrByNumber() {
     if (!projectId) return;
-    const n = parsePrQuery(prQuery);
+    const n = parsePrRef(prQuery);
     if (!n) { setErr(t("newTask.prNumberUnparsed")); return; }
     const stale = staleFor(projectId, useUI.getState().newTaskSeed);
     setPrBusy(b => b + 1);
@@ -1577,7 +1570,7 @@ export function NewTaskDialog() {
           {/* Full width, half each: this is the first and biggest choice in
               the dialog, and a pair of small underlined labels read as chrome
               rather than as the fork they are. */}
-          <div className="flex items-stretch gap-1 rounded-lg bg-[var(--color-bg)] p-1">
+          <div data-guide="task-mode" className="flex items-stretch gap-1 rounded-lg bg-[var(--color-bg)] p-1">
             {([
               ["repo_root", "task-type-main", t("newTask.mainCheckout"), Link2],
               ["worktree", "task-type-worktree", t("newTask.worktree"), GitBranch],
@@ -1728,6 +1721,7 @@ export function NewTaskDialog() {
                 does. */}
             <Input
               data-testid="new-task-name"
+              data-guide="task-name"
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder={checkoutMode && checkoutName ? checkoutName : t("newTask.namePlaceholder")}
@@ -1864,28 +1858,12 @@ export function NewTaskDialog() {
               CLIs), not hard-coded — custom agents show up here. Disabled
               and not-installed agents are filtered out (see cliChoices).
               "Terminal" (cli="shell") is appended as a no-agent fallback. */}
-          <div className="inline-flex flex-wrap items-stretch gap-y-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[3px]">
-            {cliChoices.map(a => (
-              <button
-                // Picking one yourself answers the warning, so it goes.
-                key={a.id} type="button" onClick={() => { setCli(a.id); setAgentUnknown(null); }}
-                className={cn(
-                  "flex h-7 items-center gap-1.5 rounded-[5px] px-2.5 text-[12.5px] transition-colors",
-                  cli === a.id
-                    ? "bg-[var(--color-accent-deep)] text-white"
-                    : cn("text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]", CLI_BRAND_COLOR[a.icon_id]),
-                )}
-                style={cli === a.id ? undefined : (a.color ? { color: a.color } : undefined)}
-              >
-                {/* Local label override: shorten Antigravity → Agy
-                    so the segmented control fits more comfortably on
-                    one row. The global display_name stays untouched
-                    (used elsewhere in the app). */}
-                <CliIcon cli={a.icon_id} className="h-3.5 w-3.5" />
-                {a.id === "shell" ? t("newTask.terminal") : a.id === "agy" ? "Agy" : a.display_name}
-              </button>
-            ))}
-          </div>
+          {/* Picking one yourself answers the warning, so it goes. */}
+          <AgentPills
+            choices={cliChoices}
+            value={cli}
+            onChange={id => { setCli(id); setAgentUnknown(null); }}
+          />
           {/* Same deal as the base warning below: a link naming an agent this
               install doesn't offer falls back to the normal pick, which is
               right, but doing it silently means the user creates a task with

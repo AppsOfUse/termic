@@ -91,7 +91,39 @@ use std::io::{self, BufRead, Read, Write};
 /// v19: `send` gains `now`, which types the prompt into a busy agent at once
 /// instead of queueing it behind the turn. A v18 server would drop the field
 /// and quietly queue, the opposite of what an urgent message asked for.
-pub const PROTOCOL_VERSION: u32 = 19;
+///
+/// v20: `scratchpad rm` and `scratchpad clear` (`pad_remove`, `pad_clear`)
+/// delete one pad, or every pad of a task or scope. A v19 server does not
+/// know either verb, and the version check says "restart the app" where the
+/// bare failure would read as a broken command. Also `group` gains
+/// `caller_task`: a v19 server would drop it and go on merging an agent's
+/// task into another agent's group when their group names match.
+///
+/// v21: `new` gains `pr` (`termic review`, MCP `task_review`): the task is a
+/// review of that pull request, on its fetched branch, holding the PR's
+/// details ahead of a prompt tagged "Code review". A v20 server would drop
+/// the field and create a task named after nothing on a fresh branch.
+pub const PROTOCOL_VERSION: u32 = 21;
+
+/// A pasted "123", "#123", "!123" or a PR / MR link, reduced to its number.
+/// None for anything else. The webview's `parsePrRef` (src/lib/prReview.ts)
+/// is the same rule; the CLI and MCP parse here so a bad reference fails
+/// before anything crosses the wire.
+pub fn parse_pr_ref(raw: &str) -> Option<u64> {
+    let t = raw.trim();
+    for marker in ["/pull/", "/merge_requests/", "/pullrequest/"] {
+        let lower = t.to_ascii_lowercase();
+        if let Some(i) = lower.find(marker) {
+            let digits: String = t[i + marker.len()..].chars().take_while(|c| c.is_ascii_digit()).collect();
+            return digits.parse::<u64>().ok().filter(|n| *n > 0);
+        }
+    }
+    let bare = t.strip_prefix('#').or_else(|| t.strip_prefix('!')).unwrap_or(t);
+    if bare.is_empty() || !bare.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    bare.parse::<u64>().ok().filter(|n| *n > 0)
+}
 
 /// The argv `new` pins to a task's agent: the generic `--arg` values, then
 /// `--model <m>` LAST, so an explicit model wins when the agent parses
@@ -403,6 +435,13 @@ pub enum Command {
         /// caller-asserted: an unknown id is ignored, never an error.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parent_task: Option<String>,
+        /// v21: review this pull request (`termic review`). The webview
+        /// fetches its head and checks it out (a worktree unless `mode` is
+        /// "main"), names the task `review-pr-<n>` when `name` is empty,
+        /// and puts the PR's details ahead of the prompt. Excludes `from`
+        /// and `checkout`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pr: Option<u64>,
     },
     /// Block until the task's agent is quiescent: settled AND its
     /// message queue is empty. Streamed reply (state + heartbeat
@@ -603,6 +642,12 @@ pub enum Command {
         color: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
+        /// The task the CALLER runs in ($TERMIC_TASK_ID, or MCP's task
+        /// header), which is not always `task`: it says whether this came
+        /// from an agent inside Termic. Only a caller with NO task of its own
+        /// may have an ungrouped task joined to an existing group by name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caller_task: Option<String>,
     },
     /// List a task's scratchpads. cwd-aware when `task` absent.
     PadList {
@@ -656,6 +701,31 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         scope: Option<String>,
         pad: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+    },
+    /// Delete ONE scratchpad for good: its text, its record and its tab.
+    /// `pad` is a pad id or its exact title, case-insensitive.
+    PadRemove {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
+        pad: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+    },
+    /// Delete EVERY scratchpad in the target (a task, or one shared scope).
+    /// What `scratchpad list` shows is exactly what goes.
+    PadClear {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
     },
@@ -1100,6 +1170,10 @@ pub struct PromptEntry {
     pub enabled: bool,
     /// Built-in only: the user edited it away from the shipped text.
     pub modified: bool,
+    /// Tagged "Code review" (v21): offered by Review a PR, and what
+    /// `review` picks when no prompt is named.
+    #[serde(default, skip_serializing_if = "crate::is_false")]
+    pub review: bool,
     /// The prompt body. Present only for a resolved selector
     /// (`prompts show`); the list omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2010,6 +2084,23 @@ pub fn check_protocol(server_protocol: u32) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn parse_pr_ref_reads_every_spelling_and_guesses_at_nothing() {
+        for (raw, n) in [
+            ("123", 123), (" #123 ", 123), ("!45", 45),
+            ("https://github.com/acme/web/pull/77", 77),
+            ("https://github.com/acme/web/pull/77/files", 77),
+            ("https://gitlab.example.io/acme/web/-/merge_requests/9", 9),
+            ("https://dev.azure.com/acme/proj/_git/web/pullRequest/12", 12),
+        ] {
+            assert_eq!(parse_pr_ref(raw), Some(n), "{raw}");
+        }
+        for raw in ["", "abc", "0", "#", "-3", "1.5", "https://github.com/acme/web/issues/4"] {
+            assert_eq!(parse_pr_ref(raw), None, "{raw}");
+        }
+    }
+
     use super::*;
     use std::io::BufReader;
 
@@ -2057,6 +2148,7 @@ mod tests {
                 timeout_ms: Some(60_000),
                 cwd: Some("/repo/web".into()),
                 parent_task: None,
+                pr: None,
             },
             Command::New {
                 name: "bare".into(),
@@ -2077,6 +2169,7 @@ mod tests {
                 timeout_ms: None,
                 cwd: None,
                 parent_task: None,
+                pr: None,
             },
             // v14 checkout shape: an existing branch, the name left to the app.
             Command::New {
@@ -2098,6 +2191,7 @@ mod tests {
                 timeout_ms: None,
                 cwd: None,
                 parent_task: None,
+                pr: None,
             },
             // v7 import shape (GH #169): adopt a worktree + resume a session.
             Command::New {
@@ -2119,6 +2213,7 @@ mod tests {
                 timeout_ms: None,
                 cwd: None,
                 parent_task: None,
+                pr: None,
             },
             Command::Wait {
                 task: Some("fix-auth".into()),
@@ -2236,6 +2331,8 @@ mod tests {
                 cwd: None,
             },
             Command::PadRead { task: Some("t1".into()), project: None, scope: None, pad: "p1".into(), cwd: None },
+            Command::PadRemove { task: Some("t1".into()), project: None, scope: None, pad: "p1".into(), cwd: None },
+            Command::PadClear { task: None, project: Some("web".into()), scope: Some("project".into()), cwd: None },
             Command::ProjectAdd { path: "/repo/web".into(), non_git: false },
             Command::ProjectAdd { path: "/notes/plain".into(), non_git: true },
             Command::ProjectList,
@@ -2452,6 +2549,7 @@ mod tests {
             ReplyData::Prompts(PromptsData {
                 prompts: vec![
                     PromptEntry {
+                        review: false,
                         id: "builtin:review".into(),
                         title: "Review".into(),
                         builtin: true,
@@ -2461,6 +2559,7 @@ mod tests {
                         truncated: false,
                     },
                     PromptEntry {
+                        review: false,
                         id: "3f1c0d6e-aaaa-bbbb-cccc-1234567890ab".into(),
                         title: "Ship it".into(),
                         builtin: false,

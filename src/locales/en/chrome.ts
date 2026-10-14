@@ -151,12 +151,86 @@ export default {
     titleRunning: "{{held}} still running",
     carriedOver: "delegated work carried over ({{held}})",
   },
+  // Coachmarks (components/guide/GuideLayer.tsx). `tips.<id>` is joined to
+  // the registry in lib/guide/tips.ts by id; rules.test.ts pins the two.
+  guide: {
+    tipEyebrow: "Tip",
+    skipGuide: "Skip the tour",
+    gotIt: "Got it",
+    // Above each tour card: which step of how many.
+    stepCount: "{{n}}/{{total}}",
+    // One block per guide in lib/guide/guides.ts: its name, shown above each
+    // step, and its steps by id. Keep every line to a few words: nobody
+    // reads a paragraph on a card.
+    guides: {
+      welcome: {
+        name: "Getting started",
+        steps: {
+          addProject: {
+            title: "Add your first project",
+            body: "Pick a repo folder to start.",
+          },
+          // No body: the two lines below are drawn as two boxed rows under
+          // the toggle's own icons and names.
+          taskMode: {
+            title: "Where the agent works",
+            main: "Edits your repo directly.",
+            worktree: "Its own folder and branch, for running several at once. Archiving deletes the folder.",
+          },
+          nameTask: {
+            title: "Name the task",
+            body: "It also names the agent's session.",
+          },
+          newTask: {
+            title: "Start a task",
+            body: "Pick an agent to run in this project.",
+          },
+          taskStatus: {
+            title: "Watch it from the sidebar",
+            body: "The mark shows what the agent is doing.",
+          },
+        },
+      },
+    },
+    // One entry per tip in lib/guide/tips.ts, by id.
+    tips: {
+      agentWaiting: {
+        title: "An agent is waiting on you",
+        body: "Click to jump to it.",
+      },
+      reviewChanges: {
+        title: "Review the changes",
+        body: "See the diff, commit, or open a pull request.",
+      },
+      commandPalette: {
+        title: "Find any command",
+        body: "Every action is in this list.",
+      },
+      statusLine: {
+        title: "Your status line hides usage",
+        body: "Click to copy a prompt that fixes it.",
+      },
+      agentHooks: {
+        title: "Turn on agent hooks",
+        body: "Usage and status need them. Click to set them up.",
+      },
+      addCredentials: {
+        title: "This account is nearly out",
+        body: "Click to add a second account.",
+      },
+    },
+  },
   workMarkLegend: {
     working: "The agent is working right now.",
     delegated: "Waiting on subagents or scripts it started. Nothing is being computed, and this can last hours.",
     partial: "Partially done. Some of that work came back, the rest is still running.",
     done: "Work done.",
     attention: "Needs your attention: a permission prompt, a question, or anything else it cannot get past on its own.",
+    workingShort: "Working",
+    delegatedShort: "Waiting on subagents or scripts",
+    partialShort: "Partly done, still waiting",
+    doneShort: "Done",
+    attentionShort: "Needs you",
   },
   taskLocation: {
     main: "main checkout",
@@ -183,7 +257,16 @@ export default {
     emptyBody: "Add a git repo from disk to spawn agent tasks in.",
   },
   history: {
-    filterPlaceholder: "Filter tasks...",
+    filterPlaceholder: "Filter by task, branch, project or PR (#123, a link, its title)",
+    colProject: "Project",
+    colTask: "Task",
+    colBranch: "Branch",
+    colPr: "Pull request",
+    colArchived: "Archived",
+    fromBase: "from {{base}}",
+    mainCheckout: "main checkout",
+    // The PR state is the last one Termic saw, not a live read.
+    prStateSeen: "Last seen in this state on {{date}}",
     emptyArchiveTip: "Permanently delete every archived task",
     emptying: "Emptying…",
     emptyArchive: "Empty archive",

@@ -25,6 +25,7 @@ import { i18n } from "@/lib/i18n";
 import { isValidPortName } from "@/lib/namedPorts";
 import { isTerminalEntry } from "@/lib/agents";
 import { CodeIntelSettings } from "./CodeIntelSettings";
+import { ProjectStatusLine } from "@/components/task/StatusLinePrompt";
 import { CodeIntelServers } from "./CodeIntelServers";
 import { codeIntelName } from "@/lib/lsp/featureName";
 import { SERVABLE_LANGUAGES } from "@/lib/lsp/serverNames";
@@ -1310,6 +1311,16 @@ export function RepositorySection({ projectId }: { projectId: string }) {
                 )}
               </>
             }
+          />
+
+          {/* Claude's status line for THIS project: who owns it, and the
+              prompt that teaches a custom one to report to Termic. Kept here
+              permanently, because the footer only offers that prompt while
+              nothing is being reported at all. */}
+          <Field
+            label={t("repo.statusLineLabel")}
+            hint={t("repo.statusLineHint")}
+            control={<ProjectStatusLine projectPath={project.root_path} />}
           />
 
           {/* Danger zone pinned to the bottom of More — same

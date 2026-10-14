@@ -188,11 +188,21 @@ export const PREF_KEYS: readonly PrefKey[] = [
 
   // ── Prompt library ──
   { key: "promptLibrary", scoped: true, class: "sync" },
+  { key: "diffNewFileView", scoped: false, class: "local", reason: "the last-used mode of a control (a new file's diff: source or preview)" },
+  { key: "reviewPrLast", scoped: false, class: "local", reason: "the last-used choices of a control (Review a PR)" },
 
   // ── App install state ──
   { key: "updateDismissedVersion", scoped: false, class: "local", reason: "about the build installed here" },
   { key: "updateLastSeenVersion", scoped: false, class: "local", reason: "about the build installed here" },
   { key: "desktopEntryPrompted", scoped: false, class: "local", reason: "whether this machine was asked to install a desktop entry" },
+
+  // ── Guides and tips (store/guide.ts) ──
+  { key: "guideSeen", scoped: false, class: "local", reason: "which guide steps and tips this install has dismissed" },
+  { key: "guideShown", scoped: false, class: "local", reason: "which tips this install has already put on screen" },
+  { key: "guideActive", scoped: false, class: "local", reason: "which guide is part way through here" },
+  { key: "guideTipsEnabled", scoped: false, class: "sync" },
+  { key: "guideAdopted", scoped: false, class: "local", reason: "this install has been checked once for being already set up when tips arrived" },
+  { key: "guideUsage", scoped: false, class: "local", reason: "which features this install has used, and since when: what a tip for the unused ones is decided on" },
 
   // ── Debug flags ──
   { key: "ptyDebug", scoped: false, class: "local", reason: DEBUG_FLAG },

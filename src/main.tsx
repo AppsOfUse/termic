@@ -44,7 +44,7 @@ logLine("[termic] boot build=resume-fix-v3-sidebar-bypass").catch(() => {});
 // release bundles: both flags are statically false there.
 if (import.meta.env.DEV || import.meta.env.VITE_E2E) {
   void (async () => {
-    const [app, ui, prefs, race, pr, ipc, core, runTabs, scriptRuns, prompts, agentRace, diffStat, issuePrompt, seedPrompt, signalLog, reviewComments, deepLink, previewBrowser, pendingTasks, archivingTasks, pinnedFolders, cmLanguage, cmAutocomplete, codeIntel, lspStatus, navHistory, pageSession, profiles, agentUsage, usageUnknownDismissed, scratchCli, i18nMod, scheduleRunner] =
+    const [app, ui, prefs, race, pr, ipc, core, runTabs, scriptRuns, prompts, agentRace, diffStat, issuePrompt, seedPrompt, signalLog, reviewComments, deepLink, previewBrowser, pendingTasks, archivingTasks, pinnedFolders, cmLanguage, cmAutocomplete, codeIntel, lspStatus, navHistory, pageSession, profiles, agentUsage, usageUnknownDismissed, scratchCli, i18nMod, scheduleRunner, guide] =
       await Promise.all([
         import("@/store/app"),
         import("@/store/ui"),
@@ -79,6 +79,7 @@ if (import.meta.env.DEV || import.meta.env.VITE_E2E) {
         import("@/lib/scratchCli"),
         import("@/lib/i18n"),
         import("@/lib/schedules/runner"),
+        import("@/store/guide"),
       ]);
     (window as unknown as Record<string, unknown>).__termic = {
       useApp: app.useApp,
@@ -100,6 +101,10 @@ if (import.meta.env.DEV || import.meta.env.VITE_E2E) {
       // window sees it without scraping the strip, and can restore the
       // dormant state in teardown even when the body threw half way.
       useProfiles: profiles.useProfiles,
+      // Tips and the tour (docs/guide.md). Suppressed in this binary so a card
+      // never sits over what another spec is driving; guide.e2e.ts turns it on
+      // through this handle.
+      useGuide: guide.useGuide,
       // Plan usage (GH #277). Exposed so a spec can seed a reading rather than
       // wait for a real agent to report one, which no fixture agent does.
       useAgentUsage: agentUsage.useAgentUsage,

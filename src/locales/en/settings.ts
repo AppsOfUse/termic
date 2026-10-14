@@ -44,6 +44,14 @@ export default {
       en: "English",
       zhCN: "简体中文",
     },
+    tips: {
+      label: "Show tips",
+      hint: "Small cards that point at a control when it becomes useful. Once each.",
+      replay: "Replay the getting-started tour",
+      reset: "Reset all tips and tours",
+      resetDone: "Reset",
+      resetHint: "Replay restarts the tour. Reset lets every tip show again.",
+    },
     reposDir: {
       title: "Repos directory",
       hint: "Where Termic scans for unadded git repos when you click \"Add project\".",
@@ -651,6 +659,7 @@ export default {
       toggleLeftSidebar: { label: "Toggle left sidebar", hint: "Collapse / expand the projects sidebar" },
       toggleRightSidebar: { label: "Toggle right sidebar", hint: "Show / hide the right panel" },
       broadcast: { label: "Broadcast to agents" },
+      reviewPr: { label: "Review a pull request", hint: "Fetch a PR by number or link and start a review task" },
       promptPalette: {
         label: "Prompt palette",
         hint: "Search prompts by title; digits 1-9 fire the top rows, Enter runs the highlighted one",
@@ -802,6 +811,10 @@ export default {
     desc: "Reusable prompts for the Prompts menu in the top bar. When you fire one, you pick where it goes: an existing agent (queued if it is busy) or a new agent. Drag to reorder. Built-ins can be edited and reset. Open the palette with {{combo}} to search and fire them by keyboard.",
     new: "New prompt",
     empty: "No prompts. Add one, or restore the built-ins below.",
+    // The tag that puts a prompt in the Review a PR dialog.
+    forReview: "Code review",
+    forReviewTip: "Offer this prompt when reviewing a pull request",
+    forReviewEditor: "Use for code review (offered in Review a PR)",
     dragTip: "Drag to reorder",
     titlePlaceholder: "Prompt title",
     builtIn: "Built-in",
@@ -1211,6 +1224,8 @@ export default {
     spotlightHint: "When enabled, you can spotlight a task from its settings menu. Spotlight syncs that task's changes to your main checkout automatically so you can run and test from there. Committed changes appear as a checkpoint commit on main; uncommitted edits sync as working-tree changes; untracked files are copied (.gitignore respected). Main must be clean to start. Stopping spotlight removes the checkpoint commit and restores main. While spotlight is active, the run script executes at the repo root.",
     spotlightActive: "<1>{{name}}</1> is spotlighted right now",
     spotlightNone: "No task is spotlighted right now.",
+    statusLineLabel: "Claude status line",
+    statusLineHint: "Termic reads plan usage and the context window from Claude's status line. A project or a user with a status line of their own has to teach it to report.",
     defaultCliLabel: "Default CLI",
     defaultCliHint: "Which agent to spawn for new tasks in this repo. Pick Terminal for a plain login shell (no agent).",
     cliMissing: "{{cli}} (not in your agents list)",

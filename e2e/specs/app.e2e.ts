@@ -652,82 +652,8 @@ describe("more dialogs open", () => {
     });
   });
 
-  // The hooks step switches "Keep every agent hooked up" ON by default: it
-  // installs the hook for every supported agent now and for any added later.
-  // Default, not decision: the box shows checked, and unticking turns it off.
-  it("turns hook auto-install on by default, and unticking turns it off", async () => {
-    const autoOn = () => browser.execute(() => window.__termic!.invoke("agent_hooks_auto_get")) as unknown as Promise<boolean>;
-    await browser.execute(async () => { await window.__termic!.invoke("agent_hooks_auto_set", { on: false }); });
-    expect(await autoOn()).toBe(false);
-    try {
-      await browser.execute(() => window.__termic!.useUI.getState().openWelcome());
-      await waitForText("Welcome to Termic");
-      await clickWhenVisible('[aria-label="Step 3"]');
-      await waitForText("Keep every agent hooked up");
-      await browser.waitUntil(async () => await autoOn(), {
-        timeout: 30_000, timeoutMsg: "arriving on the hooks step did not turn auto-install on",
-      });
-      await browser.waitUntil(
-        () => browser.execute(() => (document.querySelector('[data-testid="welcome-hooks-auto"]') as HTMLInputElement | null)?.checked === true),
-        { timeout: 5_000, timeoutMsg: "the box did not show auto-install on" },
-      );
-      await snap("welcome-hooks-default-on.png");
-      await browser.execute(() => (document.querySelector('[data-testid="welcome-hooks-auto"]') as HTMLInputElement).click());
-      await browser.waitUntil(async () => !(await autoOn()), {
-        timeout: 10_000, timeoutMsg: "unticking the box did not turn auto-install off",
-      });
-    } finally {
-      // Back to the profile's default, and nothing left installed: later
-      // specs assert on hook state from a clean slate.
-      await browser.execute(async () => {
-        const t = window.__termic!;
-        await t.invoke("agent_hooks_auto_set", { on: false });
-        for (const a of t.useApp.getState().agents) {
-          try { await t.invoke("agent_hooks_remove", { agentId: a.id }); } catch { /* unsupported */ }
-        }
-        await t.useApp.getState().refreshAgentHooks();
-        t.useUI.getState().closeWelcome();
-      });
-    }
-  });
-
-  // The wizard opens on the LAYOUT step, and its last step is still the
-  // project picker that carries Finish. Both halves matter: the step was
-  // inserted at the front, which renumbers every other one, and an off-by-one
-  // there shows the wrong body or strands the Finish button on a step nobody
-  // reaches. Also the only place the worktree explanation is guaranteed to be
-  // seen, which is why it goes first.
-  it("opens on the layout step, and finishes on the last step that has content", async () => {
-    await browser.execute(() => window.__termic!.useUI.getState().openWelcome());
-    await waitForText("Welcome to Termic");
-    await waitForText("is one piece of work inside it");
-    // The distinction the step exists for, in the words a user needs: a
-    // worktree is a folder, not a way of making a branch.
-    await waitForText("Worktree");
-    await waitForText("Main checkout");
-    await snap("welcome-layout-step.png");
-
-    // Jump to the last pip rather than clicking Next four times: the pips are
-    // the thing the renumbering would break, and this asserts the count too.
-    const pips = await browser.execute(() =>
-      [...document.querySelectorAll('[aria-label^="Step "]')].map(
-        el => el.getAttribute("aria-label")),
-    );
-    // FOUR, not five. The wizard opens with no repos directory set, so it
-    // has nothing to suggest and drops the project picker rather than
-    // showing a step whose only content is "nothing to suggest". The finish
-    // button moves onto the step before it.
-    expect(pips).toEqual(["Step 1", "Step 2", "Step 3", "Step 4"]);
-    await clickWhenVisible('[aria-label="Step 4"]');
-    await waitForText("Pick your theme");
-    await waitForText("Get started");
-
-    await browser.execute(() => window.__termic!.useUI.getState().closeWelcome());
-    await browser.waitUntil(async () => (await flag("welcomeOpen")) === false, {
-      timeout: 5_000,
-      timeoutMsg: "welcome never closed",
-    });
-  });
+  // What the welcome screen contains, what its buttons write, and the tour it
+  // hands over to are guide.e2e.ts.
 
   it("race dialog opens for a project", async () => {
     await browser.execute(() => {
@@ -1186,7 +1112,7 @@ describe("history view", () => {
     const all = await listBox();
     await browser.execute(() => {
       const input = document.querySelector(
-        'input[placeholder="Filter tasks..."]',
+        '[data-testid="history-search"]',
       ) as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype, "value",
@@ -1204,7 +1130,7 @@ describe("history view", () => {
 
     await browser.execute(() => {
       const input = document.querySelector(
-        'input[placeholder="Filter tasks..."]',
+        '[data-testid="history-search"]',
       ) as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype, "value",

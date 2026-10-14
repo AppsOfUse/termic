@@ -188,7 +188,9 @@ while the row is at its default), reset puts null back, and `loadShortcuts`
 reads a stored null as "no override" (the whole map is persisted on every
 change, so null is only ever the default, and a default added later still
 reaches the profile). Only a command with another way in may ship unbound;
-`shortcuts.test.ts` pins that list to `search-everywhere`. Every consumer of
+`shortcuts.test.ts` pins that list to `search-everywhere` (double-Shift) and
+`review-pr` (Review a PR, reachable from the command palette and the
+project `+` menu). Every consumer of
 `shortcuts[id]` was moved onto the nullable type by the compiler, so a new one
 has to handle "unbound" too.
 

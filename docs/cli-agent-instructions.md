@@ -139,6 +139,16 @@ the help does not have: leave the outer double quotes and the
 to slot its own prompt in, and mangling either kills the reply address
 with no error.
 
+### Reviewing a pull request
+
+`"$TERMIC_CLI" review <pr>` (MCP `task_review`) fetches the PR (a number,
+`#123`, or its link), checks its branch out in a new worktree task named
+`review-pr-<n>` (`--main` uses the project's main checkout instead), and
+starts an agent on the PR's details followed by a prompt from the library
+tagged "Code review". `-P <id or title>` picks that prompt; without it the
+first tagged one is used. `-p` adds your own text after it. A second
+review of the same PR fails on the existing task: `send` to it instead.
+
 ### Creating a task that produces a result
 
 Ask for a report back. End the prompt you give the new agent with the
@@ -272,8 +282,9 @@ Use one for findings, a plan, logs, or a running report meant to be
 READ, not committed: it is the place for temporary output, so never drop
 throwaway `.md` files into the repo instead. Every `scratchpad` verb
 targets your own task unless you pass `--task`. Over MCP the same verbs
-are `scratchpad_new`, `scratchpad_write`, `scratchpad_read` and
-`scratchpad_list`, also defaulting to your own task.
+are `scratchpad_new`, `scratchpad_write`, `scratchpad_read`,
+`scratchpad_list`, `scratchpad_remove` and `scratchpad_clear`, also
+defaulting to your own task.
 
 - `"$TERMIC_CLI" scratchpad new --title "<title>" -c "<text>"` - create one
   (it opens without taking focus) and print its id. `-c -` reads stdin.
@@ -283,6 +294,13 @@ are `scratchpad_new`, `scratchpad_write`, `scratchpad_read` and
   open pad updates in place and the user can undo your write.
 - `"$TERMIC_CLI" scratchpad read <id>` - print it, including the user's edits.
 - `"$TERMIC_CLI" scratchpad list` - every pad in the task, with ids.
+- `"$TERMIC_CLI" scratchpad rm <id>` - delete one pad for good: its text and
+  its tab. There is no undo, so remove only pads you created or were asked
+  to remove.
+- `"$TERMIC_CLI" scratchpad clear` - delete every pad `scratchpad list`
+  shows for the same target. A shared scope (`--scope project|profile|global`)
+  holds the user's notes too: clear one only when asked. To empty one pad
+  and keep it, `scratchpad write <id> -c ""`.
 
 Address pads by id: a title works when it is unique, but titles change.
 

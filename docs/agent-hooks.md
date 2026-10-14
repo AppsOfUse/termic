@@ -1097,8 +1097,9 @@ committed one, so the file a user would go and edit is often the wrong one.
 
 Claude ONLY, and only on a POSITIVE detection. It is the only agent whose
 usage arrives through a status line, so the only one that can be shadowed;
-codex is asked directly and cannot hit this. The check is asked only while
-there is nothing to show, so a working feed never pays for it, and it reads the
+codex is asked directly and cannot hit this. The check is asked while there is
+nothing to show, and again whenever the chip's panel is open, so a working
+feed pays for it only when someone is looking; it reads the
 AGENT'S OWN config dir: a clone relocates it, and asking about the base read
 `~/.claude` for every clone.
 
@@ -1135,6 +1136,33 @@ works or silently does not, and its test pins them: the `TERMIC_PTY` /
 stdout IS the status line so the sequence must go to the pty and nowhere else,
 and `-` rather than `0` for a missing value, since a zero reports a spent
 limit as unused.
+
+The prompt teaches BOTH halves of the footer: the `usage` body and the `ctx`
+body (raw tokens and the window size, sent only when both are above zero). It
+taught usage alone until the tips work, so a custom status line taught by it
+filled half the footer and left the context gauge empty with nothing saying
+why. It also names the Docker fallback targets (`/proc/1/fd/1`, `/dev/tty`),
+since `$TERMIC_PTY` is a host path a container cannot see.
+
+For a status line set in the COMMITTED `.claude/settings.json` the prompt makes
+the agent stop and ask the user where the change goes, before it writes
+anything (`statusLineWhere`). That file is the repo's, and the person holding
+the prompt may not be able to change it. Two options, both spelled out so the
+answer is informed: edit the repo's script and commit it (everyone gets it, a
+no-op without Termic), or leave the repo untouched with a git-ignored
+`.claude/settings.local.json` that takes the slot for this checkout and points
+at a wrapper which runs the original command, prints its output unchanged and
+does the reporting. The wrapper and the local settings are kept out of git
+through `.git/info/exclude`, never `.gitignore`, which is itself committed. A
+`project-local` or `user` owner gets no question: it is already their own file.
+
+The prompt is offered in THREE places (`components/task/StatusLinePrompt.tsx`),
+because the first one disappears. The `usage n/a` chip is gone the moment the
+script reports a single number, so a script taught by an older prompt, or
+taught half right, had no way back to it. So it is also in the usage panel of
+a task whose custom status line already reports, and permanently in Settings,
+under the project, More, "Claude status line", which asks the same
+`status_line_owner` question for that project's folder.
 
 Sources that are NOT this, all measured and all dead: claude's HOOK payloads
 carry no usage field (a real `Stop` payload has `session_id`,

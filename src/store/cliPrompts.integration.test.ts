@@ -109,3 +109,58 @@ describe("cli list_prompts (Phase 4)", () => {
     expect(custom.body).toBe("Ship the diff.");
   });
 });
+
+describe("the Code review tag (Review a PR, `termic review`)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", fakeLocalStorage());
+    vi.resetModules();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("tags Review and Security review by default, and nothing else", async () => {
+    const { listPromptsHandler } = await fresh();
+    const tagged = listPromptsHandler().prompts.filter(p => p.review).map(p => p.id);
+    expect(tagged).toEqual(["builtin:review", "builtin:security-review"]);
+  });
+
+  it("tags a custom prompt, untags a built-in, and stores only the difference", async () => {
+    const { listPromptsHandler, usePromptLibrary } = await fresh();
+    const s = usePromptLibrary.getState();
+    const id = s.addPrompt({ title: "Deep review", body: "Run the deep-review skill." });
+    s.setForReview(id, true);
+    s.setForReview("builtin:security-review", false);
+    const tagged = listPromptsHandler().prompts.filter(p => p.review).map(p => p.id);
+    expect([...tagged].sort()).toEqual(["builtin:review", id].sort());
+    // Untagging back to the default leaves nothing behind for that id.
+    usePromptLibrary.getState().setForReview("builtin:security-review", true);
+    const stored = JSON.parse(localStorage.getItem("promptLibrary") ?? "{}");
+    expect(stored.review).toEqual({ [id]: true });
+  });
+
+  it("survives a reload, and a deleted prompt takes its tag with it", async () => {
+    let { usePromptLibrary } = await fresh();
+    const id = usePromptLibrary.getState().addPrompt({ title: "Deep review", body: "x" });
+    usePromptLibrary.getState().setForReview(id, true);
+    vi.resetModules();
+    ({ usePromptLibrary } = await fresh());
+    expect(usePromptLibrary.getState().prompts.find(p => p.id === id)?.forReview).toBe(true);
+    usePromptLibrary.getState().deletePrompt(id);
+    expect(JSON.parse(localStorage.getItem("promptLibrary") ?? "{}").review).toEqual({});
+  });
+
+  it("a clone of a tagged prompt stays tagged", async () => {
+    const { usePromptLibrary } = await fresh();
+    const copy = usePromptLibrary.getState().clonePrompt("builtin:review")!;
+    expect(usePromptLibrary.getState().prompts.find(p => p.id === copy)?.forReview).toBe(true);
+  });
+
+  it("offers only tagged, enabled prompts with a body", async () => {
+    const { usePromptLibrary } = await fresh();
+    const { reviewPrompts } = await import("@/store/prompts");
+    const s = usePromptLibrary.getState();
+    const empty = s.addPrompt({ title: "Empty", body: "  " });
+    s.setForReview(empty, true);
+    s.toggleEnabled("builtin:security-review");
+    expect(reviewPrompts(usePromptLibrary.getState().prompts).map(p => p.id)).toEqual(["builtin:review"]);
+  });
+});

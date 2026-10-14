@@ -21,7 +21,7 @@ import { importQuickWorktree, readNewTaskMode, writeNewTaskMode, type NewTaskMod
 import { taskImportableWorktrees, taskRestore, projectBranchContext, projectUpdate } from "@/lib/ipc";
 import { CliIcon, CLI_BRAND_COLOR, resolveIconId } from "@/icons/cli";
 import { DropdownItem, DropdownSeparator, DropdownSub, DropdownSubTrigger, DropdownSubContent } from "@/components/ui/Dropdown";
-import { GitBranch, GitBranchPlus, Link2, TerminalSquare, SquareChevronRight, Settings2, FolderGit2, Flag, Check, ChevronRight, History, Zap } from "lucide-react";
+import { GitBranch, GitBranchPlus, Link2, TerminalSquare, SquareChevronRight, Settings2, FolderGit2, Flag, Check, ChevronRight, History, Zap, GitPullRequest } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Agent, BranchContext, ImportableWorktree, Project } from "@/lib/types";
 
@@ -72,6 +72,7 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
   const detectedClis = useApp(s => s.detectedClis);
   const openNewTask = useUI(s => s.openNewTask);
   const openRace = useUI(s => s.openRace);
+  const openReviewPr = useUI(s => s.openReviewPr);
   const openCustomCommand = useUI(s => s.openCustomCommand);
   const setActiveTask = useApp(s => s.setActiveTask);
   const loadAll = useApp(s => s.loadAll);
@@ -223,7 +224,7 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
               are equal, and both use the same active color. Plain buttons (not
               menu items) so clicking one flips the mode without closing the
               dropdown. */}
-          <div className="flex w-full items-stretch rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[3px]">
+          <div data-guide="task-mode" className="flex w-full items-stretch rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[3px]">
             <button
               type="button"
               onClick={() => setMode("repo_root")}
@@ -405,6 +406,17 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
           Single-repo git projects only (needs worktree isolation); multi-repo
           is a later slice. Defers a frame like openAdvanced so the dropdown's
           focus teardown doesn't steal the dialog's autofocus. */}
+      {!isNonGit && !isMulti && (
+        <DropdownItem data-testid="project-review-pr" onSelect={() => requestAnimationFrame(() => openReviewPr(projectId))}>
+          <GitPullRequest className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate">{t("projectActions.reviewPr")}</span>
+            <span className="truncate text-[11.5px] text-[var(--color-fg-faint)]">
+              {t("projectActions.reviewPrHint")}
+            </span>
+          </div>
+        </DropdownItem>
+      )}
       {!isNonGit && !isMulti && (
         <DropdownItem onSelect={() => requestAnimationFrame(() => openRace(projectId))}>
           <Flag className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />

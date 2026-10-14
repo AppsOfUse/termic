@@ -311,9 +311,10 @@ describe("MCP endpoint: files, discovery, and the Phase A boundary", () => {
     expect(a).toEqual(b);
     const names = a.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "task_list", "task_status", "task_new", "task_send", "task_wait",
+      "task_list", "task_status", "task_new", "task_review", "task_send", "task_wait",
       "task_result", "task_log", "task_diff", "task_open", "task_rename", "task_group",
       "scratchpad_new", "scratchpad_write", "scratchpad_read", "scratchpad_list",
+      "scratchpad_remove", "scratchpad_clear",
       "task_apply", "task_archive", "task_tab", "task_tab_close", "task_prop", "task_agents",
       "prompts", "project_list", "project_add", "project_remove",
       // #380: recurring schedules, the `termic schedule` verbs.
@@ -465,6 +466,49 @@ describe("MCP tools/call: a real task round-trip through the live webview", () =
     }
   });
 
+  // The other side of the case above. An agent INSIDE a task has a parent for
+  // its tasks to group under, so a name is only a label. It used to be a join
+  // key for everyone: two orchestrators that both called their batch "Review"
+  // were merged, and everything the second one launched afterwards landed in
+  // the first one's group.
+  it("an agent inside a task that picks a name another group already has founds its own group", async () => {
+    const made: string[] = [];
+    try {
+      const mk = async (name: string) => {
+        const r = await call("task_new", { name, project: "fixture-repo", agent: "fakeagent", noGroup: true });
+        expect(r.isError).toBe(false);
+        made.push(r.structuredContent.task.id);
+        return r.structuredContent.task.id as string;
+      };
+      const first = await mk("mcp-same-name-a");
+      const second = await mk("mcp-same-name-b");
+      const nameAs = async (self: string) =>
+        (await rpc("tools/call", { name: "task_group", arguments: { name: "Review" } }, { "x-termic-task": self })).result;
+      // Each names ITS OWN group "Review", from inside its own task.
+      expect((await nameAs(first)).isError).toBe(false);
+      expect((await nameAs(second)).isError).toBe(false);
+      const groups = await browser.execute(async (ids) => {
+        const all: any[] = await window.__termic!.ipc.tasksList();
+        return ids.map(id => all.find(t => t.id === id)?.group ?? null);
+      }, made) as unknown as ({ id: string; name?: string } | null)[];
+      // Two groups, each led by its own task, both called Review.
+      expect(groups[0]?.id).toBe(first);
+      expect(groups[1]?.id).toBe(second);
+      expect(groups.map(g => g?.name)).toEqual(["Review", "Review"]);
+      // So a task the second one launches goes to the second one's group.
+      const child = await rpc("tools/call",
+        { name: "task_new", arguments: { name: "mcp-same-name-child", project: "fixture-repo", agent: "fakeagent" } },
+        { "x-termic-task": second });
+      const childId = child.result.structuredContent.task.id as string;
+      made.push(childId);
+      const childGroup = await browser.execute(async (id) =>
+        ((await window.__termic!.ipc.tasksList()) as any[]).find(t => t.id === id)?.group?.id ?? null, childId);
+      expect(childGroup).toBe(second);
+    } finally {
+      for (const id of made) await archiveTask(id);
+    }
+  });
+
   it("scratchpads round-trip over MCP, defaulting to the caller's own task", async () => {
     // No `task` anywhere: the X-Termic-Task header says whose, as `termic
     // scratchpad` reads $TERMIC_TASK_ID. The pad is a note for the user,
@@ -486,6 +530,60 @@ describe("MCP tools/call: a real task round-trip through the live webview", () =
       (id) => window.__termic!.useApp.getState().tasks.find((t: any) => t.id === id)?.path, taskId,
     ) as string;
     expect(execSync(`git -C "${wt}" status --porcelain`, { encoding: "utf8" })).not.toContain("mcp findings");
+  });
+
+  it("task_review refuses a missing or unreadable PR, and a repo off any forge makes no task", async () => {
+    // Bad arguments are invalid params (a JSON-RPC error), like every tool's.
+    const missing = await rpc("tools/call", { name: "task_review", arguments: { project: "fixture-repo" } });
+    expect(missing.error.message).toContain("\"pr\" is required");
+    const bad = await rpc("tools/call", { name: "task_review", arguments: { pr: "abc", project: "fixture-repo" } });
+    expect(bad.error.message).toContain("pull request number or link");
+    const before = await browser.execute(() => window.__termic!.useApp.getState().tasks.length);
+    // A number is taken as well as a string. The fixture is not on a forge,
+    // so the fetch is what refuses, after the prompt was resolved.
+    const r = await call("task_review", { pr: 5, project: "fixture-repo", agent: "fakeagent" });
+    expect(r.isError).toBe(true);
+    expect(await browser.execute(() => window.__termic!.useApp.getState().tasks.length)).toBe(before);
+  });
+
+  it("scratchpad_remove and scratchpad_clear tidy up over MCP, and say they are destructive", async () => {
+    const self = { "x-termic-task": taskId! };
+    const tool = async (name: string, args: Record<string, unknown>) =>
+      (await rpc("tools/call", { name, arguments: args }, self)).result;
+    const ids = async () => ((await tool("scratchpad_list", {})).structuredContent.pads as any[]).map(p => p.id as string);
+
+    // A well-behaved client confirms a destructiveHint'd call before making it.
+    const listed = (await rpc("tools/list")).result.tools as any[];
+    for (const name of ["scratchpad_remove", "scratchpad_clear"]) {
+      const def = listed.find(t => t.name === name);
+      if (!def) throw new Error(`${name} is not in tools/list`);
+      expect(def.annotations.destructiveHint).toBe(true);
+    }
+
+    const a = (await tool("scratchpad_new", { title: "mcp throwaway", content: "x" })).structuredContent.pads[0].id as string;
+    const b = (await tool("scratchpad_new", { title: "mcp other", content: "y" })).structuredContent.pads[0].id as string;
+    expect(await ids()).toEqual(expect.arrayContaining([a, b]));
+
+    // One pad, by title, on the caller's own task (no `task` argument).
+    const removed = await tool("scratchpad_remove", { pad: "mcp throwaway" });
+    expect(removed.isError).toBe(false);
+    expect(removed.structuredContent.pads.map((p: any) => p.id)).toEqual([a]);
+    const afterOne = await ids();
+    expect(afterOne).not.toContain(a);
+    expect(afterOne).toContain(b);
+
+    // A pad is required: an empty call must not be read as "all of them".
+    // Refused as invalid params before it reaches the app at all.
+    const bare = await rpc("tools/call", { name: "scratchpad_remove", arguments: {} }, self);
+    expect(bare.result).toBeUndefined();
+    expect(bare.error).toBeDefined();
+    expect(await ids()).toEqual(afterOne);
+
+    // Everything the list showed, and the reply names what went.
+    const cleared = await tool("scratchpad_clear", {});
+    expect(cleared.isError).toBe(false);
+    expect((cleared.structuredContent.pads as any[]).map(p => p.id).sort()).toEqual([...afterOne].sort());
+    expect(await ids()).toEqual([]);
   });
 
   it("task_send delivers and task_log reads the echo back", async () => {

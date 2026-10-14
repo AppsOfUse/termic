@@ -1479,7 +1479,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             )}
             {/* The ONE Add project button (GH #280 removed the footer copy):
                 it belongs next to the list it acts on. */}
-            <Tip content={t("addProjectTip")}><Button size="icon" variant="icon" data-testid="sidebar-add-project" onClick={openNewProject}>
+            <Tip content={t("addProjectTip")}><Button size="icon" variant="icon" data-testid="sidebar-add-project" data-guide="add-project" onClick={openNewProject}>
               <FolderPlus className={iconSize(compact)} /></Button></Tip>
           </div>
         </div>
@@ -1742,6 +1742,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                                   // match on. Keyed by project id because the
                                   // sidebar renders one per project.
                                   data-testid={`project-new-task-${p.id}`}
+                                  data-guide="new-task"
                                   className="rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-bg-3)] data-[state=open]:text-[var(--color-fg)]"
                                 ><Plus className="h-4 w-4" /></button>
                               </DropdownTrigger>
@@ -1959,6 +1960,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                       <DropdownTrigger asChild>
                         <button
                           data-testid={`project-empty-new-task-${p.id}`}
+                          data-guide="new-task-empty"
                           // Same token as the task row it stands in for, so
                           // the two cannot drift apart (see --task-row-h).
                           className="flex h-[var(--task-row-h)] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-transparent px-2 text-[13px] text-[var(--color-fg-dim)] hover:border-[var(--color-accent-soft)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:border-[var(--color-accent-soft)] data-[state=open]:text-[var(--color-fg)]"
@@ -3133,6 +3135,7 @@ function TaskRow({ w, compact, dragging = false, dragTy = 0, onDragPointerDown, 
       <div
         data-sidebar-task-id={w.id}
         data-sidebar-task-project-id={w.project_id}
+        data-guide={isActive ? "active-task-row" : undefined}
         style={dragging ? { transform: `translateY(${dragTy}px)`, position: "relative", zIndex: 20 } : undefined}
         onPointerDown={onDragPointerDown ? (e) => onDragPointerDown(e, w) : undefined}
         onClick={() => {
@@ -4058,6 +4061,7 @@ function PendingRepoRootRow({ mode, cli, value, branch, onChange, onBranchChange
         </span>
         <input
           ref={ref}
+          data-guide="task-name"
           value={value}
           onChange={e => onChange(e.target.value)}
           onKeyDown={keyHandler}

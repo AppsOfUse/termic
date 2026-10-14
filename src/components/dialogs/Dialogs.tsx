@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import { useUI } from "@/store/ui";
 import { settingsLoad } from "@/lib/ipc";
+import { useGuide } from "@/store/guide";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { NewTaskDialog } from "./NewTaskDialog";
 import { EditTaskDialog } from "./EditTaskDialog";
@@ -18,6 +19,7 @@ import { ChangelogDialog } from "./ChangelogDialog";
 import { CreatePrDialog } from "./CreatePrDialog";
 import { BroadcastDialog } from "./BroadcastDialog";
 import { RaceDialog } from "./RaceDialog";
+import { ReviewPrDialog } from "./ReviewPrDialog";
 import { RaceCompare } from "@/components/task/RaceCompare";
 import { TaskSandboxDialog } from "./TaskSandboxDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -46,7 +48,12 @@ export function Dialogs() {
 
   // Fire the welcome wizard on first launch (no settings.welcomed flag yet).
   useEffect(() => {
-    settingsLoad().then(s => { if (!s.welcomed) openWelcome(); }).catch(() => {});
+    settingsLoad().then(s => {
+      // Before anything can be drawn: an install that is already set up is
+      // not shown today's tips (store/guide.ts, `adoptExisting`).
+      useGuide.getState().adoptExisting(!!s.welcomed);
+      if (!s.welcomed) openWelcome();
+    }).catch(() => {});
   }, [openWelcome]);
 
   return (
@@ -65,6 +72,7 @@ export function Dialogs() {
       <CreatePrDialog />
       <BroadcastDialog />
       <RaceDialog />
+      <ReviewPrDialog />
       <RaceCompare />
       <TaskSandboxDialog />
       <ConfirmDialog />

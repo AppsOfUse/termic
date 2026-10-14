@@ -26,7 +26,9 @@ import { startSpotlight, stopSpotlight } from "@/lib/spotlight";
 import { launchRunTabs, expandPreviewUrl } from "@/lib/runTabs";
 import type { GitStatus, Task, TaskMember, Project, TerminalTab } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Play, ChevronDown, ChevronUp, Square, Globe, X, AudioWaveform, RefreshCw, Copy, Check, Settings, SquareArrowOutUpRight, PanelBottom } from "lucide-react";
+import { Play, ChevronDown, ChevronUp, Square, Globe, X, AudioWaveform, RefreshCw, Copy, Check, Settings, SquareArrowOutUpRight, PanelBottom, NotepadText } from "lucide-react";
+import { useGuide } from "@/store/guide";
+import { useHeld, useTip } from "@/lib/guide/useTip";
 import { Button } from "@/components/ui/Button";
 import { Tip } from "@/components/ui/Tooltip";
 import { Spinner } from "@/components/ui/Spinner";
@@ -67,6 +69,15 @@ export function RightPanel() {
   const split = useApp(s => !!s.terminalSplit[task?.id ?? ""]);
   const toggleSplit = useApp(s => s.toggleTerminalSplit);
   const [view, setView] = useState<"files" | "changes" | "scratchpad">("files");
+  // The "review the changes" tip (docs/guide.md), on the Git tab: this task
+  // has changed files, no agent in it is still working, and the user is not
+  // already on the Git view. Held for a few seconds so it does not land on
+  // the frame a turn ends. The tab scan runs only until the tip has been
+  // seen.
+  const reviewUnseen = useGuide(s => !s.seen.includes("reviewChanges"));
+  const agentIdle = useApp(s =>
+    reviewUnseen && !!task
+    && !(s.tabs[task.id] ?? []).some(tb => tb.type === "terminal" && tb.workState === "working"));
   // A reveal-in-tree request (editor breadcrumb / locate button) forces the
   // "All files" view so the tree is on screen for FileTree to expand/scroll.
   const revealFile = useApp(s => s.revealFile);
@@ -92,6 +103,9 @@ export function RightPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealFile, task?.id]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const reviewTip = useTip(
+    useHeld(agentIdle && (gitStatus?.total_changed ?? 0) > 0 && view !== "changes", 3000) && "reviewChanges",
+  );
   // Bumped by the header refresh button to force the FileTree to re-read
   // from disk. The Git side re-fetches via refreshGit() in the same click.
   const [fileTreeReload, setFileTreeReload] = useState(0);
@@ -517,10 +531,19 @@ export function RightPanel() {
       />
       <header className="flex h-10 shrink-0 items-stretch border-b border-[var(--color-border-soft)]">
         <RTab label={t("rightPanel.allFiles")} active={view === "files"} onClick={() => setView("files")} />
-        <RTab label={t("rightPanel.scratchpad", "Scratchpad")} active={view === "scratchpad"} onClick={() => setView("scratchpad")} />
         <RTab label={t("rightPanel.git")} active={view === "changes"} onClick={() => setView("changes")}
+          guide={reviewTip}
           badge={(gitStatus?.total_changed ?? 0) > 0 ? gitStatus!.total_changed : undefined}
           repoBadge={(gitStatus?.repos_changed ?? 0) > 1 ? gitStatus!.repos_changed : undefined} />
+        {/* Scratchpad LAST and visibly a different kind of tab. All files and
+            Git are the two views of the task's checkout and share the strip
+            evenly; the scratchpad is notes that are not in the repo at all,
+            and sitting between them as a third equal tab it read as one more
+            view of the same files. It is an icon at the end of the strip, the
+            width of the refresh button beside it, named by its tooltip: the
+            two file views keep the room. */}
+        <RTab label={t("rightPanel.scratchpad", "Scratchpad")} active={view === "scratchpad"} onClick={() => setView("scratchpad")}
+          icon={<NotepadText className="h-4 w-4 shrink-0" />} />
         <div className="flex shrink-0 items-center px-1.5">
           <Tip content={t("rightPanel.refreshTip")} side="bottom">
             <button
@@ -975,7 +998,14 @@ function ScriptStream({ taskId, kind, run, hasScript, dismissKey, onStart, onCon
 // = plain dim text, hover = soft hover. Count appears as plain faint
 // text alongside the label (no accent-colored badge pill) so a "0"
 // reads as informational rather than urgent.
-function RTab({ label, active, badge, repoBadge, onClick }: { label: string; active: boolean; badge?: number; repoBadge?: number; onClick: () => void }) {
+function RTab({ label, active, badge, repoBadge, onClick, icon, guide }: {
+  label: string; active: boolean; badge?: number; repoBadge?: number; onClick: () => void;
+  /** A tip pointing at this tab (`useTip`'s return value). */
+  guide?: string;
+  /** Marks a tab that is not a view of the checkout: drawn as this icon
+   *  alone, at a fixed width, with the label as its tooltip. */
+  icon?: React.ReactNode;
+}) {
   const { t } = useTranslation("task");
   return (
     <button
@@ -983,16 +1013,24 @@ function RTab({ label, active, badge, repoBadge, onClick }: { label: string; act
       // Text alone can't address these tabs once a badge renders inside them
       // ("Git" becomes "Git29"), so e2e aims at the label + active state.
       data-testid="right-tab"
+      data-guide={guide}
       data-tab={label}
       data-active={active ? "true" : "false"}
       className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 border-b-2 text-[13px] font-medium transition-colors",
+        "flex items-center justify-center gap-1.5 border-b-2 font-medium transition-colors",
+        // An icon tab is the icon alone, at a fixed width. No divider on it:
+        // the active state colours `border-color`, which painted a divider
+        // on the left edge orange too, an L-shaped accent that read as a
+        // rendering bug.
+        icon ? "w-9 shrink-0" : "flex-1 text-[13px]",
         active
           ? "border-[var(--color-accent)] bg-[var(--color-bg)] text-[var(--color-fg)]"
           : "border-transparent text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]",
       )}
+      title={icon ? label : undefined}
+      aria-label={icon ? label : undefined}
     >
-      {label}
+      {icon ?? label}
       {/* Repos-changed badge (green) — only when more than one repo has
           changes. Sits before the total so it reads "N repos, M files". */}
       {repoBadge !== undefined && (

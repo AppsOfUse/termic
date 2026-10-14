@@ -656,6 +656,17 @@ pub struct Task {
     /// "github" | "gitlab" | "azure" - which forge the cached PR lives on.
     #[serde(default)]
     pub pr_provider: Option<String>,
+    /// The PR's title and state ("open" | "draft" | "merged" | "closed")
+    /// as the last status poll saw them, and when that last CHANGED. Not live state: the PR
+    /// card still re-fetches. Kept so an ARCHIVED task, which nothing polls
+    /// any more, can still say which PR it was and how it ended, and the
+    /// History page can find it by PR. Written only when they change.
+    #[serde(default)]
+    pub pr_title: Option<String>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+    #[serde(default)]
+    pub pr_state_at: Option<String>,
     /// Comment watcher opt-in for this task (the bell on the PR
     /// card). Persisted so a relaunch resumes watching. The per-project
     /// `watch_pr_comments` setting force-enables it for every task
@@ -6423,6 +6434,9 @@ fn task_open_repo(
         pr_url: None,
         pr_number: None,
         pr_provider: None,
+        pr_title: None,
+        pr_state: None,
+        pr_state_at: None,
         pr_watch: false,
         pr_comments_seen_at: None,
         // New tasks are unordered: they append below any manually
@@ -6850,6 +6864,9 @@ fn task_import_worktree(
         pr_url: None,
         pr_number: None,
         pr_provider: None,
+        pr_title: None,
+        pr_state: None,
+        pr_state_at: None,
         pr_watch: false,
         pr_comments_seen_at: None,
         // New tasks are unordered: they append below any manually
@@ -7283,6 +7300,9 @@ fn task_create_sync(app: AppHandle, args: CreateTaskArgs) -> Result<Task, String
         pr_url: None,
         pr_number: None,
         pr_provider: None,
+        pr_title: None,
+        pr_state: None,
+        pr_state_at: None,
         pr_watch: false,
         pr_comments_seen_at: None,
         // New tasks are unordered: they append below any manually
@@ -7681,6 +7701,9 @@ fn task_create_multi_sync(app: AppHandle, args: CreateMultiArgs) -> Result<Task,
         pr_url: None,
         pr_number: None,
         pr_provider: None,
+        pr_title: None,
+        pr_state: None,
+        pr_state_at: None,
         pr_watch: false,
         pr_comments_seen_at: None,
         // New tasks are unordered: they append below any manually
@@ -8427,7 +8450,20 @@ fn apply_group_join(list: &mut [Task], task_id: &str, target_id: &str, color: Op
     let group = match list[ti].group.clone() {
         Some(g) => g,
         None => {
-            let g = TaskGroup { id: list[ti].id.clone(), name: None, color };
+            // The id is the lead's own task id, UNLESS other tasks still
+            // carry that id. They do when this task led a group and then
+            // left it: leaving touches nobody else, so its old workers keep
+            // `group.id == <this task's id>`. Founding on the same id again
+            // would drop the new child into that old block, among tasks its
+            // spawner no longer has anything to do with. Same rule, and the
+            // same naming, as `apply_group_new`.
+            let own = list[ti].id.clone();
+            let taken = list.iter().enumerate().any(|(i, t)| i != ti && t.group.as_ref().is_some_and(|g| g.id == own));
+            let g = if taken {
+                TaskGroup { id: uuid::Uuid::new_v4().to_string(), name: Some(list[ti].name.clone()), color }
+            } else {
+                TaskGroup { id: own, name: None, color }
+            };
             list[ti].group = Some(g.clone());
             changed.push(ti);
             g
@@ -13896,18 +13932,36 @@ fn pr_lookup_at(
     }
 }
 
+/// Whether a poll's PR differs from what the task record caches. The
+/// timestamp is deliberately not compared: it records when the state was
+/// last seen to CHANGE, and refreshing it on every poll would rewrite the
+/// task file every few seconds.
+fn pr_cache_differs(w: &Task, p: &forge::PrStatus, provider: &str) -> bool {
+    w.pr_number != Some(p.number)
+        || w.pr_provider.as_deref() != Some(provider)
+        || w.pr_url.as_deref() != Some(p.url.as_str())
+        || w.pr_title.as_deref() != Some(p.title.as_str())
+        || w.pr_state.as_deref() != Some(p.state.as_str())
+}
+
 fn pr_lookup_blocking(id: &str) -> Result<PrLookup, String> {
     let w = load_tasks_all().into_iter().find(|w| w.id == id).ok_or("no task")?;
     let lookup = pr_lookup_at(Path::new(&w.path), w.pr_number, w.pr_provider.as_deref());
     // Cache the identity on the task record so future polls (and the next
     // app launch) can resolve by number.
     if let (Some(p), Some(provider)) = (&lookup.pr, lookup.provider.as_deref()) {
-        if w.pr_number != Some(p.number) || w.pr_provider.as_deref() != Some(provider) {
+        // The title and state ride along (History searches and shows them),
+        // but a poll that saw nothing new writes nothing: this runs every
+        // few seconds per task with a PR.
+        if pr_cache_differs(&w, p, provider) {
             let mut list = load_tasks_all();
             if let Some(wm) = list.iter_mut().find(|x| x.id == id) {
                 wm.pr_url = Some(p.url.clone());
                 wm.pr_number = Some(p.number);
                 wm.pr_provider = Some(provider.to_string());
+                wm.pr_title = Some(p.title.clone());
+                wm.pr_state = Some(p.state.clone());
+                wm.pr_state_at = Some(chrono::Utc::now().to_rfc3339());
                 let _ = save_task(wm);
             }
         }
@@ -34737,6 +34791,31 @@ filename f.rs
         assert_eq!(l[2].group.as_ref().unwrap().color.as_deref(), Some("teal"), "the founding colour wins");
     }
 
+    /// An orchestrator that led a group, left it, and launches again. Its old
+    /// workers still carry its id as their group id, so founding on that id
+    /// once more would put the new task in with them.
+    #[test]
+    fn group_join_from_a_lead_that_left_founds_a_new_group_not_the_old_one() {
+        let mut l = vec![gt("orch"), gt("old1"), gt("old2")];
+        apply_group_join(&mut l, "old1", "orch", None).unwrap();
+        apply_group_join(&mut l, "old2", "orch", None).unwrap();
+        apply_group_leave(&mut l, "orch").unwrap();
+        assert_eq!(gid(&l, "old1").as_deref(), Some("orch"), "the workers keep the old group");
+
+        l.push(gt("fresh"));
+        apply_group_join(&mut l, "fresh", "orch", Some("teal".into())).unwrap();
+        let g = l[0].group.clone().unwrap();
+        assert_ne!(g.id, "orch", "the old group still owns that id");
+        assert_eq!(g.name.as_deref(), Some("orch"), "named after its lead, which it cannot follow by id");
+        assert_eq!(gid(&l, "fresh"), Some(g.id.clone()), "the new task is with its spawner");
+        assert_eq!(gid(&l, "old1").as_deref(), Some("orch"));
+        assert_eq!(gid(&l, "old2").as_deref(), Some("orch"));
+        // A second launch reuses the new group instead of founding a third.
+        l.push(gt("fresh2"));
+        apply_group_join(&mut l, "fresh2", "orch", None).unwrap();
+        assert_eq!(gid(&l, "fresh2"), Some(g.id));
+    }
+
     #[test]
     fn group_join_from_a_member_stays_flat() {
         // A sub-orchestrator's children land in the ROOT group.
@@ -36110,6 +36189,33 @@ mod windows_port_tests {
 // file-system half (report folder, exclude line, pruning) is `schedules.rs`.
 #[cfg(test)]
 mod schedule_record_tests {
+
+    #[test]
+    fn pr_cache_is_rewritten_only_when_what_history_shows_changes() {
+        let pr = |state: &str, title: &str| forge::PrStatus {
+            provider: "github".into(), number: 77, url: "https://github.com/acme/web/pull/77".into(),
+            title: title.into(), state: state.into(), checks: "none".into(), review: "none".into(),
+            base: "main".into(), head: "fix-login".into(),
+        };
+        let mut w = Task::default();
+        // Nothing cached yet: write.
+        assert!(pr_cache_differs(&w, &pr("open", "Fix login"), "github"));
+        w.pr_number = Some(77);
+        w.pr_provider = Some("github".into());
+        w.pr_url = Some("https://github.com/acme/web/pull/77".into());
+        w.pr_title = Some("Fix login".into());
+        w.pr_state = Some("open".into());
+        w.pr_state_at = Some("2026-10-01T00:00:00Z".into());
+        // The same poll again: no write, whatever the timestamp says.
+        assert!(!pr_cache_differs(&w, &pr("open", "Fix login"), "github"));
+        // Merged, or retitled: write, so an archived task remembers how it ended.
+        assert!(pr_cache_differs(&w, &pr("merged", "Fix login"), "github"));
+        assert!(pr_cache_differs(&w, &pr("open", "Fix login and logout"), "github"));
+        // A record written before these fields existed reads them as absent.
+        let old: Task = serde_json::from_str(r#"{"id":"t","pr_number":77}"#).unwrap();
+        assert_eq!((old.pr_title, old.pr_state, old.pr_state_at), (None, None, None));
+    }
+
     use super::*;
     use crate::schedules::{CadenceKind, RunOutcome, ScheduleCadence, ScheduleRun, TaskSchedule};
     use crate::test_support::with_scratch_data_dir;

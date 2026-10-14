@@ -669,6 +669,23 @@ html.termic-mod-held .xterm .xterm-cursor-pointer { cursor: pointer; }
   .termic-pop[data-state] { animation: none; }
 }
 
+/* The ring a coachmark draws round the control it points at
+   (components/guide/GuideLayer.tsx). The pulse runs THREE times and stops: an
+   infinite one keeps the compositor awake for as long as the tip is on
+   screen, and a tip can sit there for minutes while its reader does
+   something else. */
+@keyframes termic-guide-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 55%, transparent); }
+  to   { box-shadow: 0 0 0 9px transparent; }
+}
+.termic-guide-ring {
+  border: 1.5px solid var(--color-accent);
+  animation: termic-guide-pulse 1.4s ease-out 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .termic-guide-ring { animation: none; }
+}
+
 /* Soft, non-blocking backdrop for the ⇧⌘P command palette: a gentle dim that
    fades in with the panel and out on close, so the palette reads with more
    contrast against a busy editor/file-tree without the old harsh black flash.

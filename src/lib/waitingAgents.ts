@@ -61,6 +61,17 @@ export function waitingCount(s: AppState): number {
   return n;
 }
 
+/** Is an agent waiting in a task OTHER than the one on screen? What the
+ *  "an agent is waiting on you" tip is about: a wait in the task you are
+ *  looking at needs no pointer, you are looking at it. */
+export function waitingElsewhere(s: AppState): boolean {
+  if (!usePrefs.getState().settledHighlight) return false;
+  for (const w of awakeTasks(s)) {
+    if (w.id !== s.activeTaskId && taskIsWaiting(s, w.id)) return true;
+  }
+  return false;
+}
+
 /** Activate the next waiting agent after the active task (wraparound),
  *  landing on its waiting tab (attention preferred over done). Activating a
  *  task clears its attention, so calling this repeatedly walks the whole

@@ -197,6 +197,9 @@ interface UIState {
   /** Agent Race launcher: project id to start a race for, null = closed.
    *  UI-store (not app) so opening it doesn't churn the task tree. */
   raceProjectId: string | null;
+  /** Review a PR dialog: the project it opens on, null = closed. The dialog
+   *  can switch project itself. */
+  reviewPrProjectId: string | null;
   /** Agent Race compare surface: race id whose racers' worktree diffs are
    *  shown N-up, null = closed. Separate from the launcher so a finished
    *  race can be re-compared without relaunching. */
@@ -364,6 +367,8 @@ interface UIState {
   openProjectBroadcast: (projectId: string) => void;
   closeBroadcast: () => void;
   openRace: (projectId: string) => void;
+  openReviewPr: (projectId: string) => void;
+  closeReviewPr: () => void;
   closeRace: () => void;
   openRaceCompare: (raceId: string) => void;
   closeRaceCompare: () => void;
@@ -551,6 +556,7 @@ export const useUI = create<UIState>((set, get) => ({
   broadcastForTaskId: null,
   broadcastForProjectId: null,
   raceProjectId: null,
+  reviewPrProjectId: null,
   raceCompareId: null,
   sandboxForTaskId: null,
   fileFinderTaskId: null,
@@ -635,6 +641,8 @@ export const useUI = create<UIState>((set, get) => ({
   openProjectBroadcast: (projectId) => set({ broadcastForProjectId: projectId, broadcastForTaskId: null }),
   closeBroadcast:    () => set({ broadcastForTaskId: null, broadcastForProjectId: null }),
   openRace:          (projectId) => set({ raceProjectId: projectId }),
+  openReviewPr:      (projectId) => set({ reviewPrProjectId: projectId }),
+  closeReviewPr:     () => set({ reviewPrProjectId: null }),
   closeRace:         () => set({ raceProjectId: null }),
   openRaceCompare:   (raceId) => set({ raceCompareId: raceId }),
   closeRaceCompare:  () => set({ raceCompareId: null }),

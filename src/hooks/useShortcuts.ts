@@ -610,6 +610,18 @@ export function useShortcuts() {
           return;
         }
 
+        // Unbound by default; bindable in Settings. Opens on the active
+        // task's project, else the first git project.
+        case "review-pr": {
+          const projects = useApp.getState().projects;
+          const own = taskId ? projects.find(p => p.id === useApp.getState().tasks.find(t => t.id === taskId)?.project_id) : undefined;
+          const target = own && !own.non_git ? own : projects.find(p => !p.non_git);
+          if (!target) return;
+          e.preventDefault();
+          useUI.getState().openReviewPr(target.id);
+          return;
+        }
+
         case "create-pr":
           if (!taskId) return;
           e.preventDefault();

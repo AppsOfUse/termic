@@ -12,7 +12,8 @@ import { useUI } from "@/store/ui";
 import { Button } from "@/components/ui/Button";
 import { AppDialog } from "@/components/ui/Dialog";
 import { cn } from "@/lib/utils";
-import { GripVertical, Copy, Trash2, RotateCcw, Eye, EyeOff, Plus, Pencil } from "lucide-react";
+import { GripVertical, Copy, Trash2, RotateCcw, Eye, EyeOff, Plus, Pencil, GitPullRequest } from "lucide-react";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { kbd } from "@/lib/platform";
 
 interface DragState {
@@ -39,6 +40,7 @@ export function PromptLibrarySection() {
   const deletePrompt = usePromptLibrary(s => s.deletePrompt);
   const resetPrompt = usePromptLibrary(s => s.resetPrompt);
   const toggleEnabled = usePromptLibrary(s => s.toggleEnabled);
+  const setForReview = usePromptLibrary(s => s.setForReview);
   const reorderPrompts = usePromptLibrary(s => s.reorderPrompts);
   const restoreBuiltins = usePromptLibrary(s => s.restoreBuiltins);
   const deletedCount = usePromptLibrary(s => s.deletedBuiltins.length);
@@ -208,7 +210,7 @@ export function PromptLibrarySection() {
             data-prompt-id={p.id}
             style={dragId === p.id ? { transform: `translateY(${dragTy}px)`, position: "relative", zIndex: 10 } : undefined}
             className={cn(
-              "rounded-lg border bg-[var(--color-bg)] p-3",
+              "group rounded-lg border bg-[var(--color-bg)] p-3",
               dragId === p.id ? "border-[var(--color-accent)] shadow-xl" : "border-[var(--color-border-soft)]",
               !p.enabled && dragId !== p.id && "opacity-60",
             )}
@@ -244,6 +246,26 @@ export function PromptLibrarySection() {
                   {t("prompts.modified")}
                 </span>
               )}
+
+              {/* The "Code review" tag: a toggle chip, lit when on, so the
+                  list shows at a glance which prompts Review a PR offers. */}
+              <button
+                type="button"
+                data-testid="prompt-review-tag"
+                aria-pressed={p.forReview}
+                title={t("prompts.forReviewTip")}
+                onClick={() => setForReview(p.id, !p.forReview)}
+                className={cn(
+                  "flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10.5px] font-medium uppercase tracking-wide",
+                  p.forReview
+                    ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                    // Untagged: only on the row the pointer is on (or when
+                    // tabbed to), so 16 dim chips do not line the list.
+                    : "text-[var(--color-fg-faint)] opacity-0 hover:bg-[var(--color-hover)] hover:!opacity-100 focus-visible:opacity-100 group-hover:opacity-60",
+                )}
+              >
+                <GitPullRequest className="h-3 w-3" /> {t("prompts.forReview")}
+              </button>
 
               {/* Row actions */}
               <IconBtn title={t("prompts.editTip")} onClick={() => setEditingId(p.id)}>
@@ -323,9 +345,19 @@ export function PromptLibrarySection() {
             className="h-[58vh] w-full resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-[var(--color-fg)] outline-none focus:border-[var(--color-accent)]"
           />
           <div className="flex items-center justify-between">
-            <span className="text-[11.5px] text-[var(--color-fg-faint)]">
-              {incomplete ? t("prompts.incomplete") : t("prompts.autosave")}
-            </span>
+            <div className="flex items-center gap-4">
+              <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg-dim)]">
+                <Checkbox
+                  data-testid="prompt-editor-review"
+                  checked={editing.forReview}
+                  onChange={(on) => setForReview(editing.id, on)}
+                />
+                {t("prompts.forReviewEditor")}
+              </label>
+              <span className="text-[11.5px] text-[var(--color-fg-faint)]">
+                {incomplete ? t("prompts.incomplete") : t("prompts.autosave")}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               {editing.builtin && editing.modified && (
                 <Button variant="secondary" size="sm" onClick={() => confirmReset(editing.id, editing.title)}>

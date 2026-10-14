@@ -576,3 +576,87 @@ describe("scratchpads from the CLI", () => {
     expect(r.error.message).toContain("no-such-pad");
   });
 });
+
+// `termic scratchpad rm` and `clear` over the real control socket: an agent
+// tidies up the notes it wrote. Removing is the one pad verb that takes
+// something away from the human, so these assert on what they can see (the
+// tab strip) as well as on what the CLI is told.
+describe("removing scratchpads from the CLI", () => {
+  let taskId!: string;
+  let otherId!: string;
+  after(async () => {
+    if (taskId) await archiveTask(taskId);
+    if (otherId) await archiveTask(otherId);
+  });
+
+  const padIds = async (id: string) =>
+    ((await cliRpc({ cmd: "pad_list", task: id })).data.pads as any[]).map(p => p.id as string);
+  const newPad = async (id: string, title: string, content: string) =>
+    (await cliRpc({ cmd: "pad_new", task: id, title, content })).data.pads[0].id as string;
+
+  it("removes an open pad: its tab goes, the list drops it, and the rest stay", async () => {
+    await waitForAppShell();
+    await requireTermicApi();
+    taskId = await openTask("e2e-scratchpad-rm");
+    const gone = await newPad(taskId, "Throwaway", "delete me\n");
+    const kept = await newPad(taskId, "Keeper", "keep me\n");
+    await browser.waitUntil(async () => (await pads(taskId)).length === 2, {
+      timeout: 10_000, timeoutMsg: "the two pads never opened as tabs",
+    });
+
+    // By title, case-insensitively, the same selector read and write take.
+    const r = await cliRpc({ cmd: "pad_remove", task: taskId, pad: "throwaway" });
+    expect(r.ok).toBe(true);
+    expect(r.data.kind).toBe("pad");
+    expect(r.data.pads.map((p: any) => p.id)).toEqual([gone]);
+
+    await browser.waitUntil(async () => (await pads(taskId)).map((p: any) => p.scratchId).join() === kept, {
+      timeout: 10_000, timeoutMsg: "the removed pad's tab is still in the strip",
+    });
+    expect(await padIds(taskId)).toEqual([kept]);
+  });
+
+  it("does not come back: the closing editor does not write the pad back to disk", async () => {
+    // The failure this guards: delete the file while an editor still holds
+    // the buffer, and its last flush recreates the note a moment later. A
+    // further write to ANOTHER pad drives the same disk path, after which the
+    // removed pad is still nowhere: not in the index, not readable.
+    const [kept] = await padIds(taskId);
+    expect((await cliRpc({ cmd: "pad_write", task: taskId, pad: kept, content: "more\n", append: true })).ok).toBe(true);
+    expect(await padIds(taskId)).toEqual([kept]);
+    const r = await cliRpc({ cmd: "pad_read", task: taskId, pad: "Throwaway" });
+    expect(r.ok).toBe(false);
+    expect(r.error.message).toContain("Throwaway");
+  });
+
+  it("refuses a pad that is not there, and removes nothing", async () => {
+    const before = await padIds(taskId);
+    const r = await cliRpc({ cmd: "pad_remove", task: taskId, pad: "no-such-pad" });
+    expect(r.ok).toBe(false);
+    expect(r.error.message).toContain("no-such-pad");
+    expect(await padIds(taskId)).toEqual(before);
+  });
+
+  it("clear removes every pad of that task and no other task's", async () => {
+    otherId = await openTask("e2e-scratchpad-rm-other", false);
+    const theirs = await newPad(otherId, "Theirs", "not yours\n");
+    await newPad(taskId, "Second", "two\n");
+    const mine = await padIds(taskId);
+    expect(mine.length).toBe(2);
+
+    const r = await cliRpc({ cmd: "pad_clear", task: taskId });
+    expect(r.ok).toBe(true);
+    expect((r.data.pads as any[]).map(p => p.id).sort()).toEqual([...mine].sort());
+
+    await browser.waitUntil(async () => (await pads(taskId)).length === 0, {
+      timeout: 10_000, timeoutMsg: "clear left pad tabs in the strip",
+    });
+    expect(await padIds(taskId)).toEqual([]);
+    expect(await padIds(otherId)).toEqual([theirs]);
+
+    // Nothing left is an answer, not an error.
+    const again = await cliRpc({ cmd: "pad_clear", task: taskId });
+    expect(again.ok).toBe(true);
+    expect(again.data.pads).toEqual([]);
+  });
+});

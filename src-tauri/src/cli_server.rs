@@ -873,9 +873,9 @@ pub(crate) fn dispatch_authenticated(
         Command::Rename { task, project, name, cwd } => {
             handle_rename(&req.id, host, task.as_deref(), project.as_deref(), cwd.as_deref(), name)
         }
-        Command::Group { task, project, name, color, cwd } => handle_group(
+        Command::Group { task, project, name, color, cwd, caller_task } => handle_group(
             &req.id, host, task.as_deref(), project.as_deref(), cwd.as_deref(),
-            name.as_deref(), color.as_deref(),
+            name.as_deref(), color.as_deref(), caller_task.as_deref(),
         ),
         Command::PadList { task, project, scope, cwd } => handle_pad(
             &req.id, host, task.as_deref(), project.as_deref(), scope.as_deref(), cwd.as_deref(),
@@ -892,6 +892,14 @@ pub(crate) fn dispatch_authenticated(
         Command::PadRead { task, project, scope, pad, cwd } => handle_pad(
             &req.id, host, task.as_deref(), project.as_deref(), scope.as_deref(), cwd.as_deref(),
             serde_json::json!({ "op": "read", "pad": pad }),
+        ),
+        Command::PadRemove { task, project, scope, pad, cwd } => handle_pad(
+            &req.id, host, task.as_deref(), project.as_deref(), scope.as_deref(), cwd.as_deref(),
+            serde_json::json!({ "op": "remove", "pad": pad }),
+        ),
+        Command::PadClear { task, project, scope, cwd } => handle_pad(
+            &req.id, host, task.as_deref(), project.as_deref(), scope.as_deref(), cwd.as_deref(),
+            serde_json::json!({ "op": "clear" }),
         ),
         Command::ProjectAdd { path, non_git } => {
             handle_project_add(&req.id, host, path, *non_git)
@@ -1169,6 +1177,7 @@ fn handle_new(req: &Request, host: &dyn CliHost, sink: &mut dyn EventSink) -> Re
         timeout_ms,
         cwd,
         parent_task,
+        pr,
     } = &req.cmd
     else {
         unreachable!("handle_new called with a non-new command")
@@ -1210,7 +1219,25 @@ fn handle_new(req: &Request, host: &dyn CliHost, sink: &mut dyn EventSink) -> Re
     if checkout.as_deref().is_some_and(|b| b.trim().is_empty()) {
         return fail(ErrorCode::BadRequest, "checkout needs a branch name".into());
     }
+    // Review shape (v21): the PR names the branch, so it cannot also adopt
+    // a worktree or check out another branch.
+    if pr.is_some() && (from.is_some() || checkout.is_some()) {
+        return fail(
+            ErrorCode::BadRequest,
+            "pr reviews a pull request on its own branch; it cannot combine with from or checkout".into(),
+        );
+    }
+    if *pr == Some(0) {
+        return fail(ErrorCode::BadRequest, "pr needs a pull request number".into());
+    }
+    let review_name = pr.map(|n| format!("review-pr-{n}"));
     let mut trimmed = name.trim();
+    // A review is named after its PR unless the caller named it.
+    if trimmed.is_empty() {
+        if let Some(n) = review_name.as_deref() {
+            trimmed = n;
+        }
+    }
     // With `from` or `checkout` the name is optional: the webview derives
     // it from the branch, as the GUI import and checkout do.
     if trimmed.is_empty() && from.is_none() && checkout.is_none() {
@@ -1264,6 +1291,12 @@ fn handle_new(req: &Request, host: &dyn CliHost, sink: &mut dyn EventSink) -> Re
         return fail(
             ErrorCode::BadRequest,
             format!("project \"{}\" is a plain folder (non-git); from needs a git worktree", proj.name),
+        );
+    }
+    if proj.non_git && pr.is_some() {
+        return fail(
+            ErrorCode::BadRequest,
+            format!("project \"{}\" is a plain folder (non-git); a pull request review needs a git repository", proj.name),
         );
     }
     if proj.non_git && checkout.is_some() {
@@ -1359,7 +1392,15 @@ fn handle_new(req: &Request, host: &dyn CliHost, sink: &mut dyn EventSink) -> Re
     // not pay a webview round-trip, and error precedence should not
     // diverge between the verbs) and BEFORE the task is created (fail
     // fast: a bad selector must not leave a task behind).
-    let prompt: Option<String> = match prompt_ref.as_deref() {
+    // A review with no `-P` takes the first prompt tagged "Code review".
+    let review_default = match (pr, prompt_ref) {
+        (Some(_), None) => match default_review_selector(host) {
+            Ok(sel) => Some(sel),
+            Err(e) => return Reply { id: id.clone(), ok: false, data: None, error: Some(e) },
+        },
+        _ => None,
+    };
+    let prompt: Option<String> = match prompt_ref.as_deref().or(review_default.as_deref()) {
         Some(sel) => match resolve_prompt_ref(host, sel, prompt.map(String::as_str)) {
             Ok(p) => Some(p),
             Err(e) => return Reply { id: id.clone(), ok: false, data: None, error: Some(e) },
@@ -1399,6 +1440,7 @@ fn handle_new(req: &Request, host: &dyn CliHost, sink: &mut dyn EventSink) -> Re
         "open": open,
         "prompt": prompt,
         "promptId": prompt_id,
+        "pr": pr,
     });
     // Forward setup output; heartbeat on idle. A dead client cannot
     // cancel the create (it already committed app-side), so emit
@@ -2507,6 +2549,26 @@ struct PromptInfo {
     builtin: bool,
     enabled: bool,
     modified: bool,
+    /// Tagged "Code review" (v21). Absent from an older webview: untagged.
+    #[serde(default)]
+    review: bool,
+}
+
+/// The first enabled prompt tagged "Code review" with a body, as an exact
+/// id selector: what `review` / `task_review` use when no prompt is named,
+/// matching the Review a PR dialog's default.
+fn default_review_selector(host: &dyn CliHost) -> Result<String, proto::ErrorBody> {
+    let prompts = fetch_prompts(host, true)
+        .map_err(|e| proto::ErrorBody { code: ErrorCode::Internal, message: e, data: None })?;
+    prompts
+        .iter()
+        .find(|p| p.review && p.enabled && !p.body.trim().is_empty())
+        .map(|p| p.id.clone())
+        .ok_or_else(|| proto::ErrorBody {
+            code: ErrorCode::NotFound,
+            message: "no prompt is tagged for code review; tag one in Settings, Prompts, or name one with -P".into(),
+            data: None,
+        })
 }
 
 /// The `list_prompts` reply envelope. Deserializing the whole value
@@ -2681,6 +2743,7 @@ fn handle_prompts(req: &Request, host: &dyn CliHost) -> Reply {
             builtin: p.builtin,
             enabled: p.enabled,
             modified: p.modified,
+            review: p.review,
             body,
             truncated,
         }
@@ -3386,6 +3449,7 @@ fn handle_group(
     cwd: Option<&str>,
     name: Option<&str>,
     color: Option<&str>,
+    caller_task: Option<&str>,
 ) -> Reply {
     if let Some(c) = color {
         if !GROUP_COLORS.contains(&c) {
@@ -3406,7 +3470,18 @@ fn handle_group(
             return Reply::err(id, ErrorCode::BadRequest, format!("task {} is archived", t.name));
         }
         // Absent keys mean "leave as is"; `name: ""` means "follow the lead".
-        let mut params = serde_json::json!({ "taskId": t.id });
+        // Joining an EXISTING group by its name is for a caller with no task
+        // of its own: one outside Termic has no parent for its tasks to group
+        // under, so a shared name is the only way it can say "these belong
+        // together". An agent inside a task has that parent. For it, a name
+        // that happens to match another group's label (two orchestrators both
+        // calling their batch "Review", or a group still following a lead
+        // task of that name) used to merge its task into that agent's group,
+        // and everything it launched afterwards followed. A caller id that is
+        // not a live task here (a stale env from another data dir) counts as
+        // no caller, the same rule `new` applies to a parent.
+        let inside = caller_task.is_some_and(|c| tasks.iter().any(|x| x.id == c && !x.archived));
+        let mut params = serde_json::json!({ "taskId": t.id, "joinByName": !inside });
         if let Some(n) = name {
             params["name"] = serde_json::Value::String(n.trim().to_string());
         }
@@ -6633,6 +6708,7 @@ mod tests {
             timeout_ms: None,
             cwd: None,
             parent_task: None,
+            pr: None,
         }
     }
 
@@ -7496,6 +7572,43 @@ mod tests {
         assert!(d.content.unwrap().len() < 900 * 1024);
     }
 
+    /// `rm` and `clear` ride the same handler as the other pad verbs: the
+    /// server resolves WHICH task or scope, and the webview does the deleting,
+    /// because an open pad's truth is its editor. What reaches the webview is
+    /// the op and the selector, and what comes back is the pads that went.
+    #[test]
+    fn pad_remove_and_clear_reach_the_webview_with_their_op_and_report_what_went() {
+        let host = StubHost::default();
+        host.script_rpc("pad", Ok(serde_json::json!({ "pads": [{ "id": "p1", "title": "findings" }] })));
+        let reply = handle(
+            &req(Command::PadRemove { task: Some("solo".into()), project: None, scope: None, pad: "findings".into(), cwd: None }, Some("tok")),
+            &host,
+        );
+        let Some(ReplyData::Pad(d)) = reply.data else { panic!("expected pad, got {reply:?}") };
+        assert_eq!(d.pads.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["p1"]);
+        {
+            let calls = host.rpc_calls.lock().unwrap();
+            assert_eq!(calls[0].0, "pad");
+            assert_eq!(calls[0].1["op"], "remove");
+            assert_eq!(calls[0].1["pad"], "findings");
+            assert_eq!(calls[0].1["taskId"], d.task_id);
+        }
+
+        host.script_rpc("pad", Ok(serde_json::json!({ "pads": [{ "id": "a", "title": "" }, { "id": "b", "title": "notes" }] })));
+        let reply = handle(
+            &req(Command::PadClear { task: None, project: None, scope: Some("global".into()), cwd: None }, Some("tok")),
+            &host,
+        );
+        let Some(ReplyData::Pad(d)) = reply.data else { panic!("expected pad, got {reply:?}") };
+        assert_eq!(d.task_id, "global");
+        assert_eq!(d.pads.len(), 2);
+        let calls = host.rpc_calls.lock().unwrap();
+        assert_eq!(calls[1].1["op"], "clear");
+        assert_eq!(calls[1].1["taskId"], "global");
+        // No selector on a clear: it is everything in the target.
+        assert!(calls[1].1.get("pad").is_none());
+    }
+
     #[test]
     fn pad_errors_from_the_webview_pass_through() {
         let host = StubHost::default();
@@ -7516,7 +7629,31 @@ mod tests {
             name: name.map(str::to_string),
             color: color.map(str::to_string),
             cwd: None,
+            caller_task: None,
         }
+    }
+
+    /// Only a caller with no task of its own may be merged into an existing
+    /// group by name. The server decides, because it is the side that knows
+    /// whether the caller id names a real, live task.
+    #[test]
+    fn group_by_name_may_join_only_for_a_caller_outside_any_task() {
+        let host = StubHost::default();
+        let asks = |caller: Option<&str>| {
+            let mut cmd = group_cmd("w3", Some("Review"), None);
+            if let Command::Group { caller_task, .. } = &mut cmd { *caller_task = caller.map(str::to_string); }
+            host.script_rpc("set_task_group", Ok(serde_json::Value::Null));
+            handle(&req(cmd, Some("tok")), &host);
+            let calls = host.rpc_calls.lock().unwrap();
+            calls.last().unwrap().1["joinByName"].clone()
+        };
+        // Outside Termic: the name is the only handle it has.
+        assert_eq!(asks(None), true);
+        // An agent in a live task, naming its own group or another task's.
+        assert_eq!(asks(Some("w3")), false);
+        assert_eq!(asks(Some("w1")), false);
+        // An id that is not a task here is not a caller.
+        assert_eq!(asks(Some("no-such-task")), true);
     }
 
     #[test]
@@ -7547,8 +7684,10 @@ mod tests {
         // An EMPTY name is a real value ("follow the lead"), not an absent one.
         assert!(handle(&req(group_cmd("w3", Some(""), Some("pink")), Some("tok")), &host).ok);
         let calls = host.rpc_calls.lock().unwrap();
-        assert_eq!(calls[0].1, serde_json::json!({ "taskId": "w3", "name": "Auth refactor" }));
-        assert_eq!(calls[1].1, serde_json::json!({ "taskId": "w3", "name": "", "color": "pink" }));
+        // `joinByName` always rides along (this caller names no task of its
+        // own, so it is true); name and colour only when given.
+        assert_eq!(calls[0].1, serde_json::json!({ "taskId": "w3", "joinByName": true, "name": "Auth refactor" }));
+        assert_eq!(calls[1].1, serde_json::json!({ "taskId": "w3", "joinByName": true, "name": "", "color": "pink" }));
     }
 
     #[test]
@@ -10095,6 +10234,99 @@ mod tests {
         let err = show("nope");
         assert_eq!(err.code, ErrorCode::NotFound);
         assert!(err.message.contains("termic prompts"), "{}", err.message);
+    }
+
+    // ── review (v21: `new` with a pr) ────────────────────────────────
+
+    fn review_cmd(pr: u64) -> Command {
+        let mut cmd = new_cmd("", Some("web"));
+        if let Command::New { pr: p, mode, .. } = &mut cmd {
+            *p = Some(pr);
+            *mode = Some("worktree".into());
+        }
+        cmd
+    }
+
+    /// A library where the tag decides: a disabled tagged prompt and an
+    /// empty tagged one come first and must both be passed over.
+    fn review_lib() -> serde_json::Value {
+        serde_json::json!({ "prompts": [
+            { "id": "builtin:commit", "title": "Commit", "body": "Commit.", "builtin": true,
+              "enabled": false, "modified": false, "review": true },
+            { "id": "cst-4", "title": "Empty", "body": "  ", "builtin": false,
+              "enabled": true, "modified": false, "review": true },
+            { "id": "builtin:review", "title": "Review", "body": "Review the diff.", "builtin": true,
+              "enabled": true, "modified": false },
+            { "id": "cst-9", "title": "Deep review", "body": "Run the deep-review skill.", "builtin": false,
+              "enabled": true, "modified": false, "review": true },
+        ]})
+    }
+
+    #[test]
+    fn review_names_the_task_after_the_pr_and_takes_the_first_tagged_prompt() {
+        let host = StubHost::default();
+        host.script_rpc("list_prompts", Ok(review_lib()));
+        host.script_rpc("new_task", Ok(serde_json::json!({ "taskId": "nw1", "spawned": true })));
+        let reply = handle(&req(review_cmd(77), Some("tok")), &host);
+        assert!(reply.ok, "{reply:?}");
+        let calls = host.rpc_calls.lock().unwrap();
+        let (_, params) = calls.iter().find(|(m, _)| m == "new_task").expect("new_task called");
+        assert_eq!(params["name"], "review-pr-77");
+        assert_eq!(params["pr"], 77);
+        assert_eq!(params["mode"], "worktree");
+        // Disabled and empty tagged prompts are skipped; the untagged
+        // builtin is not a review prompt however it is titled.
+        assert_eq!(params["prompt"], "Run the deep-review skill.");
+        assert!(params["promptId"].is_string(), "a review always carries a prompt");
+    }
+
+    #[test]
+    fn review_takes_a_named_prompt_and_a_name_over_the_defaults() {
+        let host = StubHost::default();
+        host.script_rpc("list_prompts", Ok(review_lib()));
+        host.script_rpc("new_task", Ok(serde_json::json!({ "taskId": "nw1", "spawned": true })));
+        let mut cmd = review_cmd(5);
+        if let Command::New { prompt_ref, prompt, name, .. } = &mut cmd {
+            *prompt_ref = Some("builtin:review".into());
+            *prompt = Some("Focus on auth.".into());
+            *name = "look-at-5".into();
+        }
+        assert!(handle(&req(cmd, Some("tok")), &host).ok);
+        let calls = host.rpc_calls.lock().unwrap();
+        let (_, params) = calls.iter().find(|(m, _)| m == "new_task").unwrap();
+        assert_eq!(params["name"], "look-at-5");
+        assert_eq!(params["prompt"], "Review the diff.\n\nFocus on auth.");
+    }
+
+    #[test]
+    fn review_with_nothing_tagged_is_refused_before_any_task_exists() {
+        let host = StubHost::default();
+        host.script_rpc("list_prompts", Ok(prompt_lib()));
+        let err = handle(&req(review_cmd(77), Some("tok")), &host).error.expect("refused");
+        assert_eq!(err.code, ErrorCode::NotFound);
+        assert!(err.message.contains("tagged for code review"), "{}", err.message);
+        let calls = host.rpc_calls.lock().unwrap();
+        assert!(calls.iter().all(|(m, _)| m != "new_task"));
+    }
+
+    #[test]
+    fn review_refuses_shapes_that_name_another_branch_and_a_second_review() {
+        let host = StubHost::default();
+        for (field, value) in [("checkout", "main"), ("from", "/tmp/wt")] {
+            let mut cmd = review_cmd(3);
+            if let Command::New { checkout, from, .. } = &mut cmd {
+                if field == "checkout" { *checkout = Some(value.into()) } else { *from = Some(value.into()) }
+            }
+            let err = handle(&req(cmd, Some("tok")), &host).error.expect("refused");
+            assert_eq!(err.code, ErrorCode::BadRequest, "{field}");
+        }
+        assert_eq!(handle(&req(review_cmd(0), Some("tok")), &host).error.unwrap().code, ErrorCode::BadRequest);
+        // The same PR again: the existing review task is named, nothing is made.
+        let mut host = StubHost::default();
+        host.tasks.push(task("rv", "review-pr-8", "p1", "/tasks/web/review-pr-8"));
+        let err = handle(&req(review_cmd(8), Some("tok")), &host).error.expect("refused");
+        assert_eq!(err.code, ErrorCode::Conflict);
+        assert!(err.message.contains("review-pr-8"), "{}", err.message);
     }
 
     #[test]

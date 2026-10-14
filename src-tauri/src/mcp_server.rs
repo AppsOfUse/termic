@@ -1123,7 +1123,62 @@ const TOOLS: &[ToolDef] = &[
             cwd: None,
             // --no-group wins over the caller default AND an explicit parent.
             parent_task: if arg_bool(a, "noGroup")? { None } else { arg_str(a, "parentTask")? },
+            pr: None,
         }),
+    },
+    ToolDef {
+        name: "task_review",
+        cli_verb: "review",
+        description: "Review a pull request in a new task named review-pr-<n>: its branch checked out, an agent started on its details plus a code-review library prompt (the first tagged \"Code review\" unless library names one).",
+        params: &[
+            ParamDef { name: "pr", json_type: "string", required: true, description: "PR number or link.", cli_flag: Some("pr") },
+            ParamDef { name: "project", json_type: "string", required: false, description: "Project the PR belongs to.", cli_flag: Some("--project") },
+            ParamDef { name: "library", json_type: "string", required: false, description: "Review prompt id or title.", cli_flag: Some("--library") },
+            ParamDef { name: "prompt", json_type: "string", required: false, description: "Text added after it.", cli_flag: Some("--prompt") },
+            ParamDef { name: "agent", json_type: "string", required: false, description: "Agent CLI id.", cli_flag: Some("--agent") },
+            ParamDef { name: "main", json_type: "boolean", required: false, description: "Use the main checkout, not a worktree.", cli_flag: Some("--main") },
+            ParamDef { name: "noGroup", json_type: "boolean", required: false, description: "Keep it out of your task group.", cli_flag: Some("--no-group") },
+            ParamDef { name: "sandbox", json_type: "string", required: false, description: "off, monitor, enforce or enforce-fs.", cli_flag: Some("--sandbox") },
+            ParamDef { name: "yolo", json_type: "boolean", required: false, description: "The agent's YOLO flag.", cli_flag: Some("--yolo") },
+            ParamDef { name: "open", json_type: "boolean", required: false, description: "Select and raise it.", cli_flag: Some("--open") },
+            P_WAIT,
+            P_TIMEOUT,
+        ],
+        destructive: false,
+        read_only: false,
+        build: |a| {
+            // A number is accepted as well as the string the schema names:
+            // an agent that read "PR 123" will pass 123.
+            let pr = match a.get("pr") {
+                Some(serde_json::Value::Number(n)) => n.as_u64().filter(|n| *n > 0),
+                Some(serde_json::Value::String(s)) => proto::parse_pr_ref(s),
+                None | Some(serde_json::Value::Null) => return Err("\"pr\" is required".into()),
+                Some(_) => None,
+            }
+            .ok_or_else(|| "\"pr\" must be a pull request number or link".to_string())?;
+            Ok(Command::New {
+                name: String::new(),
+                prompt: arg_str(a, "prompt")?,
+                prompt_ref: arg_str(a, "library")?,
+                agent: arg_str(a, "agent")?,
+                agent_args: Vec::new(),
+                mode: Some(if arg_bool(a, "main")? { "main" } else { "worktree" }.to_string()),
+                base: None,
+                checkout: None,
+                from: None,
+                resume: None,
+                sandbox: arg_str(a, "sandbox")?,
+                yolo: arg_bool(a, "yolo")?,
+                project: arg_str(a, "project")?,
+                open: arg_bool(a, "open")?,
+                wait: arg_bool(a, "wait")?,
+                timeout_ms: arg_u64(a, "timeoutMs")?,
+                cwd: None,
+                // Filled with the caller's task by with_caller_defaults.
+                parent_task: if arg_bool(a, "noGroup")? { None } else { arg_str(a, "parentTask")? },
+                pr: Some(pr),
+            })
+        },
     },
     ToolDef {
         name: "task_send",
@@ -1266,7 +1321,7 @@ const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "task_group",
         cli_verb: "group",
-        description: "Show, name or recolour a task's sidebar group (tasks you create join yours). Name it for the batch of work. An ungrouped task joins the project's group of that name, or founds one.",
+        description: "Show, name or recolour a task's sidebar group (tasks you create join yours). Name it for the batch of work. An ungrouped task founds its group.",
         params: &[
             P_TASK_SELF,
             P_PROJECT,
@@ -1281,6 +1336,9 @@ const TOOLS: &[ToolDef] = &[
             name: arg_str(a, "name")?,
             color: arg_str(a, "color")?,
             cwd: None,
+            // Filled in by `tools_call` from the task header: it is who is
+            // asking, not an argument a caller passes.
+            caller_task: None,
         }),
     },
     // Scratchpads: the place for an agent's temporary output. The CLI's
@@ -1359,6 +1417,40 @@ const TOOLS: &[ToolDef] = &[
         destructive: false,
         read_only: true,
         build: |a| Ok(Command::PadList {
+            task: arg_str(a, "task")?,
+            project: arg_str(a, "project")?,
+            scope: arg_str(a, "scope")?,
+            cwd: None,
+        }),
+    },
+    ToolDef {
+        name: "scratchpad_remove",
+        cli_verb: "scratchpad rm",
+        description: "Delete one scratchpad for good (no undo). Only pads you created or were asked to remove.",
+        params: &[
+            ParamDef { name: "pad", json_type: "string", required: true, description: "Pad id, or its exact title (case-insensitive).", cli_flag: Some("pad") },
+            P_PAD_TASK,
+            P_PROJECT,
+            P_SCOPE,
+        ],
+        destructive: true,
+        read_only: false,
+        build: |a| Ok(Command::PadRemove {
+            task: arg_str(a, "task")?,
+            project: arg_str(a, "project")?,
+            scope: arg_str(a, "scope")?,
+            pad: need_str(a, "pad")?,
+            cwd: None,
+        }),
+    },
+    ToolDef {
+        name: "scratchpad_clear",
+        cli_verb: "scratchpad clear",
+        description: "Delete every scratchpad in the target for good (no undo). A shared scope holds the user's notes: only when asked.",
+        params: &[P_PAD_TASK, P_PROJECT, P_SCOPE],
+        destructive: true,
+        read_only: false,
+        build: |a| Ok(Command::PadClear {
             task: arg_str(a, "task")?,
             project: arg_str(a, "project")?,
             scope: arg_str(a, "scope")?,
@@ -1810,6 +1902,11 @@ fn tools_call(server: &McpServer, id: serde_json::Value, params: &serde_json::Va
         Err(msg) => return rpc_error(id, 200, -32602, &msg),
     };
     clamp_wait(&mut cmd);
+    // Who is asking, for the one verb where that changes what happens: an
+    // agent inside a task is never merged into another group by name.
+    if let Command::Group { caller_task, .. } = &mut cmd {
+        *caller_task = caller.map(str::to_string);
+    }
 
     let req = Request {
         id: match &id {
@@ -1831,6 +1928,7 @@ fn tools_call(server: &McpServer, id: serde_json::Value, params: &serde_json::Va
 const SELF_DEFAULT_TOOLS: &[&str] = &[
     "task_rename", "task_group", "task_tab", "task_prop",
     "scratchpad_new", "scratchpad_write", "scratchpad_read", "scratchpad_list",
+    "scratchpad_remove", "scratchpad_clear",
     "schedule_show", "schedule_set", "schedule_run", "schedule_delete",
 ];
 
@@ -1841,7 +1939,7 @@ fn with_caller_defaults(tool: &str, args: &Args, caller: Option<&str>) -> Args {
     let mut out = args.clone();
     let Some(caller) = caller else { return out };
     let key = match tool {
-        "task_new" => "parentTask",
+        "task_new" | "task_review" => "parentTask",
         // `send --here`: the caller's own task, only when asked for.
         "task_send" if args.get("here").and_then(|v| v.as_bool()) == Some(true) => "task",
         t if SELF_DEFAULT_TOOLS.contains(&t) => "task",
@@ -3585,7 +3683,14 @@ mod tests {
         // 22428: schedule_set's `date` and the `once` cadence, parity with
         // `termic schedule set --cadence once --date`: one run on a calendar
         // day, which no weekday preset can name. One short clause each.
-        const RECORDED: usize = 22428;
+        // 23636: scratchpad_remove and scratchpad_clear, parity with
+        // `termic scratchpad rm` / `clear`: an agent that writes pads has to
+        // be able to tidy them up. One clause each; most of the 1.2 KB is the
+        // task/project/scope params every pad tool repeats.
+        // 24953: task_review, parity with `termic review`: a PR reviewed in
+        // its own task under a code-review library prompt. Params cut to a
+        // few words each; the shape lives in `termic review --help`.
+        const RECORDED: usize = 24953;
         assert!(
             size <= RECORDED,
             "serialized tools/list grew to {size} bytes (recorded {RECORDED}); grow it consciously"
@@ -4041,6 +4146,8 @@ mod tests {
             ("scratchpad new", "--global", "the tool's `scope` enum"),
             ("scratchpad write", "--global", "the tool's `scope` enum"),
             ("scratchpad read", "--global", "the tool's `scope` enum"),
+            ("scratchpad rm", "--global", "the tool's `scope` enum"),
+            ("scratchpad clear", "--global", "the tool's `scope` enum"),
         ];
         let help = termic_cli::machine_help();
         for c in help["commands"].as_array().unwrap() {
@@ -4328,7 +4435,7 @@ command = \"/bin/true\"\n";
         let mut here = Args::new();
         here.insert("here".into(), true.into());
         assert_eq!(with_caller_defaults("task_send", &here, Some("me"))["task"], "me");
-        for t in ["scratchpad_new", "scratchpad_write", "scratchpad_read", "scratchpad_list"] {
+        for t in ["scratchpad_new", "scratchpad_write", "scratchpad_read", "scratchpad_list", "scratchpad_remove", "scratchpad_clear"] {
             assert_eq!(with_caller_defaults(t, &empty, Some("me"))["task"], "me", "{t}");
         }
         // Verbs the CLI never aims at "your own task" are left alone.
