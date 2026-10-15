@@ -209,6 +209,29 @@ fn permitted(
     }
 }
 
+/// A report back is delivered at once. A `send` from a paired machine into
+/// a task here that sent that machine work (`contacts`) is the answer that
+/// task is waiting for, so it skips the agent's queue (`now`) instead of
+/// waiting for its current turn to end; the orchestrator often sits in a
+/// long turn of its own, watching for exactly this. New work going the
+/// other way, into a task that never contacted the sender, still queues, so
+/// it never interrupts an agent mid-turn. Set here rather than asked of the
+/// sending agent, which does not know (or forgets) which kind it is.
+fn report_back_now(cmd: Command, contacts: &[String], host: &dyn CliHost) -> Command {
+    let mut cmd = cmd;
+    if let Command::Send { task: Some(task), project, now, resume, fresh, .. } = &mut cmd {
+        if !*now && !*resume && !*fresh {
+            let (projects, tasks) = host.projects_tasks();
+            if let Ok(t) = crate::cli_server::resolve_by_name(&projects, &tasks, task, project.as_deref()) {
+                if contacts.iter().any(|c| c == &t.id) {
+                    *now = true;
+                }
+            }
+        }
+    }
+    cmd
+}
+
 /// What a request from another machine must not carry. Each names the
 /// CALLER's machine (its working directory, its own task) and would be
 /// misread here: a `cwd` resolved against this disk, a parent task id that
@@ -1385,7 +1408,7 @@ impl Node {
                 match permitted(rec.grant, &cmd, &rec.contacts, self.host.as_ref(), &us) {
                     Err(why) => Reply::err(&c.request.id, ErrorCode::Auth, why),
                     Ok(()) => {
-                        let mut cmd = cmd;
+                        let mut cmd = report_back_now(cmd, &rec.contacts, self.host.as_ref());
                         crate::mcp_server::clamp_wait(&mut cmd);
                         let req = Request {
                             id: c.request.id.clone(),
@@ -2554,6 +2577,26 @@ mod tests {
         // Nor reach the peer verbs there, or chain to a third machine.
         let r = call(&a, "Win", Command::PeerList, None);
         assert_eq!(r.error.unwrap().code, ErrorCode::BadRequest);
+    }
+
+    #[test]
+    fn a_report_back_skips_the_queue_and_new_work_does_not() {
+        let host = StubHost::default();
+        let (projects, tasks) = host.projects_tasks();
+        let qualified = |t: &crate::Task| format!("{}/{}", projects.iter().find(|p| p.id == t.project_id).unwrap().name, t.name);
+        let (asked, other) = (&tasks[0], &tasks[1]);
+        let send = |task: String, now: bool| Command::Send {
+            task: Some(task), project: None, prompt: "done".into(), prompt_ref: None, resume: false,
+            fresh: false, wait: false, timeout_ms: None, tab: None, now, cwd: None,
+        };
+        let now_of = |c: Command| match c { Command::Send { now, .. } => now, _ => unreachable!() };
+        let contacts = vec![asked.id.clone()];
+        // Into the task that sent this machine work: delivered at once.
+        assert!(now_of(report_back_now(send(qualified(asked), false), &contacts, &host)));
+        // Into any other task: new work, so it queues.
+        assert!(!now_of(report_back_now(send(qualified(other), false), &contacts, &host)));
+        // An explicit now is kept either way.
+        assert!(now_of(report_back_now(send(qualified(other), true), &contacts, &host)));
     }
 
     #[test]

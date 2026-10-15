@@ -122,7 +122,15 @@ the only name it knows, so a prompt arriving from a pair has that name
 after `peer:` (bare or quoted) rewritten to the local one
 (`localize_signature`). The Windows box's report reaches the Mac signed
 `peer:windows laptop`, not `peer:DESKTOP-DO50EUS`. Replying works with
-either, since a selector finds a pair by both. Either machine can be B; both
+either, since a selector finds a pair by both.
+
+**A report back is delivered at once.** A `send` from a pair into a task
+here that sent that pair work (its `contacts`) is the answer the task is
+waiting for, so it gets `now` on arrival and skips the agent's queue
+(`report_back_now`). New work going the other way, into a task that never
+contacted the sender, still queues behind the agent's turn. Set by the
+receiving Termic, not asked of the sending agent, which cannot tell the two
+apart. Either machine can be B; both
 can be in pairing mode at once. Leaving the Settings page closes it.
 
 A machine that is NOT in pairing mode answers every pairing request with
