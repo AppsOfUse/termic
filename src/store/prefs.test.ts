@@ -1095,3 +1095,15 @@ describe("prefs: stored null bindings", () => {
     expect(again.usePrefs.getState().shortcuts["search-everywhere"]).toBeNull();
   });
 });
+
+describe("newTaskButtonShown", () => {
+  it("always on an empty project, and on a busy one per the mode", async () => {
+    const { newTaskButtonShown, parseNewTaskButton } = await import("./prefs");
+    expect(newTaskButtonShown("empty", 0, 9)).toBe(true);
+    expect(newTaskButtonShown("empty", 5, 1)).toBe(false);
+    expect(newTaskButtonShown("auto", 5, 2)).toBe(true);
+    expect(newTaskButtonShown("auto", 5, 3)).toBe(false);
+    expect(newTaskButtonShown("always", 5, 9)).toBe(true);
+    expect(parseNewTaskButton("bogus")).toBe("auto");
+  });
+});

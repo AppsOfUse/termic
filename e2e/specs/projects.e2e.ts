@@ -1272,24 +1272,29 @@ describe("resume submenu", () => {
 
     await openMenu();
     const text = await menuText();
-    expect(text).toContain("Resume");
-    // The point of the submenu: the sessions themselves are NOT on the top
+    // Resume sits inside More: neither it nor the sessions are on the top
     // level, so the agents stay near the cursor however long the history is.
+    expect(text).toContain("More");
     expect(text).not.toContain("e2e-resume-b");
   });
 
   it("lists the recent sessions and restores the picked one", async () => {
-    // Submenus open on hover; the trigger carries aria-haspopup.
-    await browser.execute(() => {
+    // Submenus open on hover; the trigger carries aria-haspopup. More
+    // first, then Resume inside it.
+    const openSub = (label: string) => browser.waitUntil(() => browser.execute((l) => {
       const t = [...document.querySelectorAll('[aria-haspopup="menu"]')].find((e) =>
-        e.textContent?.includes("Resume"),
+        e.textContent?.includes(l),
       ) as HTMLElement | undefined;
-      if (!t) throw new Error("no Resume submenu trigger");
+      if (!t) return false;
+      if (t.getAttribute("data-state") === "open") return true;
       const opts = { bubbles: true, pointerType: "mouse" } as any;
       t.dispatchEvent(new PointerEvent("pointerover", opts));
       t.dispatchEvent(new PointerEvent("pointermove", opts));
       t.click();
-    });
+      return false;
+    }, label), { timeoutMsg: `the ${label} submenu never opened` });
+    await openSub("More");
+    await openSub("Resume");
 
     const items = async () =>
       (await browser.execute(() =>
@@ -2496,13 +2501,30 @@ describe("new task menu puts the project default first", () => {
     await waitVisible('[role="menu"]');
   };
 
-  /** The launcher rows, in display order, as the cli ids they create. */
-  const cliRows = () =>
-    browser.execute(() =>
-      [...document.querySelectorAll('[role="menu"] [data-launcher-cli]')].map(
-        (el) => (el as HTMLElement).dataset.launcherCli as string,
-      ),
-    ) as Promise<string[]>;
+  /** The launcher rows as the ids they create: the top level, then what
+   *  "More" folds away (recent use decides which is which). */
+  const rowsIn = (menu: number) =>
+    browser.execute((i) => {
+      const m = document.querySelectorAll('[role="menu"]')[i];
+      return m ? [...m.querySelectorAll("[data-launcher-cli]")].map((el) => (el as HTMLElement).dataset.launcherCli as string) : [];
+    }, menu) as Promise<string[]>;
+  const openMore = async () => {
+    if (!(await browser.execute(() => !!document.querySelector('[data-testid="launcher-more"]')))) return;
+    await browser.waitUntil(() => browser.execute(() => {
+      if (document.querySelectorAll('[role="menu"]').length > 1) return true;
+      const el = document.querySelector('[data-testid="launcher-more"]') as HTMLElement;
+      const opts = { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, isPrimary: true, pointerId: 1 } as any;
+      el.dispatchEvent(new PointerEvent("pointerdown", opts));
+      el.dispatchEvent(new PointerEvent("pointerup", opts));
+      el.click();
+      return false;
+    }), { timeoutMsg: "More never opened" });
+  };
+  const cliRows = async () => {
+    const top = await rowsIn(0);
+    await openMore();
+    return { top, more: await rowsIn(1) };
+  };
 
   const setDefault = (cli: string) =>
     browser.execute(async (id, value) => {
@@ -2536,23 +2558,70 @@ describe("new task menu puts the project default first", () => {
     await setDefault(last);
 
     await openMenu();
-    const rows = await cliRows();
-    expect(rows[0]).toBe(last);
-    // Still one row per agent, plus Terminal: hoisting is a move, not a copy.
-    expect(rows.filter((r) => r === last)).toHaveLength(1);
-    // Terminal keeps the tail, and everything between holds its registry
-    // order (which agents are offered at all is detection's business, not
-    // this test's).
-    expect(rows[rows.length - 1]).toBe("shell");
-    const rest = rows.slice(1).filter((r) => r !== "shell");
-    expect(rest).toEqual(ids.filter((i) => rest.includes(i)));
+    const { top, more } = await cliRows();
+    // The default leads the top level however long since it was used.
+    expect(top[0]).toBe(last);
+    // Every row once across both levels: hoisting and folding are moves.
+    const all = [...top, ...more];
+    expect(all.filter((r) => r === last)).toHaveLength(1);
+    expect(new Set(all).size).toBe(all.length);
+    expect(all).toContain("shell");
+    // Race always folds away; each level keeps the registry order (which
+    // agents are offered at all is detection's business, not this test's).
+    expect(more).toContain("race");
+    for (const level of [top.slice(1), more]) {
+      const agents = level.filter((r) => ids.includes(r));
+      expect(agents).toEqual(ids.filter((i) => agents.includes(i)));
+    }
+    await snap("launcher-more.png");
     await browser.keys("Escape");
+    await browser.keys("Escape");
+  });
+
+  it("puts New task under a busy project's tasks per the sidebar setting", async () => {
+    const has = () => browser.execute((id) => {
+      const btn = document.querySelector(`[data-testid="project-empty-new-task-${id}"]`);
+      if (!btn) return "none";
+      // Below the project's last task row: where the new task lands.
+      const rows = [...document.querySelectorAll(`[data-sidebar-task-project-id="${id}"]`)];
+      const last = rows[rows.length - 1];
+      return !last || (last.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING) ? "below" : "above";
+    }, projectId) as Promise<string>;
+    const setMode = (m: string) => browser.execute((v) => window.__termic!.usePrefs.getState().setNewTaskButton(v as any), m);
+    // A task of its own: the rule is about a project that has tasks. Repo
+    // root, so archiving it after touches no worktree.
+    const taskId = (await browser.execute(async (pid) => {
+      const t = window.__termic!;
+      const task = await t.ipc.taskOpenRepo(pid, "fakeagent", "e2e-busy-project");
+      await t.useApp.getState().loadAll();
+      return task.id as string;
+    }, projectId)) as string;
+    await setMode("always");
+    await browser.waitUntil(async () => (await has()) === "below", { timeoutMsg: "Always did not draw it below the tasks" });
+    // Under tasks it is a lone `+` on a thin borderless row, not the empty
+    // project's dashed box.
+    const look = await browser.execute((id) => {
+      const btn = document.querySelector(`[data-testid="project-empty-new-task-${id}"]`) as HTMLElement;
+      const cs = getComputedStyle(btn);
+      return { variant: btn.dataset.variant, border: cs.borderTopStyle, h: btn.getBoundingClientRect().height };
+    }, projectId);
+    expect(look.variant).toBe("quiet");
+    expect(look.border).toBe("none");
+    expect(look.h).toBeLessThanOrEqual(20);
+    await snap("new-task-button-busy.png");
+    // The header `+` steps aside while the bottom one shows.
+    expect(await $(`[data-testid="project-new-task-${projectId}"]`).isExisting()).toBe(false);
+    await setMode("empty");
+    await browser.waitUntil(async () => (await has()) === "none", { timeoutMsg: "Empty projects still drew it on a busy one" });
+    expect(await $(`[data-testid="project-new-task-${projectId}"]`).isExisting()).toBe(true);
+    await archiveTask(taskId);
   });
 
   it("hoists Terminal too when that is the default", async () => {
     await setDefault("shell");
     await openMenu();
-    expect((await cliRows())[0]).toBe("shell");
+    expect((await cliRows()).top[0]).toBe("shell");
+    await browser.keys("Escape");
     await browser.keys("Escape");
   });
 });

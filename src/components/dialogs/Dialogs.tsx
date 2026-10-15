@@ -23,6 +23,7 @@ import { ReviewPrDialog } from "./ReviewPrDialog";
 import { RaceCompare } from "@/components/task/RaceCompare";
 import { TaskSandboxDialog } from "./TaskSandboxDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { PeerPairingDialog } from "./PeerPairingDialog";
 import { CloseDialog } from "./CloseDialog";
 import { NewProfileDialog } from "./NewProfileDialog";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
@@ -76,6 +77,7 @@ export function Dialogs() {
       <RaceCompare />
       <TaskSandboxDialog />
       <ConfirmDialog />
+      <PeerPairingDialog />
       <CloseDialog />
       <NewProfileDialog />
       <DeleteProfileDialog />

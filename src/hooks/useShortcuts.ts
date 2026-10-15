@@ -36,6 +36,7 @@ import { buildRing, end as endCtrlTab, endsGesture, IDLE, step as stepCtrlTab, t
 import { currentPlace, livePlaces } from "@/lib/recentPlacesTracker";
 import { useRecentPlaces, resumeRecording, suspendRecording } from "@/store/recentPlaces";
 import { requestCloseTab, requestClosePaneTab } from "@/lib/closeTab";
+import { listen } from "@tauri-apps/api/event";
 import { shouldCloseProfileWindow } from "@/lib/profileScope";
 import { windowCloseIfNotLast } from "@/lib/ipc";
 import { useProfiles } from "@/store/profiles";
@@ -670,84 +671,24 @@ export function useShortcuts() {
         // and right splits. NO `isTyping` guard (xterm's hidden textarea).
         case "close-tab": {
           e.preventDefault();
-          if (inBottom() && taskId) {
-            const bottomId = state.activeBottomTab[taskId];
-            if (bottomId) state.closeBottomTab(taskId, bottomId);
-            return;
-          }
-          if (inSplitPane() && taskId) {
-            // Always derive pane from DOM focus — activePaneId[taskId] is only updated
-            // on mouse clicks and can be stale after keyboard navigation.
-            const focusedEl = (document.activeElement as HTMLElement | null)
-              ?.closest?.("[data-split-leaf]") as HTMLElement | null;
-            const paneId = focusedEl?.getAttribute("data-pane-id") ?? null;
-            if (paneId) {
-              const tree = state.splitTree[taskId];
-              const leaf = tree ? findLeaf(tree, paneId) : null;
-              const activeTabIdInPane = leaf?.activeTabId ?? (leaf as any)?.tabId ?? null;
-              if (activeTabIdInPane && leaf) {
-                // Confirm-gated (dirty editor / live agent), same as the main
-                // path. Only collapse the emptied pane if the close went through.
-                const wasLastTab = (leaf.tabIds?.length ?? 1) <= 1;
-                void requestClosePaneTab(taskId, paneId, activeTabIdInPane).then(closed => {
-                  if (closed && wasLastTab) useApp.getState().closePane(taskId, paneId);
-                });
-              } else {
-                state.closePane(taskId, paneId);
-              }
-              return;
-            }
-          }
-          if (taskId && activeTabId && inMainPane()) { requestCloseTab(taskId, activeTabId); return; }
-          // Focus outside every pane (file tree / sidebar): still close a
-          // PREVIEW tab. Previews open from a single click in the tree, so
-          // focus never enters the pane — without this, ⌘W right after
-          // previewing a file is a silent no-op. Regular tabs keep the
-          // inMainPane guard (⌘W from the sidebar must not eat real tabs).
-          if (taskId) {
-            // Prefer the pane the preview actually lives in: openPreviewTab
-            // targets the focused split pane, tracked by activePaneId.
-            const tree = state.splitTree[taskId];
-            const paneId = state.activePaneId[taskId];
-            const leaf = tree && paneId ? findLeaf(tree, paneId) : null;
-            if (leaf && !leaf.isMain && leaf.activeTabId) {
-              const paneTab = (state.tabs[taskId] ?? []).find(t => t.id === leaf.activeTabId);
-              if (paneTab?.preview) {
-                const wasLastTab = (leaf.tabIds?.length ?? 1) <= 1;
-                void requestClosePaneTab(taskId, leaf.id, paneTab.id).then(closed => {
-                  if (closed && wasLastTab) useApp.getState().closePane(taskId, leaf.id);
-                });
-                return;
-              }
-            }
-            const mainTab = activeTabId ? tabs.find(t => t.id === activeTabId) : undefined;
-            if (mainTab?.preview) requestCloseTab(taskId, mainTab.id);
-            return;
-          }
-          // Nothing left in this window to close, so the window IS the
-          // innermost thing: close the profile, the way the last tab takes a
-          // browser window with it. Never the LAST window, which would be a
-          // quit rather than a close (see `shouldCloseProfileWindow`).
-          //
-          // Rust owns the last-window check and closes through the ordinary
-          // CloseRequested path, which is what destroys a non-root profile
-          // window, clears `open_at_quit` so launch restore does not bring it
-          // back, and rebuilds the tray. The rule here is only "is this window
-          // empty enough for the shortcut to mean the window"; being wrong
-          // about the WINDOW COUNT would mean quitting the app by accident,
-          // and this store can be a moment stale after a sibling closes.
-          if (shouldCloseProfileWindow({
-            hasActiveTask: !!taskId,
-            openWindows: useProfiles.getState().profiles.filter(p => p.open).length,
-          })) {
-            void windowCloseIfNotLast().catch(() => {});
-          }
+          closeInnermost();
           return;
         }
       }
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // ⌘W that the page never heard (focus in a sandboxed preview iframe)
+    // reaches the native menu's Close Tab instead (lib.rs `app_menu`).
+    let unlistenMenu: (() => void) | null = null;
+    let disposed = false;
+    void listen("menu://close-tab", () => closeInnermost()).then(u => {
+      if (disposed) u(); else unlistenMenu = u;
+    });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      disposed = true;
+      unlistenMenu?.();
+    };
   }, []);
 
   useCtrlTabWalk();
@@ -938,3 +879,97 @@ function inTermFocused() {
   return !!(document.activeElement as HTMLElement | null)?.closest?.(".xterm");
 }
 
+/**
+ * ⌘W: close the innermost thing — the focused bottom/split/main tab, a
+ * preview tab when focus sits outside every pane, and the profile window
+ * once nothing is left. Shared by the keydown binding and the native menu's
+ * Close Tab item (`menu://close-tab`), which is where ⌘W lands when focus
+ * is inside a sandboxed preview iframe the top document cannot hear.
+ */
+export function closeInnermost(): void {
+  const state = useApp.getState();
+  const taskId = state.activeTaskId;
+  const tabs = (taskId ? state.tabs[taskId] || [] : []).filter(
+    t => !(t as TerminalTab).paneId,
+  );
+  const activeTabId = taskId ? state.activeTab[taskId] : undefined;
+  const inBottom = () => !!(document.activeElement as HTMLElement | null)?.closest?.("[data-bottom-split]");
+  const inSplitPane = () => {
+    const el = (document.activeElement as HTMLElement | null)?.closest?.("[data-split-leaf]") as HTMLElement | null;
+    return !!el && !el.hasAttribute("data-main-content");
+  };
+  const inMainPane = () => !!(document.activeElement as HTMLElement | null)?.closest?.("[data-main-content]");
+  if (inBottom() && taskId) {
+    const bottomId = state.activeBottomTab[taskId];
+    if (bottomId) state.closeBottomTab(taskId, bottomId);
+    return;
+  }
+  if (inSplitPane() && taskId) {
+    // Always derive pane from DOM focus — activePaneId[taskId] is only updated
+    // on mouse clicks and can be stale after keyboard navigation.
+    const focusedEl = (document.activeElement as HTMLElement | null)
+      ?.closest?.("[data-split-leaf]") as HTMLElement | null;
+    const paneId = focusedEl?.getAttribute("data-pane-id") ?? null;
+    if (paneId) {
+      const tree = state.splitTree[taskId];
+      const leaf = tree ? findLeaf(tree, paneId) : null;
+      const activeTabIdInPane = leaf?.activeTabId ?? (leaf as any)?.tabId ?? null;
+      if (activeTabIdInPane && leaf) {
+        // Confirm-gated (dirty editor / live agent), same as the main
+        // path. Only collapse the emptied pane if the close went through.
+        const wasLastTab = (leaf.tabIds?.length ?? 1) <= 1;
+        void requestClosePaneTab(taskId, paneId, activeTabIdInPane).then(closed => {
+          if (closed && wasLastTab) useApp.getState().closePane(taskId, paneId);
+        });
+      } else {
+        state.closePane(taskId, paneId);
+      }
+      return;
+    }
+  }
+  if (taskId && activeTabId && inMainPane()) { requestCloseTab(taskId, activeTabId); return; }
+  // Focus outside every pane (file tree / sidebar): still close a
+  // PREVIEW tab. Previews open from a single click in the tree, so
+  // focus never enters the pane — without this, ⌘W right after
+  // previewing a file is a silent no-op. Regular tabs keep the
+  // inMainPane guard (⌘W from the sidebar must not eat real tabs).
+  if (taskId) {
+    // Prefer the pane the preview actually lives in: openPreviewTab
+    // targets the focused split pane, tracked by activePaneId.
+    const tree = state.splitTree[taskId];
+    const paneId = state.activePaneId[taskId];
+    const leaf = tree && paneId ? findLeaf(tree, paneId) : null;
+    if (leaf && !leaf.isMain && leaf.activeTabId) {
+      const paneTab = (state.tabs[taskId] ?? []).find(t => t.id === leaf.activeTabId);
+      if (paneTab?.preview) {
+        const wasLastTab = (leaf.tabIds?.length ?? 1) <= 1;
+        void requestClosePaneTab(taskId, leaf.id, paneTab.id).then(closed => {
+          if (closed && wasLastTab) useApp.getState().closePane(taskId, leaf.id);
+        });
+        return;
+      }
+    }
+    const mainTab = activeTabId ? tabs.find(t => t.id === activeTabId) : undefined;
+    if (mainTab?.preview) requestCloseTab(taskId, mainTab.id);
+    return;
+  }
+  // Nothing left in this window to close, so the window IS the
+  // innermost thing: close the profile, the way the last tab takes a
+  // browser window with it. Never the LAST window, which would be a
+  // quit rather than a close (see `shouldCloseProfileWindow`).
+  //
+  // Rust owns the last-window check and closes through the ordinary
+  // CloseRequested path, which is what destroys a non-root profile
+  // window, clears `open_at_quit` so launch restore does not bring it
+  // back, and rebuilds the tray. The rule here is only "is this window
+  // empty enough for the shortcut to mean the window"; being wrong
+  // about the WINDOW COUNT would mean quitting the app by accident,
+  // and this store can be a moment stale after a sibling closes.
+  if (shouldCloseProfileWindow({
+    hasActiveTask: !!taskId,
+    openWindows: useProfiles.getState().profiles.filter(p => p.open).length,
+  })) {
+    void windowCloseIfNotLast().catch(() => {});
+  }
+  return;
+}

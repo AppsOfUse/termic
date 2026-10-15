@@ -922,6 +922,10 @@ export interface Settings {
   mcp_bind_address?: string;
   /** Port the MCP listener binds; 0 means chosen automatically. */
   mcp_port?: number;
+  /** "Share on this network" (Settings > Agent access): advertise this
+   *  Termic over mDNS and run the peer listener so another Termic on the
+   *  LAN can pair with it. Default off. See docs/peers.md. */
+  lan_sharing_enabled?: boolean;
   /** What the window's close button does. Absent/"ask" = show the close
    *  prompt (whose "Show this every time" checkbox writes the choice back here);
    *  "menubar" = close to the menu bar, agents keep running; "quit" = quit
@@ -985,6 +989,83 @@ export interface McpStatus {
   lan_url: string | null;
   /** Why the endpoint is not bound although the setting is on. */
   bind_error: string | null;
+}
+
+/** What a paired machine may do on THIS computer. "reply": send a prompt
+ *  only to a task here that contacted it first. "drive": everything an MCP
+ *  client can do, minus quit, attach, project add/remove and the peer verbs. */
+export type PeerGrant = "reply" | "drive";
+
+/** One paired machine (peer_status). */
+export interface PeerView {
+  id: string;
+  /** Display name: the local alias when set, else what it calls itself. */
+  name: string;
+  advertised_name: string;
+  alias: string | null;
+  online: boolean;
+  last_seen_ms: number | null;
+  address: string | null;
+  version: string | null;
+  proto: number | null;
+  /** Same CLI wire protocol as this app, so calls can go through. */
+  proto_ok: boolean;
+  /** What THEY may do HERE. */
+  grant: PeerGrant;
+  /** What WE may do THERE, learned on exchanges; null until one happened. */
+  their_grant: PeerGrant | null;
+  /** The other side answered as if it no longer knows us. */
+  revoked_by_peer: boolean;
+  paired_at_ms: number;
+  /** What the user says this machine is for; agents read it too. */
+  note: string;
+}
+
+/** A Termic seen on the network that is not paired with this one. */
+export interface NearbyView {
+  id: string;
+  name: string;
+  address: string;
+  port: number;
+  version: string;
+  proto: number;
+  proto_ok: boolean;
+  /** In pairing mode: showing a code, ready to be paired with. */
+  pairing: boolean;
+}
+
+/** A pairing that just completed, on either machine (peer://pairing). */
+export interface PairingView {
+  /** outgoing: the person here typed the code; incoming: this machine showed it. */
+  direction: "outgoing" | "incoming";
+  peer_id: string;
+  peer_name: string;
+  /** It replaced an earlier pairing with the same machine. */
+  replaces_existing: boolean;
+}
+
+/** This machine in pairing mode: the code its screen shows. */
+export interface PairModeView {
+  code: string;
+  expires_at_ms: number;
+  wrong_codes: number;
+}
+
+/** Live LAN-sharing state (peer_status). */
+export interface PeerStatus {
+  enabled: boolean;
+  self_id: string;
+  self_name: string;
+  default_name: string;
+  port: number | null;
+  addresses: string[];
+  discovery_error: string | null;
+  bind_error: string | null;
+  platform: "macos" | "windows" | "linux";
+  peers: PeerView[];
+  nearby: NearbyView[];
+  /** Open while this machine shows a pairing code. */
+  pair_mode: PairModeView | null;
 }
 
 export interface DiscoveredRepo {

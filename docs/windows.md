@@ -151,6 +151,16 @@ Each of these is a deliberate choice; the reasoning lives next to the code.
   unset port is therefore picked from 23517-23616 (`AUTO_PORTS`), never
   OS-assigned, and a refused typed port is reported in Settings > MCP as
   reserved rather than as held by another process.
+- **LAN sharing** ([peers.md](peers.md)). The first wildcard bind (the
+  peer listener, and the mDNS socket on 5353) raises the Defender
+  Firewall prompt: choose Private networks. On a network Windows marks
+  Public, other machines cannot reach this one whatever was chosen, and
+  Settings says so. Port 5353 is shared with the DNS Client service
+  through `SO_REUSEADDR`, and interfaces come from
+  `GetAdaptersAddresses`. The listener port is picked from 23620-23719,
+  below the Hyper-V reserved range (see MCP port, above). All of it
+  type-checks for Windows; none of it has run on real Windows hardware
+  yet.
 - **Paths in the UI.** `src/lib/osPath.ts` holds the platform rules:
   segment-safe `relUnder`, `baseName`, standard `file:///C:/...` URIs for
   the language servers (mirrored by `lsp_path_to_uri`), and quoting rather

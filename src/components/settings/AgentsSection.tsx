@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { AppDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
-import { Trash2, Plus, Check, AlertTriangle, RotateCcw, Copy, ChevronRight } from "lucide-react";
+import { Trash2, Plus, Check, AlertTriangle, RotateCcw, Copy, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { AgentAccountsRow, AgentAccountsAction } from "@/components/settings/AgentAccountsRow";
 import { CliIcon, CLI_BRAND_COLOR, resolveIconId } from "@/icons/cli";
 import { SignalInspector } from "./SignalInspector";
@@ -29,7 +29,9 @@ import { cn, slugify } from "@/lib/utils";
 import { isTerminalEntry, BUILTIN_TITLE_SIGNALS, builtinBaseId, yoloArgsNote } from "@/lib/agents";
 import { SubSection } from "@/components/settings/SubSection";
 import { Toggle } from "@/components/settings/Controls";
-import { usePrefs } from "@/store/prefs";
+import { usePrefs, type LauncherVisibility } from "@/store/prefs";
+import { launcherVisibilityOf } from "@/lib/launcherUsage";
+import { DropdownRoot, DropdownTrigger, DropdownMenu, DropdownItem, DropdownSeparator } from "@/components/ui/Dropdown";
 import { footerReports } from "@/lib/agentContext";
 
 export function AgentsSection() {
@@ -451,7 +453,9 @@ export function AgentsSection() {
       {/* Settings that apply to every terminal rather than to one registry
           entry. "Copy on select" lived in General until the settings split;
           it is terminal behavior, so it belongs on this page. */}
-      <div className="border-t border-[var(--color-border-soft)] pt-6">
+      {/* No rule above: the agent card ends in its own solid band, which
+          already closes it off. */}
+      <div className="pt-4">
         <h2 className="mb-4 text-[15px] font-medium">{t("agents.allTerminals")}</h2>
         <Toggle
           label={t("agents.copyOnSelect.label")}
@@ -992,41 +996,47 @@ function AgentCard({ agent, detected, onPatch, onCommitId, onPatchCaps, onRemove
             nonce={accountsNonce}
             onStartAdd={() => setAddingAccount(true)}
           />
-          {/* Force hide/show — disabled agents drop out of every CLI
-              picker (worktree popover, New Task, Review, + menu)
-              but stay editable here and keep working for existing
-              tasks already bound to them. */}
-          <span
-            onClick={() => onPatch({ disabled: !agent.disabled })}
-            className="text-[12.5px] text-[var(--color-fg-dim)] font-medium select-none cursor-pointer hover:text-[var(--color-fg)] transition-colors mr-0.5"
-            title={agent.disabled
-              ? t("agents.card.hideTip")
-              : t("agents.card.showTip")}
-          >
-            {t("common:enable")}
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!agent.disabled}
-            onClick={() => onPatch({ disabled: !agent.disabled })}
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out mr-1.5 items-center",
-              !agent.disabled ? "bg-[var(--color-ok)]" : "bg-[var(--color-bg-3)]"
-            )}
-            title={agent.disabled
-              ? t("agents.card.hideTip")
-              : t("agents.card.showTip")}
-          >
+          {/* One choice for where the agent shows, replacing the old
+              Enable switch: Off (the `disabled` flag: out of every CLI
+              picker, still editable here and still working for tasks
+              already bound to it) or one of the new-task menu's four
+              placements (`launcherVisibility`). Terminals are not in that
+              menu, so they keep the plain switch. */}
+          {isTerminal ? (<>
             <span
+              onClick={() => onPatch({ disabled: !agent.disabled })}
+              className="text-[12.5px] text-[var(--color-fg-dim)] font-medium select-none cursor-pointer hover:text-[var(--color-fg)] transition-colors mr-0.5"
+              title={agent.disabled
+                ? t("agents.card.hideTip")
+                : t("agents.card.showTip")}
+            >
+              {t("common:enable")}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!agent.disabled}
+              onClick={() => onPatch({ disabled: !agent.disabled })}
               className={cn(
-                // Track is --color-ok when on, so the knob takes the ok ink,
-                // not the accent ink. Off-track is dark in every theme.
-                "pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out",
-                !agent.disabled ? "translate-x-4 bg-[var(--color-ok-fg)]" : "translate-x-0 bg-white"
+                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out mr-1.5 items-center",
+                !agent.disabled ? "bg-[var(--color-ok)]" : "bg-[var(--color-bg-3)]"
               )}
-            />
-          </button>
+              title={agent.disabled
+                ? t("agents.card.hideTip")
+                : t("agents.card.showTip")}
+            >
+              <span
+                className={cn(
+                  // Track is --color-ok when on, so the knob takes the ok ink,
+                  // not the accent ink. Off-track is dark in every theme.
+                  "pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out",
+                  !agent.disabled ? "translate-x-4 bg-[var(--color-ok-fg)]" : "translate-x-0 bg-white"
+                )}
+              />
+            </button>
+          </>) : (
+            <AgentVisibilityPicker agent={agent} onPatch={onPatch} />
+          )}
           {modified && onReset && (
             <button
               onClick={() => {
@@ -1083,8 +1093,7 @@ function AgentCard({ agent, detected, onPatch, onCommitId, onPatchCaps, onRemove
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3">
-        {!isTerminal && <FooterReadouts agentId={agent.id} />}
+      <div className="grid grid-cols-1 gap-4">
         <Field label={t("agents.card.commandLabel")} hint={isTerminal
           ? t("agents.card.commandHintTerminal")
           : t("agents.card.commandHintAgent")}>
@@ -1108,6 +1117,7 @@ function AgentCard({ agent, detected, onPatch, onCommitId, onPatchCaps, onRemove
             className="font-mono" placeholder={inheritedPlaceholder(inherited, a => a.capabilities?.yolo_args, "--dangerously-skip-permissions")}
           />
         </Field>
+        <FieldFold testId={`agent-fold-sessions-${agent.id}`} title={t("agents.card.foldSessions")}>
         <div className="grid grid-cols-2 gap-3">
           <Field label={t("agents.card.runtimeYoloLabel")} hint={t("agents.card.runtimeYoloHint")}>
             <Input value={agent.capabilities?.runtime_yolo_command || ""}
@@ -1154,7 +1164,9 @@ function AgentCard({ agent, detected, onPatch, onCommitId, onPatchCaps, onRemove
             className="font-mono" placeholder={inheritedPlaceholder(inherited, a => a.capabilities?.name_args, "--name {WORKSPACE_SLUG}")}
           />
         </Field>
+        </FieldFold>
         </>}
+        <FieldFold testId={`agent-fold-env-${agent.id}`} title={t("agents.card.foldEnv")}>
         <Field
           label={t("agents.card.envLabel")}
           hint={t("agents.card.envHint")}
@@ -1198,6 +1210,8 @@ function AgentCard({ agent, detected, onPatch, onCommitId, onPatchCaps, onRemove
             placeholder={inheritedPlaceholder(inherited, a => a.sandbox_allowed_hosts, "*.mycompany.com\nbitbucket.org", "\n")}
           />
         </Field>
+        </FieldFold>
+        {!isTerminal && <FooterReadouts agentId={agent.id} />}
         {/* One section for one question: how termic knows what this agent is
             doing. It was "Work-done detection", a switch over four regex
             fields, written before hooks existed; hooks then arrived in a block
@@ -1581,13 +1595,41 @@ function parseEnv(text: string): string {
   return Object.keys(m).sort().map(k => `${k}=${m[k]}`).join("\n");
 }
 
+/** A labelled field. The hint is an info tooltip beside the label rather
+ *  than a paragraph above the input: the card has ~15 fields and their
+ *  hints, some three lines long, made it a wall of text. */
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="text-[13px] font-medium">{label}</div>
-      {hint && <div className="mt-0.5 mb-1.5 text-[12px] text-[var(--color-fg-dim)]">{hint}</div>}
+      <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium">
+        {label}
+        {hint && (
+          <Tip content={<span className="block max-w-[340px] whitespace-normal">{hint}</span>} side="top">
+            <Info className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-faint)] hover:text-[var(--color-fg-dim)]" />
+          </Tip>
+        )}
+      </div>
       {children}
     </label>
+  );
+}
+
+/** A collapsed group of rarely-touched fields, closed by default. */
+function FieldFold({ title, testId, children }: { title: string; testId?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid={testId} data-open={open || undefined}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-1 text-[13px] font-medium text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]"
+      >
+        <ChevronRight className={cn("h-3.5 w-3.5", open && "rotate-90")} />
+        {title}
+      </button>
+      {open && <div className="mt-3 grid grid-cols-1 gap-4 pl-[18px]">{children}</div>}
+    </div>
   );
 }
 
@@ -1602,24 +1644,108 @@ function FooterReadouts({ agentId }: { agentId: string }) {
   const reports = footerReports(builtinBaseId(agentId, agents));
   const hidden = usePrefs(s => s.agentFooterHidden[agentId]);
   const setShown = usePrefs(s => s.setAgentFooterShown);
+  // A field like its neighbours (label, hint, then the control), not a boxed
+  // pair of full-size Toggles: that read as a second card inside the card,
+  // above the Command field it is less important than. Each readout is a
+  // compact switch with its explanation in a tooltip.
+  const rows = [
+    ["usage", t("agents.card.footerUsage"), reports.usage ? t("agents.card.footerUsageHint") : t("agents.card.footerUsageNone")],
+    ["context", t("agents.card.footerContext"), reports.context ? t("agents.card.footerContextHint") : t("agents.card.footerContextNone")],
+  ] as const;
   return (
-    <div data-testid={`agent-footer-${agentId}`} className="grid grid-cols-1 gap-3 rounded-md border border-[var(--color-border-soft)] px-3 py-2.5">
-      <Toggle
-        label={t("agents.card.footerUsage")}
-        hint={reports.usage
-          ? t("agents.card.footerUsageHint")
-          : t("agents.card.footerUsageNone")}
-        value={!hidden?.usage}
-        onChange={v => setShown(agentId, "usage", v)}
-      />
-      <Toggle
-        label={t("agents.card.footerContext")}
-        hint={reports.context
-          ? t("agents.card.footerContextHint")
-          : t("agents.card.footerContextNone")}
-        value={!hidden?.context}
-        onChange={v => setShown(agentId, "context", v)}
-      />
+    // A rule above: it follows the collapsed field groups and is a setting
+    // of a different kind (what the app shows, not how the agent launches).
+    <div className="border-t border-[var(--color-border-soft)] pt-4">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[13px] font-medium">
+        {t("agents.card.footerLabel")}
+        <Tip content={t("agents.card.footerHint")} side="top">
+          <Info className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-faint)] hover:text-[var(--color-fg-dim)]" />
+        </Tip>
+      </div>
+      <div data-testid={`agent-footer-${agentId}`} className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {rows.map(([key, label, tip]) => {
+          const on = !hidden?.[key];
+          return (
+            <Tip key={key} content={tip} side="top">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  aria-label={label}
+                  onClick={() => setShown(agentId, key, !on)}
+                  className="relative h-4 w-7 shrink-0 rounded-full"
+                  style={{ background: on ? "var(--color-accent)" : "var(--color-bg-3)", transition: "background-color 150ms" }}
+                >
+                  <span
+                    className="absolute top-0.5 h-3 w-3 rounded-full shadow-sm"
+                    style={{ left: on ? 14 : 2, background: on ? "var(--color-accent-fg)" : "#fff", transition: "left 150ms, background-color 150ms" }}
+                  />
+                </button>
+                <span className="cursor-default select-none text-[13px]" onClick={() => setShown(agentId, key, !on)}>{label}</span>
+              </div>
+            </Tip>
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+/** Where an agent shows: Off, or a placement in the new-task menu. */
+function AgentVisibilityPicker({ agent, onPatch }: {
+  agent: Agent;
+  onPatch: (p: Partial<Agent>) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const overrides = usePrefs(s => s.launcherVisibility);
+  const setVisibility = usePrefs(s => s.setLauncherVisibility);
+  const current: LauncherVisibility | "off" = agent.disabled ? "off" : launcherVisibilityOf(agent.id, overrides);
+  const choose = (v: LauncherVisibility | "off") => {
+    if (v === "off") { if (!agent.disabled) onPatch({ disabled: true }); return; }
+    if (agent.disabled) onPatch({ disabled: false });
+    // Store only a departure from the default, so a later change of default
+    // still reaches people who never picked.
+    const def = launcherVisibilityOf(agent.id, {});
+    setVisibility(agent.id, v === def ? null : v);
+  };
+  const OPTIONS: readonly LauncherVisibility[] = ["auto", "shown", "pinned", "more"];
+  return (
+    <DropdownRoot>
+      <DropdownTrigger asChild>
+        <button
+          type="button"
+          data-testid={`agent-visibility-${agent.id}`}
+          data-value={current}
+          className={cn(
+            "mr-1.5 flex h-7 items-center gap-1 rounded-md border border-[var(--color-border)] px-2 text-[12.5px]",
+            current === "off" ? "text-[var(--color-fg-faint)]" : "text-[var(--color-fg)]",
+            "hover:bg-[var(--color-hover)] data-[state=open]:bg-[var(--color-hover)]",
+          )}
+        >
+          {t(`agents.visibility.${current}`)}
+          <ChevronDown className="h-3.5 w-3.5 text-[var(--color-fg-faint)]" />
+        </button>
+      </DropdownTrigger>
+      <DropdownMenu align="end" className="w-[260px]">
+        {OPTIONS.map(v => (
+          <DropdownItem key={v} data-value={v} onSelect={() => choose(v)}>
+            <Check className={cn("h-4 w-4 shrink-0 text-[var(--color-accent)]", current === v ? "opacity-100" : "opacity-0")} />
+            <span className="flex min-w-0 flex-col">
+              <span>{t(`agents.visibility.${v}`)}</span>
+              <span className="text-[11.5px] text-[var(--color-fg-faint)]">{t(`agents.visibility.${v}Hint`)}</span>
+            </span>
+          </DropdownItem>
+        ))}
+        <DropdownSeparator />
+        <DropdownItem data-value="off" onSelect={() => choose("off")}>
+          <Check className={cn("h-4 w-4 shrink-0 text-[var(--color-accent)]", current === "off" ? "opacity-100" : "opacity-0")} />
+          <span className="flex min-w-0 flex-col">
+            <span>{t("agents.visibility.off")}</span>
+            <span className="text-[11.5px] text-[var(--color-fg-faint)]">{t("agents.visibility.offHint")}</span>
+          </span>
+        </DropdownItem>
+      </DropdownMenu>
+    </DropdownRoot>
   );
 }

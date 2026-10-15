@@ -301,6 +301,11 @@ export async function waitForAppShell(timeout = 30_000): Promise<void> {
         const p = window.__termic?.usePrefs?.getState();
         if (!p) return false;
         if (p.language !== "en") p.setLanguage("en");
+        // The header `+` hides while the "New task" button under a project's
+        // tasks shows, and specs open the menu from the header. Only empty
+        // projects get the bottom button here; the spec for the setting sets
+        // its own mode and puts this one back.
+        if (p.newTaskButton !== "empty") p.setNewTaskButton("empty");
         return true;
       }),
     { timeout, interval: 250, timeoutMsg: "__termic prefs never came up" },
@@ -444,9 +449,20 @@ export async function clickMenuItemUntil(
                 e.textContent?.trim() === t &&
                 e.getBoundingClientRect().width > 0,
             );
-            // No item and no result yet: the menu is mid-remount, or the click
-            // landed and its result has not painted. Either way, wait.
+            // No item and no result yet: the menu is mid-remount, the item is
+            // folded under the new-task menu's "More" (entries unused for 5
+            // days live there), or the click landed and its result has not
+            // painted. Open More if it is shut; otherwise wait.
             if (el) el.click();
+            else {
+              const more = document.querySelector('[data-testid="launcher-more"]') as HTMLElement | null;
+              if (more && more.getAttribute("data-state") !== "open") {
+                const opts = { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, isPrimary: true, pointerId: 1 } as any;
+                more.dispatchEvent(new PointerEvent("pointerdown", opts));
+                more.dispatchEvent(new PointerEvent("pointerup", opts));
+                more.click();
+              }
+            }
             return false;
           },
           text,

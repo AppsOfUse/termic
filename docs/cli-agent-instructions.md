@@ -314,6 +314,27 @@ Termic supports recurring schedules on tasks: recurring runs cut child tasks at 
 - `"$TERMIC_CLI" schedule run <task>` - trigger an immediate out-of-band run ("Run now"). Refused if a run is already in progress.
 - `"$TERMIC_CLI" schedule delete <task> --yes` - delete a schedule (add `--delete-reports` to also remove report files on disk).
 
+### Another machine
+
+Termic on two computers of one network can be paired (by the person,
+on both screens). `"$TERMIC_CLI" peer list` names this machine and the
+ones paired with it. The global `--peer <machine>` runs any verb THERE
+instead of here:
+
+    "$TERMIC_CLI" --peer laptop new fix-x --yolo -p "[message from
+    agent:claude task:$TERMIC_TASK id:$TERMIC_TASK_ID peer:studio]
+    <work>. When done, reply: termic --peer studio send $TERMIC_TASK_ID
+    -p '[message from agent:<its agent> task:fix-x id:<its id>
+    peer:laptop] done: <what you did> -- ...' -- agent:claude
+    task:$TERMIC_TASK id:$TERMIC_TASK_ID peer:studio"
+
+Task names, paths and `--profile` are the other machine's; your own task
+is not a default there, so name the task. Put `peer:<this machine's
+name>` in your header, and a prompt whose header carries `peer:<machine>`
+came from that machine: answer it with `--peer <machine>`. That machine
+may only let this one reply to tasks that contacted it, and exit 12
+means it could not be reached (nothing ran there).
+
 ### Other verbs
 
 - `"$TERMIC_CLI" list --json` - all tasks with live work state

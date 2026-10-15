@@ -652,6 +652,53 @@ export function hasPendingWork(
   });
 }
 
+/** What a permission prompt looks like ON SCREEN, per built-in agent: the
+ *  evidence that a held needs-you bell still has something to answer.
+ *
+ *  A bell clears when the user answers (a key in the pane) or the agent's
+ *  done hook says the turn is over. Neither happens when the prompt goes away
+ *  on its own: claude's built-in safety checks auto-deny after a 2-minute
+ *  countdown, a remote control answers it, and the agent carries on working
+ *  for minutes with the bell stuck on. The working heartbeat cannot clear it
+ *  by itself (parallel subagents fire tool hooks while one sits on a prompt),
+ *  but heartbeat PLUS "no prompt on screen" can: while any subagent is
+ *  blocked, its prompt is drawn at the bottom of the pane.
+ *
+ *  claude's prompt ends in a question and a numbered choice list:
+ *      Do you want to proceed?            (or "... make this edit to x.ts?")
+ *      ❯ 1. Yes
+ *        2. No, and tell Claude what to do differently (esc)
+ *  An agent with no entry here never has its bell cleared this way: no
+ *  pattern means no evidence the prompt is gone. */
+export const PERMISSION_PROMPT_SIGNALS: Record<string, string[]> = {
+  claude: ["^Do you want to ", "^(❯|>)?\\s*1\\.\\s+Yes\\b"],
+  // The same lines BUILTIN_OUTPUT_SIGNALS.agy reads attention from (that
+  // table is declared below this one, so it cannot be referenced here).
+  agy: ["Requesting permission for:", "Do you want to proceed\\?"],
+};
+
+/** Rows a permission prompt's question and choices sit within, from the last
+ *  painted row up. An edit prompt draws its diff ABOVE the question, so the
+ *  question itself is always near the bottom. */
+export const PERMISSION_PROMPT_TAIL_ROWS = 15;
+
+/** True when the visible tail still shows a permission prompt, or when this
+ *  agent has no prompt patterns (unknown counts as still shown). */
+export function permissionPromptShown(
+  cli: string,
+  rows: string[],
+  agents: Agent[] = useApp.getState().agents,
+): boolean {
+  const src = PERMISSION_PROMPT_SIGNALS[builtinBaseId(cli, agents)];
+  if (!src?.length) return true;
+  const res = compileSignals(src);
+  if (!res.length) return true;
+  return rows.slice(-PERMISSION_PROMPT_TAIL_ROWS).some(r => {
+    const line = r.trim();
+    return line ? res.some(re => re.test(line)) : false;
+  });
+}
+
 /** OSC 9 / OSC 777 bodies that are NOT worth a badge. Everything else an agent
  *  puts in a notification is treated as "it wants you", which is what asking
  *  the terminal to notify means.

@@ -47,6 +47,9 @@ mod cli_server;
 mod forge;
 mod theme_import;
 mod mcp_server;
+mod mdns;
+mod peer_crypto;
+mod peers;
 // Config sync through a git repo the user owns (docs/ideas/config-sync.md).
 mod config_sync;
 // Row shapes + OS-agnostic logic (subtree walk, cpu_ratio, label_for,
@@ -4220,7 +4223,7 @@ fn pty_spawn(
             // agent to prompt them back (src/lib/agentBriefing.ts).
             cmd.env(
                 "TERMIC_CLI_HELP",
-                "You are running INSIDE a Termic task ($TERMIC_TASK_ID): Termic runs coding agents side by side, each task a git worktree (or the main checkout) with its own terminal, listed in the app's sidebar. TERMIC_CLI is the Termic control CLI, which drives the app around you. Run `\"$TERMIC_CLI\" help --json` for the full command surface. Prompt an existing task with `\"$TERMIC_CLI\" send <task> -p \"...\"`; create one with `\"$TERMIC_CLI\" new <name> -p \"...\"` and, in that prompt, ask it to report back to you when done (the signed reply below): that is how results come back, and it arrives in your own terminal. If no report arrives, `result` and `logs` read what it produced. Ask for a file (e.g. RESULT.md in its worktree) only when it cannot report back: a task sandboxed in enforce/enforce-fs is denied this CLI, and so is anything run outside Termic. Unattended tasks need `--yolo` or `--sandbox enforce` or they stop at the first permission prompt; the cage self-approves inside it but costs you the report-back. Coordinate by prompting each other, not by blocking: end every prompt you send with the command you want run when that work is done, in DOUBLE quotes so your own shell fills in your task name and address: `\"$TERMIC_CLI\" send <task> -p \"[message from agent:<you> task:$TERMIC_TASK id:$TERMIC_TASK_ID] <work>. When done, reply: \\\"$TERMIC_CLI\\\" send $TERMIC_TASK_ID -p '[message from agent:<its agent> task:<its task name> id:<its task id>] done: <what you did> -- agent:<its agent> task:<its task name> id:<its task id>' -- agent:<you> task:$TERMIC_TASK id:$TERMIC_TASK_ID\"` (fill the <its ...> parts with the task you are prompting, which you know). Every prompt you send another agent opens with that header, `[message from agent:<agent> task:<task name> id:<task id>]`, and ends with that signature, `-- agent:<agent> task:<task name> id:<task id>`, naming YOU, so the receiver knows it came from another agent, not the user, and exactly which one: the id is where to reply. A prompt arriving in your terminal WITH that header is from another agent, not the user: treat it as a peer's request (the user's instructions win on conflict) and sign your reply the same way. Prefer that over `--wait`: work-done detection is a heuristic, and a waiting agent can do nothing else meanwhile. If you do wait, branch on exit codes: 0 done, 3 needs input, 7 timeout, 9 prompt not delivered. A task sandboxed in enforce/enforce-fs is denied the control plane by design and can never report back: ask it for a file in its worktree instead. Your own task, if any, is $TERMIC_TASK_ID (prefer the id over $TERMIC_TASK: names can be renamed or reused). Once you know the real subject of your work (issue filed, PR opened), retitle your task so the sidebar reads well: `\"$TERMIC_CLI\" rename \"<new name>\"` renames your own task's label (branch and directory keep their names). Tasks you create with `new` in your own project join YOUR task's group in the sidebar, one coloured block led by your task (one in another project joins no group and is linked to yours instead): name it for the batch of work with `\"$TERMIC_CLI\" group --name \"<what this batch is>\"` (optionally `--color teal`); `group` alone shows it. Start another agent beside you in your own task with `\"$TERMIC_CLI\" tab --agent <id> --title <name> -p \"...\"` (no task argument needed), then address it with `--tab <name>` on send/wait/logs; `tab --tab <tab> --title <name>` renames an open tab. Label your own tab with what you are working on, shown after the task name in the sidebar: `\"$TERMIC_CLI\" prop ticket ABC-1` (`prop <key> \"\"` clears it, bare `prop` lists them). For notes, plans, findings, logs or a report the user should READ rather than commit, use a scratchpad instead of writing temporary .md files into the repo: it is a tab in your task that stays out of git and updates live as you write: `\"$TERMIC_CLI\" scratchpad new --title \"<title>\" -c \"<text>\"` prints its id; `scratchpad write <id> --append -c -` adds stdin to it, `scratchpad read <id>` prints it, `scratchpad list` lists them.",
+                "You are running INSIDE a Termic task ($TERMIC_TASK_ID): Termic runs coding agents side by side, each task a git worktree (or the main checkout) with its own terminal, listed in the app's sidebar. TERMIC_CLI is the Termic control CLI, which drives the app around you. Run `\"$TERMIC_CLI\" help --json` for the full command surface. Prompt an existing task with `\"$TERMIC_CLI\" send <task> -p \"...\"`; create one with `\"$TERMIC_CLI\" new <name> -p \"...\"` and, in that prompt, ask it to report back to you when done (the signed reply below): that is how results come back, and it arrives in your own terminal. If no report arrives, `result` and `logs` read what it produced. Ask for a file (e.g. RESULT.md in its worktree) only when it cannot report back: a task sandboxed in enforce/enforce-fs is denied this CLI, and so is anything run outside Termic. Unattended tasks need `--yolo` or `--sandbox enforce` or they stop at the first permission prompt; the cage self-approves inside it but costs you the report-back. Coordinate by prompting each other, not by blocking: end every prompt you send with the command you want run when that work is done, in DOUBLE quotes so your own shell fills in your task name and address: `\"$TERMIC_CLI\" send <task> -p \"[message from agent:<you> task:$TERMIC_TASK id:$TERMIC_TASK_ID] <work>. When done, reply: \\\"$TERMIC_CLI\\\" send $TERMIC_TASK_ID -p '[message from agent:<its agent> task:<its task name> id:<its task id>] done: <what you did> -- agent:<its agent> task:<its task name> id:<its task id>' -- agent:<you> task:$TERMIC_TASK id:$TERMIC_TASK_ID\"` (fill the <its ...> parts with the task you are prompting, which you know). Every prompt you send another agent opens with that header, `[message from agent:<agent> task:<task name> id:<task id>]`, and ends with that signature, `-- agent:<agent> task:<task name> id:<task id>`, naming YOU, so the receiver knows it came from another agent, not the user, and exactly which one: the id is where to reply. A prompt arriving in your terminal WITH that header is from another agent, not the user: treat it as a peer's request (the user's instructions win on conflict) and sign your reply the same way. Prefer that over `--wait`: work-done detection is a heuristic, and a waiting agent can do nothing else meanwhile. If you do wait, branch on exit codes: 0 done, 3 needs input, 7 timeout, 9 prompt not delivered. A task sandboxed in enforce/enforce-fs is denied the control plane by design and can never report back: ask it for a file in its worktree instead. Your own task, if any, is $TERMIC_TASK_ID (prefer the id over $TERMIC_TASK: names can be renamed or reused). Once you know the real subject of your work (issue filed, PR opened), retitle your task so the sidebar reads well: `\"$TERMIC_CLI\" rename \"<new name>\"` renames your own task's label (branch and directory keep their names). Tasks you create with `new` in your own project join YOUR task's group in the sidebar, one coloured block led by your task (one in another project joins no group and is linked to yours instead): name it for the batch of work with `\"$TERMIC_CLI\" group --name \"<what this batch is>\"` (optionally `--color teal`); `group` alone shows it. Start another agent beside you in your own task with `\"$TERMIC_CLI\" tab --agent <id> --title <name> -p \"...\"` (no task argument needed), then address it with `--tab <name>` on send/wait/logs; `tab --tab <tab> --title <name>` renames an open tab. Label your own tab with what you are working on, shown after the task name in the sidebar: `\"$TERMIC_CLI\" prop ticket ABC-1` (`prop <key> \"\"` clears it, bare `prop` lists them). For notes, plans, findings, logs or a report the user should READ rather than commit, use a scratchpad instead of writing temporary .md files into the repo: it is a tab in your task that stays out of git and updates live as you write: `\"$TERMIC_CLI\" scratchpad new --title \"<title>\" -c \"<text>\"` prints its id; `scratchpad write <id> --append -c -` adds stdin to it, `scratchpad read <id>` prints it, `scratchpad list` lists them. If this machine is paired with others on its network (`\"$TERMIC_CLI\" peer list`), `--peer <machine>` runs any verb THERE (`\"$TERMIC_CLI\" --peer <machine> new <name> -p \"...\"`): add `peer:<this machine's name, from peer list>` to your header and ask for the reply as `termic --peer <this machine> send $TERMIC_TASK_ID ...`; a header carrying `peer:<machine>` came from that machine, so answer it with `--peer <machine>`.",
             );
         }
     }
@@ -21929,6 +21932,13 @@ pub struct Settings {
     /// one and then keeps it across restarts.
     #[serde(default)]
     pub mcp_port: u16,
+    /// "Share on this network" (Settings > Agent access, docs/peers.md):
+    /// binds the peer listener on every interface and advertises this
+    /// machine over mDNS so other Termic instances can ask to pair. Default
+    /// OFF; applied live both ways by settings_save, and re-read per request
+    /// like `mcp_enabled`.
+    #[serde(default)]
+    pub lan_sharing_enabled: bool,
     /// What the window's close button does: "ask" (default) | "menubar" |
     /// "quit". "ask" shows the close prompt whose "Don't ask again" checkbox
     /// writes the chosen one back here. Stored rather than inferred so the
@@ -23728,7 +23738,8 @@ fn settings_save(app: AppHandle, window: tauri::Window, s: Settings) -> Result<(
     let _ = set_tray_visible(&app, tray_on);
     // Same discipline for the MCP listener (bind-on-enable, both ways).
     // Idempotent, so no need to diff against the previous settings.
-    mcp_server::apply_enabled(app, s.mcp_enabled);
+    mcp_server::apply_enabled(app.clone(), s.mcp_enabled);
+    peers::apply_enabled(app, s.lan_sharing_enabled);
     Ok(())
 }
 
@@ -25445,6 +25456,68 @@ fn perf_boot_elapsed_ms() -> u64 {
     BOOT.get().map(|t| t.elapsed().as_millis() as u64).unwrap_or(0)
 }
 
+/// The native menu item that owns ⌘W.
+#[cfg(target_os = "macos")]
+const MENU_CLOSE_TAB: &str = "termic-close-tab";
+#[cfg(target_os = "macos")]
+const MENU_CLOSE_WINDOW: &str = "termic-close-window";
+
+/// macOS's default menu, with ⌘W rebound from "Close Window" to "Close Tab".
+///
+/// The webview's keydown handler (useShortcuts "close-tab") closes the
+/// innermost thing and preventDefaults, which keeps the menu from ever seeing
+/// the key. But a key pressed inside an iframe never reaches the top
+/// document: the HTML preview and the diff's HTML view are `sandbox=""`
+/// iframes with no scripts and an opaque origin, so nothing can listen there.
+/// Click into one, press ⌘W, and the key fell through to the default menu's
+/// Close Window, closing Termic instead of the file. Rebinding the item
+/// routes that fall-through back to the same handler (`menu://close-tab`).
+/// Close Window stays in both submenus, without a shortcut (our own item:
+/// the predefined one carries ⌘W itself).
+#[cfg(target_os = "macos")]
+fn app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+    let menu = Menu::default(app)?;
+    let mut bound = false;
+    for top in menu.items()? {
+        let MenuItemKind::Submenu(sub) = top else { continue };
+        for (i, item) in sub.items()?.into_iter().enumerate() {
+            let MenuItemKind::Predefined(p) = item else { continue };
+            // The predefined item's kind is not exposed; muda titles the
+            // macOS Close Window item "Close".
+            if p.text()? != "Close" {
+                continue;
+            }
+            sub.remove(&p)?;
+            // Our own Close Window: the predefined one carries ⌘W itself.
+            let close = MenuItem::with_id(app, MENU_CLOSE_WINDOW, "Close Window", true, None::<&str>)?;
+            if !bound {
+                sub.insert(&MenuItem::with_id(app, MENU_CLOSE_TAB, "Close Tab", true, Some("CmdOrCtrl+W"))?, i)?;
+                sub.insert(&close, i + 1)?;
+                bound = true;
+            } else {
+                sub.insert(&close, i)?;
+            }
+        }
+    }
+    Ok(menu)
+}
+
+/// Tell the focused window to close its innermost thing (tab, pane, then
+/// the profile window), exactly as the ⌘W keydown would.
+#[cfg(target_os = "macos")]
+fn emit_close_tab(app: &AppHandle) {
+    if let Some(w) = focused_window(app) {
+        let _ = app.emit_to(tauri::EventTarget::webview_window(w.label()), "menu://close-tab", ());
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn focused_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    use tauri::Manager;
+    app.webview_windows().into_values().find(|w| w.is_focused().unwrap_or(false))
+}
+
 pub fn run() {
     let _ = BOOT.set(Instant::now());
     // WebKitGTK 2.42+ defaults to its DMA-BUF renderer. It's the FAST path on
@@ -25514,6 +25587,18 @@ pub fn run() {
     #[cfg(feature = "e2e")]
     {
         builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.menu(app_menu).on_menu_event(|app, ev| {
+            let id = ev.id().as_ref();
+            if id == MENU_CLOSE_TAB {
+                emit_close_tab(app);
+            } else if id == MENU_CLOSE_WINDOW {
+                // The ordinary CloseRequested path, as the red button.
+                if let Some(w) = focused_window(app) { let _ = w.close(); }
+            }
+        });
     }
     builder
         // skip_initial_state("main"): we now create the main window
@@ -25799,6 +25884,7 @@ pub fn run() {
             // token). See cli_server.rs + docs/plans/cli.md.
             cli_server::start(app.handle().clone());
             mcp_server::start_if_enabled(app.handle().clone());
+            peers::start_if_enabled(app.handle().clone());
             // E2E: show the window, never take focus. `set_focus()` on macOS
             // ACTIVATES the app, which yanks the user to whichever Space the
             // window opened on — seventeen times a suite run, since each spec
@@ -25908,6 +25994,15 @@ pub fn run() {
             mcp_server::mcp_token,
             mcp_server::mcp_regenerate_token,
             mcp_server::mcp_install_client,
+            peers::peer_status,
+            peers::peer_set_name,
+            peers::peer_pair,
+            peers::peer_pair_mode,
+            peers::peer_rename,
+            peers::peer_set_grant,
+            peers::peer_set_note,
+            peers::peer_unpair,
+            peers::peer_refresh,
             window_close_choice, window_is_windowless, close_prompt_ack,
             tray_set_attention,
             list_monospace_fonts, list_font_families,

@@ -158,6 +158,7 @@ const EXIT_CODES_HELP: &str = "Exit codes:
   9   the prompt was never delivered (new/send --wait)
   10  apply left the main checkout conflicted (resolve or reset there)
   11  the attach target closed underneath the session (agent exited or task archived)
+  12  --peer: the paired machine could not be reached (nothing ran there)
 A closed output pipe ends the process via SIGPIPE (shells report 141),
 the standard unix behavior.";
 
@@ -193,7 +194,12 @@ in your task that updates live and stays out of git: use one instead of \
 dropping temporary .md files into the repo, and tidy up after yourself with \
 `scratchpad rm` (one pad) or `scratchpad clear` (all of a task's). Coordinate by prompting \
 each other rather than blocking: end a prompt with the `send` back to your task \
-you want run when the work is done. Without $TERMIC_TASK_ID you are driving \
+you want run when the work is done. If this machine is paired with others on \
+its network (`peer list`), the global `--peer <machine>` runs any verb THERE \
+(`--peer laptop new fix-x -p ...`): put peer:<this machine's name> in your \
+signature and ask for the reply as `send <your task id>` with `--peer <this \
+machine>`; a prompt whose header carries peer:<machine> came from that machine, \
+so answer it with `--peer <machine>`. Without $TERMIC_TASK_ID you are driving \
 Termic from outside it: name tasks explicitly."
     };
 }
@@ -263,6 +269,19 @@ pub struct Cli {
     /// one, matching how an unknown project is already treated.
     #[arg(long, global = true, value_name = "NAME")]
     pub profile: Option<String>,
+
+    /// Run the command on a PAIRED machine instead of this one.
+    ///
+    /// Pair machines in Termic Settings > Agent access, or with `termic
+    /// peer pair`; `termic peer list` names them. The running Termic here
+    /// forwards the command over the network, sealed with that pair's own
+    /// key, and the other machine runs it as if typed there: task names,
+    /// paths and `--profile` are ITS. What it accepts depends on what it
+    /// lets this machine do (drive its agents, or only reply to its tasks
+    /// that contacted this one). Waits are capped at five minutes there:
+    /// loop `wait`. Not for `attach` or the `peer` verbs.
+    #[arg(long, global = true, value_name = "MACHINE")]
+    pub peer: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1296,6 +1315,10 @@ TTY without --yes), 4 app not running, 5 CLI disabled, 6 refused, \
     #[command(subcommand, name = "schedule")]
     Schedule(ScheduleCmd),
 
+    /// Pair with Termic on other machines of your network; list, rename and unpair them.
+    #[command(subcommand, name = "peer")]
+    Peer(PeerCmd),
+
     /// Print help; `--json` prints the whole surface machine-readably.
     #[command(
         after_help = "With --json, one object on stdout: {app, version, protocol, exit_codes, \
@@ -1590,6 +1613,74 @@ Exit codes: 0 removed, 1 error (unknown project, declined, no TTY without \
 }
 
 #[derive(Subcommand, Debug)]
+pub enum PeerCmd {
+    /// This machine's name, the machines paired with it, and unpaired ones in sight.
+    #[command(
+        after_help = "Prints this machine (the name others see, whether sharing is on, its \
+address), then one row per paired machine (name, online or last seen, what it may do HERE: \
+reply or drive, and what it lets this machine do THERE), then unpaired Termic instances in \
+sight on the network. With --output-format json, one object: {\"self\": {id, name, sharing, \
+addresses}, \"peers\": [{id, name, advertised_name, online, last_seen, address, version, \
+grant, their_grant, revoked_by_peer}], \"nearby\": [{id, name, address, version, compatible}]}.
+
+Run any verb on a paired machine with the global --peer flag: \
+`termic --peer <name> new fix-x -p \"...\" --yolo`.
+
+Exit codes: 0 success, 1 error, 4 app not running, 5 CLI disabled, 6 refused, \
+8 connection lost."
+    )]
+    List,
+    /// Start pairing with a machine in sight (its name or id) or at an address.
+    #[command(
+        after_help = "The other machine must be in pairing mode: a person there clicks Pair a \
+computer (Settings > Agent access), and its screen shows four digits. This pairs with that \
+code, so an agent needs the person to read it out. The target is a name or id from `peer \
+list` (in pairing mode it is marked ready), or an address (192.168.1.20, or \
+192.168.1.20:23620) for a network that hides machines from each other. Sharing must be on on \
+both. Both machines may then drive each other's agents; narrow it in Settings.
+
+Exit codes: 0 paired, 1 error (not in sight, unreachable), 4 app not running, 5 CLI \
+disabled, 6 wrong code or not in pairing mode, 8 connection lost."
+    )]
+    Pair {
+        /// Name or id from `peer list`, or ip / ip:port.
+        target: String,
+        /// The four digits the other machine shows in pairing mode.
+        code: String,
+    },
+    /// Forget a paired machine here and tell it to forget this one.
+    #[command(
+        after_help = "Its key is deleted here at once, so it can no longer call in even if it \
+is offline and never hears about it. Asks for confirmation on a TTY unless --yes; \
+non-interactive runs REQUIRE --yes.
+
+Exit codes: 0 unpaired, 1 error (unknown machine, declined, no TTY without --yes), 4 app \
+not running, 5 CLI disabled, 6 refused, 8 connection lost."
+    )]
+    Unpair {
+        /// The paired machine: its name or id.
+        peer: String,
+        /// Skip the confirmation prompt (required non-interactively).
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Set this machine's name for a paired machine (empty: the name it gives itself).
+    #[command(
+        after_help = "Local only: the other machine is not told. Either name, or its id, \
+keeps working as a --peer selector.
+
+Exit codes: 0 renamed, 1 unknown machine, 4 app not running, 5 CLI disabled, 6 refused, \
+8 connection lost."
+    )]
+    Rename {
+        /// The paired machine: its name or id.
+        peer: String,
+        /// The new name ("" to go back to its own).
+        name: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum ScheduleCmd {
     /// List recurring schedules with cadence, enabled state, next run, and last outcome.
     #[command(
@@ -1789,6 +1880,7 @@ pub fn run() -> i32 {
     };
     // Before any request is built: every Request carries it (GH #280).
     client::set_profile(cli.profile.clone());
+    client::set_peer(cli.peer.clone().filter(|p| !p.trim().is_empty()));
     match execute(&cli) {
         Ok(out) => {
             if !out.stdout.is_empty() {
@@ -1887,6 +1979,21 @@ fn pre_connect_guard(cmd: &Cmd) -> Result<(), CliError> {
     Ok(())
 }
 
+/// What `--peer` cannot carry, refused before the socket is touched.
+fn peer_guard(cmd: &Cmd) -> Result<(), CliError> {
+    let refuse = |m: &str| Err(CliError::new(exit_code::ERROR, m));
+    match cmd {
+        Cmd::Peer(_) => refuse("the peer verbs act on this machine; drop --peer"),
+        Cmd::Attach { .. } => {
+            refuse("attach does not reach across machines; use `logs` and `send` with --peer")
+        }
+        Cmd::Send { here: true, .. } => refuse(
+            "--here names a task on this machine; with --peer, name the task on the other one",
+        ),
+        _ => Ok(()),
+    }
+}
+
 fn effective_format(cli: &Cli) -> OutputFormat {
     if cli.json { OutputFormat::Json } else { cli.output_format }
 }
@@ -1920,6 +2027,9 @@ outside.",
     }
 
     pre_connect_guard(&cli.cmd)?;
+    if cli.peer.is_some() {
+        peer_guard(&cli.cmd)?;
+    }
     // Resolve `-p -` stdin BEFORE touching the socket: a generator
     // slower than the server's 30s idle timeout must not turn a
     // healthy pipe into "connection lost".
@@ -2160,7 +2270,7 @@ outside.",
                 proto::Command::TabRename {
                     // Without <TASK>, the caller's own task, like `tab`.
                     task: task.clone().or_else(|| {
-                        std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty())
+                        own_env("TERMIC_TASK_ID")
                     }),
                     project: project.clone(),
                     tab: tab.clone(),
@@ -2203,7 +2313,7 @@ outside.",
                 // agent opening a helper beside itself should not have to
                 // spell its own id, and cwd alone breaks after a `cd`.
                 task: task.clone().or_else(|| {
-                    std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty())
+                    own_env("TERMIC_TASK_ID")
                 }),
                 project: project.clone(),
                 kind,
@@ -2251,7 +2361,7 @@ outside.",
             // unambiguous; cwd rides along as the last-resort fallback
             // the server only consults when `task` is absent.
             let target = task.clone().or_else(|| {
-                std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty())
+                own_env("TERMIC_TASK_ID")
             });
             let data = client::request(
                 &mut conn,
@@ -2270,16 +2380,15 @@ outside.",
             // own ($TERMIC_TASK_ID), else the cwd the server resolves. A
             // write lands on the caller's own tab unless --tab says
             // otherwise; a read takes no tab at all.
-            let env = |k: &str| std::env::var(k).ok().filter(|s| !s.is_empty());
             let target_tab = if value.is_some() {
-                tab.clone().or_else(|| env("TERMIC_TAB_ID"))
+                tab.clone().or_else(|| own_env("TERMIC_TAB_ID"))
             } else {
                 tab.clone()
             };
             let data = client::request(
                 &mut conn,
                 proto::Command::Prop {
-                    task: task.clone().or_else(|| env("TERMIC_TASK_ID")),
+                    task: task.clone().or_else(|| own_env("TERMIC_TASK_ID")),
                     project: project.clone(),
                     tab: target_tab,
                     key: key.clone(),
@@ -2294,7 +2403,7 @@ outside.",
             // Same target rule as rename: explicit task, else the caller's
             // own ($TERMIC_TASK_ID), else the cwd the server resolves.
             let target = task.clone().or_else(|| {
-                std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty())
+                own_env("TERMIC_TASK_ID")
             });
             let data = client::request(
                 &mut conn,
@@ -2315,6 +2424,7 @@ outside.",
         Cmd::Project(p) => execute_project(&mut conn, &token, format, p, &paths),
         Cmd::Pad(p) => execute_pad(&mut conn, &token, format, p, pad_content),
         Cmd::Schedule(s) => execute_schedule(&mut conn, &token, format, s, &paths, prompt),
+        Cmd::Peer(p) => execute_peer(&mut conn, &token, format, p, &paths),
         // The Phase 0 read verbs: one request, one reply.
         Cmd::List { .. } | Cmd::Status { .. } | Cmd::Open { .. } => {
             let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned());
@@ -2525,7 +2635,19 @@ fn run_new_wire(
 /// under. Read from the env the app sets on every task PTY, so an agent gets
 /// grouping without being told about it.
 fn parent_task_from_env() -> Option<String> {
-    std::env::var("TERMIC_TASK_ID").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    own_env("TERMIC_TASK_ID").map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// `$TERMIC_TASK_ID` / `$TERMIC_TAB_ID`, the "your own task" defaults, unless
+/// this invocation goes to another machine with `--peer`: there they would
+/// name a task that machine does not have, so a verb that needs one has to
+/// name it. (The caller's task still rides along as `from_task`, which is
+/// what lets that machine reply into it; see client::authed.)
+fn own_env(key: &str) -> Option<String> {
+    if client::peer().is_some() {
+        return None;
+    }
+    std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
 /// Generic task args come first. The dedicated flag is deliberately last,
@@ -2620,7 +2742,7 @@ fn execute_send(
     }
     let task = match (task, here) {
         (Some(t), _) => Some(t.clone()),
-        (None, true) => match std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty()) {
+        (None, true) => match own_env("TERMIC_TASK_ID") {
             Some(id) => Some(id),
             None => {
                 return Err(CliError::new(
@@ -2848,7 +2970,7 @@ fn pad_task(t: &PadTarget) -> Option<String> {
         if t.project.is_some() && t.scope.as_deref() != Some("task") {
             None
         } else {
-            std::env::var("TERMIC_TASK_ID").ok().filter(|s| !s.is_empty())
+            own_env("TERMIC_TASK_ID")
         }
     })
 }
@@ -2944,6 +3066,56 @@ fn execute_pad(
         }
     };
     Ok(Output::ok(final_stdout(format, &text, &d)))
+}
+
+fn execute_peer(
+    conn: &mut client::Conn,
+    token: &str,
+    format: OutputFormat,
+    cmd: &PeerCmd,
+    paths: &client::SocketPaths,
+) -> Result<Output, CliError> {
+    let peers = |data: proto::ReplyData, what: &str| match data {
+        proto::ReplyData::Peers(d) => Ok(d),
+        _ => Err(CliError::new(exit_code::ERROR, format!("unexpected reply to peer {what}"))),
+    };
+    match cmd {
+        PeerCmd::List => {
+            let d = peers(client::request(conn, proto::Command::PeerList, token)?, "list")?;
+            Ok(Output::ok(final_stdout(format, &output::peers_text(&d), &d)))
+        }
+        PeerCmd::Rename { peer, name } => {
+            let d = peers(
+                client::request(conn, proto::Command::PeerRename { target: peer.clone(), name: name.clone() }, token)?,
+                "rename",
+            )?;
+            Ok(Output::ok(final_stdout(format, &output::peers_text(&d), &d)))
+        }
+        PeerCmd::Unpair { peer, yes } => {
+            let mut fresh: Option<client::Conn> = None;
+            if !yes {
+                let question = format!(
+                    "termic: unpair {peer}? It can no longer reach this machine, and this one can no longer reach it, until you pair again."
+                );
+                if !confirm_tty(&question)? {
+                    return Err(CliError::new(exit_code::ERROR, "unpair declined"));
+                }
+                // A human can sit on the question past the server's idle timeout.
+                fresh = Some(reconnect(paths)?);
+            }
+            let conn = fresh.as_mut().unwrap_or(conn);
+            let d = peers(client::request(conn, proto::Command::PeerUnpair { target: peer.clone() }, token)?, "unpair")?;
+            let text = format!("Unpaired {peer}.");
+            Ok(Output::ok(final_stdout(format, &text, &d)))
+        }
+        PeerCmd::Pair { target, code } => {
+            let data = run_streamed(conn, proto::Command::PeerPair { target: target.clone(), code: code.clone() }, token, format)?;
+            let proto::ReplyData::PeerPair(p) = data else {
+                return Err(CliError::new(exit_code::ERROR, "unexpected reply to peer pair"));
+            };
+            Ok(Output::ok(final_stdout(format, &output::peer_paired_text(&p), &p)))
+        }
+    }
 }
 
 fn execute_project(
@@ -3402,6 +3574,7 @@ const EXIT_CODE_TABLE: &[(i32, &str)] = &[
     (9, "prompt never delivered"),
     (10, "apply left the main checkout conflicted (resolve or reset there)"),
     (11, "the attach target closed (agent exited or task archived)"),
+    (12, "--peer: the paired machine could not be reached"),
 ];
 
 fn exit_code_desc(code: i32) -> &'static str {
@@ -3416,8 +3589,9 @@ fn exit_code_desc(code: i32) -> &'static str {
 /// surface; descriptions come from `EXIT_CODE_TABLE`. 2 (clap usage)
 /// is global-only: every verb can exit 2 before it runs.
 fn verb_exit_codes(name: &str) -> Vec<i32> {
-    const COMMON: &[i32] = &[0, 1, 4, 5, 6, 8];
-    const WATCHED: &[i32] = &[0, 1, 3, 4, 5, 6, 7, 8];
+    // 12 everywhere: any verb can be sent to a paired machine with --peer.
+    const COMMON: &[i32] = &[0, 1, 4, 5, 6, 8, 12];
+    const WATCHED: &[i32] = &[0, 1, 3, 4, 5, 6, 7, 8, 12];
     match name {
         // tab included: -p/-P ride the send delivery + wait machinery,
         // so it produces 3/7/9 exactly as send does.
@@ -3440,6 +3614,8 @@ fn verb_exit_codes(name: &str) -> Vec<i32> {
         // Fully local (no socket): only success, an unknown command
         // name, and the in-cage refusal that precedes it are reachable.
         "help" => vec![0, 1, 6],
+        // The peer verbs act on this machine only (--peer is refused).
+        "peer list" | "peer pair" | "peer unpair" | "peer rename" => vec![0, 1, 4, 5, 6, 8],
         // COMMON, and every code in it is genuinely reachable: 4 and 8 when
         // the app exits underneath us (a second `quit`, or Cmd-Q while a
         // human sits on the confirmation), which is why `after_help` lists
@@ -4576,4 +4752,92 @@ mod tests {
         ] { assert!(Cli::try_parse_from(args.clone()).is_err(), "accepted {args:?}"); }
     }
 
+
+    #[test]
+    fn peer_is_a_global_flag_on_either_side_of_the_verb() {
+        for args in [
+            vec!["termic", "--peer", "laptop", "list"],
+            vec!["termic", "list", "--peer", "laptop"],
+            vec!["termic", "new", "fix-x", "-p", "go", "--peer", "laptop"],
+        ] {
+            let cli = Cli::try_parse_from(args.clone()).unwrap();
+            assert_eq!(cli.peer.as_deref(), Some("laptop"), "{args:?}");
+        }
+        assert_eq!(Cli::try_parse_from(["termic", "list"]).unwrap().peer, None);
+    }
+
+    #[test]
+    fn peer_subcommands_parse() {
+        let cli = Cli::try_parse_from(["termic", "peer", "pair", "192.168.1.20:23620", "4821"]).unwrap();
+        assert!(matches!(&cli.cmd, Cmd::Peer(PeerCmd::Pair { target, code }) if target == "192.168.1.20:23620" && code == "4821"));
+        assert!(Cli::try_parse_from(["termic", "peer", "pair", "laptop"]).is_err(), "pair needs the code");
+        assert!(Cli::try_parse_from(["termic", "peer", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["termic", "peer", "unpair", "laptop", "--yes"]).is_ok());
+        assert!(Cli::try_parse_from(["termic", "peer", "rename", "laptop", ""]).is_ok(), "empty clears");
+        assert!(Cli::try_parse_from(["termic", "peer"]).is_err(), "a subcommand is required");
+        assert!(Cli::try_parse_from(["termic", "peer", "pair"]).is_err(), "pair needs a target");
+    }
+
+    #[test]
+    fn peer_refuses_what_cannot_cross_machines_before_connecting() {
+        let guard = |args: &[&str]| peer_guard(&Cli::try_parse_from(args).unwrap().cmd);
+        assert!(guard(&["termic", "peer", "list"]).is_err(), "peer verbs act here");
+        assert!(guard(&["termic", "attach", "t"]).is_err(), "attach is a local TTY");
+        let here = guard(&["termic", "send", "--here", "-p", "x"]).unwrap_err();
+        assert!(here.message.contains("--here"), "{}", here.message);
+        assert!(guard(&["termic", "send", "t", "-p", "x"]).is_ok());
+        assert!(guard(&["termic", "new", "t", "-p", "x"]).is_ok());
+        assert!(guard(&["termic", "list"]).is_ok());
+    }
+
+    #[test]
+    fn peer_unreachable_is_in_every_exit_code_table() {
+        assert!(EXIT_CODES_HELP.contains("  12  --peer"));
+        assert!(EXIT_CODE_TABLE.iter().any(|(c, _)| *c == proto::exit_code::PEER_UNREACHABLE));
+        assert!(verb_exit_codes("send").contains(&12));
+        assert!(!verb_exit_codes("peer pair").contains(&12), "the peer verbs refuse --peer");
+    }
+
+    #[test]
+    fn peer_list_text_names_both_directions_of_each_pair() {
+        let d = proto::PeersData {
+            this: proto::PeerSelf {
+                id: "a".repeat(32),
+                name: "Studio".into(),
+                sharing: true,
+                addresses: vec!["192.168.1.10:23620".into()],
+            },
+            peers: vec![proto::PeerInfo {
+                id: "b".repeat(32),
+                name: "Gaming laptop".into(),
+                advertised_name: "LAPTOP-7".into(),
+                online: true,
+                last_seen: None,
+                address: Some("192.168.1.20:23620".into()),
+                version: Some("1.17.0".into()),
+                grant: "reply".into(),
+                their_grant: Some("drive".into()),
+                revoked_by_peer: false,
+                note: Some("Windows builds and installer tests".into()),
+            }],
+            nearby: vec![proto::NearbyInfo {
+                id: "c".repeat(32),
+                name: "Build box".into(),
+                address: "192.168.1.30:23620".into(),
+                version: "1.15.0".into(),
+                compatible: false,
+                pairing: true,
+            }],
+        };
+        let text = output::peers_text(&d);
+        assert!(text.starts_with("This machine: Studio (sharing on, 192.168.1.10:23620)"), "{text}");
+        assert!(text.contains("Gaming laptop  online  may here: reply only  lets you: drive agents"), "{text}");
+        assert!(text.contains("(calls itself LAPTOP-7)"));
+        assert!(text.contains("\n    for: Windows builds and installer tests"), "{text}");
+        assert!(text.contains("Build box") && text.contains("different version"));
+        assert!(text.contains("ready to pair"), "{text}");
+        assert!(!text.contains('\u{2014}'));
+        let none = output::peers_text(&proto::PeersData::default());
+        assert!(none.contains("none (pair in Settings > Agent access"), "{none}");
+    }
 }

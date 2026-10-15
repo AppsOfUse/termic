@@ -22,7 +22,7 @@ vi.mock("@/lib/utils", () => ({
   slugify: (s: string) => s.toLowerCase().replace(/\s+/g, "-"),
 }));
 
-import { resumeIdArgsForCli, resumePickerArgsForCli, cliSupportsCaptureResume, postLaunchCaptureForCli, spawnArgsForCli, defaultCliFirst, visibleCliIds, cliSupportsIdSession, cliSupportsResumeById, agentDisplayName, decideResume, spawnResumeShape, isTerminalCli, workDoneCapable, terminalLaunchCommand, classifyAgentTitle, compileSignals, BUILTIN_TITLE_SIGNALS, BUILTIN_OUTPUT_SIGNALS, builtinBaseId, YOLO_ARGS_NOTES, yoloArgsNote, resolveAgent, agentOverrides, hasPendingWork, notificationWantsAttention, PENDING_TAIL_ROWS } from "@/lib/agents";
+import { resumeIdArgsForCli, resumePickerArgsForCli, cliSupportsCaptureResume, postLaunchCaptureForCli, spawnArgsForCli, defaultCliFirst, visibleCliIds, cliSupportsIdSession, cliSupportsResumeById, agentDisplayName, decideResume, spawnResumeShape, isTerminalCli, workDoneCapable, terminalLaunchCommand, classifyAgentTitle, compileSignals, BUILTIN_TITLE_SIGNALS, BUILTIN_OUTPUT_SIGNALS, builtinBaseId, YOLO_ARGS_NOTES, yoloArgsNote, resolveAgent, agentOverrides, hasPendingWork, notificationWantsAttention, PENDING_TAIL_ROWS, permissionPromptShown } from "@/lib/agents";
 import type { Agent, CliInfo } from "@/lib/types";
 import type { ResumeDecision } from "@/lib/agents";
 
@@ -1863,5 +1863,27 @@ describe("per-tab launch overrides", () => {
     ]);
     expect(mockAgents[0].args).toEqual(["--model", "default"]);
     mockAgents.length = 0;
+  });
+});
+
+// The evidence a held bell still has a prompt to answer. A bell auto-denied by
+// claude's own safety check stayed on while the agent worked on (from a real
+// session): the working heartbeat clears it only when this says no prompt.
+describe("permissionPromptShown", () => {
+  const agents: Agent[] = [];
+  it("sees claude's question and its numbered Yes", () => {
+    expect(permissionPromptShown("claude", ["", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"], agents)).toBe(true);
+    expect(permissionPromptShown("claude", [" Do you want to make this edit to a.ts?"], agents)).toBe(true);
+    expect(permissionPromptShown("claude", ["  ❯ 1. Yes, allow all edits"], agents)).toBe(true);
+  });
+  it("reports the prompt gone once the screen moved on", () => {
+    expect(permissionPromptShown("claude", ["⏺ Bash(ffmpeg -i in.mp4 out.gif)", "  ⎿  Running…", "> "], agents)).toBe(false);
+  });
+  it("only reads the tail, where the question sits", () => {
+    const old = [" Do you want to proceed?", ...Array.from({ length: 20 }, (_, i) => `line ${i}`)];
+    expect(permissionPromptShown("claude", old, agents)).toBe(false);
+  });
+  it("counts an agent with no patterns as still shown, so its bell is kept", () => {
+    expect(permissionPromptShown("codex", ["anything"], agents)).toBe(true);
   });
 });

@@ -8,11 +8,11 @@ import { listen } from "@tauri-apps/api/event";
 import { logWorkState } from "@/lib/workStateLog";
 import { useApp, useActiveTabId } from "@/store/app";
 import { useRowTabs, useSidebarTabFacts } from "@/store/sidebarTabs";
-import { usePrefs, scheduledNavVisible, taskLocationIconShown } from "@/store/prefs";
+import { usePrefs, scheduledNavVisible, taskLocationIconShown, newTaskButtonShown } from "@/store/prefs";
 import { Button } from "@/components/ui/Button";
 import { Tip } from "@/components/ui/Tooltip";
 import { Spinner } from "@/components/ui/Spinner";
-import { LayoutGrid, History, Columns3, CalendarClock, FolderPlus, Settings, Plus, MoreHorizontal, Archive, Layers, Moon, Cog, MoreVertical, GitBranch, GitBranchPlus, FolderGit2, ChevronRight, ChevronDown, Bug, Mail, Zap, X, Pencil, Copy, ChevronsDownUp, ChevronsUpDown, Check, AudioWaveform, Radio, SquareChevronRight, CircleStop, Trash2, Folder, FolderMinus, FolderOpen, Megaphone, Keyboard, Activity, Waypoints, Square, Play, GitPullRequest } from "lucide-react";
+import { LayoutGrid, History, Columns3, CalendarClock, FolderPlus, Settings, Plus, MoreHorizontal, Archive, Layers, Moon, Cog, MoreVertical, GitBranch, GitBranchPlus, FolderGit2, ChevronRight, ChevronDown, Bug, Mail, Zap, X, Pencil, Copy, ChevronsDownUp, ChevronsUpDown, Check, AudioWaveform, Radio, SquareChevronRight, CircleStop, Trash2, Folder, FolderMinus, FolderOpen, Megaphone, Keyboard, Activity, Waypoints, Square, Play, GitPullRequest, SlidersHorizontal } from "lucide-react";
 import { DropdownRoot, DropdownTrigger, DropdownMenu, DropdownItem, DropdownSeparator, DropdownLabel, DropdownSub, DropdownSubTrigger, DropdownSubContent } from "@/components/ui/Dropdown";
 import { ContextMenuRoot, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuLabel, ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent } from "@/components/ui/ContextMenu";
 import { ProjectActionsMenuItems } from "./ProjectActionsMenuItems";
@@ -184,6 +184,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
   const setTaskPrBadge = usePrefs(s => s.setTaskPrBadge);
   const showBoard = usePrefs(s => s.showBoard);
   const scheduledNav = usePrefs(s => s.scheduledNav);
+  const newTaskButtonMode = usePrefs(s => s.newTaskButton);
   // A boolean out of the selector, so a task write that leaves the answer
   // alone re-renders nothing here.
   const hasSchedule = useApp(s => s.tasks.some(x => !!x.schedule && !x.archived));
@@ -1305,14 +1306,20 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             overlay is a full sidebar and shows it there instead. */}
         {!compact && showStatusSection && <StatusSection matchIds={queryMatchIds} />}
         {!compact && showStatusSection && (
-          <div data-testid="sidebar-section-divider" className="my-2 border-t border-[var(--color-border-soft)]" />
+          // Space only: both sections open on a filled bar, and a rule
+          // between two bars was one more line.
+          <div data-testid="sidebar-section-divider" className="h-2" />
         )}
         <div
           data-testid="projects-section-header"
           className={cn(
             compact
               ? "flex flex-col gap-1.5 py-1"
-              : "group mb-1 flex h-7 select-none items-center justify-between rounded-md border border-[var(--color-border-soft)]/50 bg-[var(--color-bg-2)]/60 px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-fg)] transition-colors hover:bg-[var(--color-bg-2)]",
+              // A header bar: the label and its icon buttons on one filled
+              // surface (no border), the label in the buttons' colour and at
+              // 12px so the row reads as one unit. Stronger fill than a
+              // project's band below it, which is the tree's hierarchy.
+              : "group mb-1.5 flex h-8 select-none items-center justify-between rounded-md bg-[var(--color-bg-2)] pl-2 pr-0.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-fg-dim)]",
           )}
         >
           {!compact && (
@@ -1320,7 +1327,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             // second copy of some tasks; this is the tree itself, and folding
             // it away left a sidebar with nothing in it.
             <div className="flex min-w-0 flex-1 items-center gap-1.5 py-0.5">
-              <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+              <FolderGit2 className="h-4 w-4 shrink-0" />
               <span className="truncate">{t("projectsHeader")}</span>
             </div>
           )}
@@ -1335,7 +1342,12 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
               <Tip content={t("listOptionsTip")}>
                 <DropdownTrigger asChild>
                   <Button size="icon" variant="icon" data-testid="sidebar-list-options">
-                    <ChevronsUpDown className={iconSize(compact)} />
+                    {/* Sliders, the usual "view options" mark: the menu is
+                        display settings (expand mode, row icons, what the
+                        tree shows), not just expand/collapse, which the old
+                        up/down chevrons said. A step under the folder icon
+                        beside it, which reads lighter. */}
+                    <SlidersHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownTrigger>
               </Tip>
@@ -1348,48 +1360,40 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                     and "collapse all" means the whole tree tidies up. Task rows
                     have no throwaway fold, so while the query filters they are
                     left alone rather than rewriting the stored layout. */}
+                {/* Three sections, one control style each: actions (close the
+                    menu), SHOW (switches and submenus), and a pick-one list.
+                    Every row is one line; what a row means lives in its
+                    tooltip, because six hint sentences made the menu twice
+                    the height of its content. Settings do NOT close the menu
+                    (preventDefault), so several can be flipped in one visit. */}
                 <DropdownItem onSelect={() => { if (!queryOn) setAllTasksCollapsed(false); setAllFolders(false); }}>
-                  <ChevronsUpDown className="h-5 w-5 text-[var(--color-fg-dim)]" />
+                  <ChevronsUpDown className="h-4 w-4 text-[var(--color-fg-dim)]" />
                   <span>{t("expandAll")}</span>
                 </DropdownItem>
                 <DropdownItem onSelect={() => { if (!queryOn) setAllTasksCollapsed(true); setAllFolders(true); }}>
-                  <ChevronsDownUp className="h-5 w-5 text-[var(--color-fg-dim)]" />
+                  <ChevronsDownUp className="h-4 w-4 text-[var(--color-fg-dim)]" />
                   <span>{t("collapseAll")}</span>
                 </DropdownItem>
                 <DropdownSeparator />
-                <DropdownLabel>{t("defaultExpand")}</DropdownLabel>
-                {([
-                  ["chevron", "expandChevron", "expandChevronHint"],
-                  ["click",   "expandClick",   "expandClickHint"],
-                  ["always",  "expandAlways",  "expandAlwaysHint"],
-                ] as const).map(([id, labelKey, hintKey]) => {
-                  const isActive = taskExpandMode === id;
-                  return (
-                    <DropdownItem
-                      key={id}
-                      onSelect={() => setTaskExpandMode(id)}
-                      className={isActive
-                        ? "bg-[var(--color-sel)] data-[highlighted]:bg-[var(--color-sel)]"
-                        : undefined}
-                    >
-                      {isActive
-                        ? <Check className="h-5 w-5 shrink-0 text-[var(--color-accent)]" />
-                        : <span className="h-5 w-5 shrink-0" />}
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className={isActive ? "text-[var(--color-accent)] font-medium" : undefined}>{t(labelKey)}</span>
-                        <span className="text-[11px] leading-snug text-[var(--color-fg-dim)]">{t(hintKey)}</span>
-                      </div>
-                    </DropdownItem>
-                  );
-                })}
+                <DropdownLabel>{t("viewShow")}</DropdownLabel>
+                <MenuSwitchRow
+                  testId="sidebar-toggle-status-section"
+                  label={t("showStatusSection")}
+                  tip={t("showStatusSectionHint")}
+                  on={showStatusSection}
+                  onToggle={() => setShowStatusSection(!showStatusSection)}
+                />
+                <MenuSwitchRow
+                  label={t("collapseInactive")}
+                  tip={t("collapseInactiveHint")}
+                  on={hideInactiveProjects}
+                  onToggle={() => setHideInactiveProjects(!hideInactiveProjects)}
+                />
                 {/* Mirrored in Settings > Appearance > Sidebar, which writes
                     the same pref. */}
                 <DropdownSub>
                   <DropdownSubTrigger data-testid="sidebar-task-git-icon" className="justify-between">
-                    <span className="flex items-center gap-2">
-                      <span className="h-5 w-5 shrink-0" />
-                      {t("taskGitIcon")}
-                    </span>
+                    <span>{t("taskGitIcon")}</span>
                     {/* The current choice, as the glyphs it draws: the row
                         says what is on without opening the submenu. */}
                     <span className="flex items-center gap-2">
@@ -1404,9 +1408,9 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                       ["worktree", "taskGitIconWorktree"],
                       ["none",     "taskGitIconNone"],
                     ] as const).map(([id, labelKey]) => (
-                      <DropdownItem key={id} data-value={id} onSelect={() => setTaskLocationIcon(id)} className="items-center">
+                      <DropdownItem key={id} data-value={id} onSelect={(e) => { e.preventDefault(); setTaskLocationIcon(id); }} className="items-center">
                         <Check className={cn("h-4 w-4 shrink-0 text-[var(--color-accent)]", taskLocationIcon === id ? "opacity-100" : "opacity-0")} />
-                        <span className={cn("flex-1", taskLocationIcon === id && "text-[var(--color-accent)] font-medium")}>{t(labelKey)}</span>
+                        <span className="flex-1">{t(labelKey)}</span>
                         <span className="ml-4 flex items-center"><TaskLocationSamples value={id} /></span>
                       </DropdownItem>
                     ))}
@@ -1416,10 +1420,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                     > Appearance > Sidebar, which writes the same pref. */}
                 <DropdownSub>
                   <DropdownSubTrigger data-testid="sidebar-task-pr-badge" className="justify-between">
-                    <span className="flex items-center gap-2">
-                      <span className="h-5 w-5 shrink-0" />
-                      {t("taskPrBadge")}
-                    </span>
+                    <span>{t("taskPrBadge")}</span>
                     <span className="flex items-center gap-2">
                       <TaskPrSamples value={taskPrBadge} />
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-faint)]" />
@@ -1432,48 +1433,34 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                       ["number", "taskPrBadgeNumber"],
                       ["none",   "taskPrBadgeNone"],
                     ] as const).map(([id, labelKey]) => (
-                      <DropdownItem key={id} data-pr-value={id} onSelect={() => setTaskPrBadge(id)} className="items-center">
+                      <DropdownItem key={id} data-pr-value={id} onSelect={(e) => { e.preventDefault(); setTaskPrBadge(id); }} className="items-center">
                         <Check className={cn("h-4 w-4 shrink-0 text-[var(--color-accent)]", taskPrBadge === id ? "opacity-100" : "opacity-0")} />
-                        <span className={cn("flex-1", taskPrBadge === id && "text-[var(--color-accent)] font-medium")}>{t(labelKey)}</span>
+                        <span className="flex-1">{t(labelKey)}</span>
                         <span className="ml-4 flex items-center"><TaskPrSamples value={id} /></span>
                       </DropdownItem>
                     ))}
                   </DropdownSubContent>
                 </DropdownSub>
                 <DropdownSeparator />
-                <DropdownItem
-                  onSelect={() => setHideInactiveProjects(!hideInactiveProjects)}
-                  className={hideInactiveProjects
-                    ? "bg-[var(--color-sel)] data-[highlighted]:bg-[var(--color-sel)]"
-                    : undefined}
-                >
-                  {/* Checkmark when on, empty slot when off — same pattern as
-                      the expand-mode rows above (no stray icon). */}
-                  {hideInactiveProjects
-                    ? <Check className="h-5 w-5 shrink-0 text-[var(--color-accent)]" />
-                    : <span className="h-5 w-5 shrink-0" />}
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className={hideInactiveProjects ? "text-[var(--color-accent)] font-medium" : undefined}>{t("collapseInactive")}</span>
-                    <span className="text-[11px] leading-snug text-[var(--color-fg-dim)]">{t("collapseInactiveHint")}</span>
-                  </div>
-                </DropdownItem>
-                {/* Same check-row shape. Mirrored in Settings > Appearance >
-                    Sidebar, which writes the same pref. */}
-                <DropdownItem
-                  data-testid="sidebar-toggle-status-section"
-                  onSelect={() => setShowStatusSection(!showStatusSection)}
-                  className={showStatusSection
-                    ? "bg-[var(--color-sel)] data-[highlighted]:bg-[var(--color-sel)]"
-                    : undefined}
-                >
-                  {showStatusSection
-                    ? <Check className="h-5 w-5 shrink-0 text-[var(--color-accent)]" />
-                    : <span className="h-5 w-5 shrink-0" />}
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className={showStatusSection ? "text-[var(--color-accent)] font-medium" : undefined}>{t("showStatusSection")}</span>
-                    <span className="text-[11px] leading-snug text-[var(--color-fg-dim)]">{t("showStatusSectionHint")}</span>
-                  </div>
-                </DropdownItem>
+                <DropdownLabel>{t("defaultExpand")}</DropdownLabel>
+                {([
+                  ["chevron", "expandChevron", "expandChevronHint"],
+                  ["click",   "expandClick",   "expandClickHint"],
+                  ["always",  "expandAlways",  "expandAlwaysHint"],
+                ] as const).map(([id, labelKey, hintKey]) => (
+                  <Tip key={id} content={t(hintKey)} side="left">
+                    <DropdownItem
+                      data-expand-mode={id}
+                      onSelect={(e) => { e.preventDefault(); setTaskExpandMode(id); }}
+                      className="items-center"
+                    >
+                      {/* A check, not a fill: the current choice should not
+                          be the loudest thing in the menu. */}
+                      <Check className={cn("h-4 w-4 shrink-0 text-[var(--color-accent)]", taskExpandMode === id ? "opacity-100" : "opacity-0")} />
+                      <span>{t(labelKey)}</span>
+                    </DropdownItem>
+                  </Tip>
+                ))}
               </DropdownMenu>
             </DropdownRoot>
             )}
@@ -1536,10 +1523,19 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             const projAttention = compact && collapsed && taskList.some(w => needsAttention(w.id));
             const projDone = compact && collapsed && !projAttention && taskList.some(w => isWorkDone(w.id));
             const isMulti = (p.type ?? "single") === "multi";
+            // The "New task" button under the tasks. While it is on screen
+            // the header's `+` is hidden: two buttons opening the same menu
+            // one row apart. Ignores the armed inline row on purpose, so the
+            // header `+` does not pop in while a name is being typed.
+            const bottomNewTask = !collapsed && !compact
+              && newTaskButtonShown(newTaskButtonMode, taskList.length, projects.length);
             return (
               <div
                 key={p.id}
-                className="rounded-md"
+                data-project-wrap=""
+                // A gap between consecutive projects; each header's band
+                // marks the start, so no rule is needed as well.
+                className={cn("rounded-md", !compact && "[[data-project-wrap]+&]:mt-2")}
               >
                 <ContextMenuRoot>
                 <ContextMenuTrigger className="contents">
@@ -1613,10 +1609,12 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                       document.addEventListener("pointercancel", onUp);
                     }}
                     className={cn(
-                      "group flex items-center justify-between rounded-md text-[12px] font-semibold uppercase tracking-[0.06em] cursor-pointer transition-colors",
+                      "group flex items-center justify-between rounded-md text-[12px] font-semibold uppercase tracking-[0.06em] cursor-pointer",
                       // Full mode highlights the whole row on hover; compact
                       // mode hovers the centered monogram tile instead.
-                      !compact && "hover:bg-[var(--color-hover)]",
+                      // A light band (half the PROJECTS bar's fill) marks
+                      // where each project starts.
+                      !compact && "bg-[var(--color-bg-2)]/50 hover:bg-[var(--color-bg-2)]",
                       taskList.length === 0 ? "text-[var(--color-fg-faint)]" : "text-[var(--color-fg)]",
                       menuOpenProjectId === p.id && "bg-[var(--color-hover)]",
                       compact ? "px-0 py-0.5 justify-center" : "pl-2 pr-0 py-1.5",
@@ -1708,10 +1706,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                             <button
                               data-testid={`project-menu-${p.id}`}
                               className={cn(
-                                "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)] transition-opacity",
-                                // Stays while the `+` dropdown is open, or it
-                                // vanishes the moment the user opens it.
-                                menuOpenProjectId === p.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                                "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)]",
                               )}
                               // The row's right-click menu IS the project
                               // menu; open that one at the button rather
@@ -1723,7 +1718,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                                   bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom,
                                 }));
                               }}
-                            ><MoreHorizontal className="h-4 w-4" /></button>
+                            ><MoreVertical className="h-4 w-4" /></button>
                           </Tip>
                           {/* Single `+` trigger → instant dropdown with the
                               two project-level actions. Replaces the two
@@ -1731,6 +1726,8 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                               used to show side by side — less visual noise
                               on the row, clearer affordance (the universal
                               "+" = "create / open something here"). */}
+                          {/* Hidden while the button under the tasks shows (bottomNewTask). */}
+                          {!bottomNewTask && (
                           <DropdownRoot
                             onOpenChange={(o) => setMenuOpenProjectId(o ? p.id : null)}
                           >
@@ -1794,6 +1791,7 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                               />
                             </DropdownMenu>
                           </DropdownRoot>
+                          )}
                         </div>
                       </>
                     )}
@@ -1943,54 +1941,6 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                     onClose={closeFilterBar}
                     onActivate={() => { if (collapsed) setTreeFold("project", p.id, false, compact); }}
                   />
-                )}
-
-                {/* Empty expanded project — single placeholder CTA that
-                    opens the SAME dropdown as the row's `+` icon (one
-                    "Open repo with <agent>" per registered agent plus a
-                    New worktree action). One affordance instead of two
-                    cramped side-by-side buttons that had to ellipsis at
-                    narrow widths. */}
-                {!collapsed && taskList.length === 0 && !compact && pendingRepoRoot?.projectId !== p.id && pendingForProject.length === 0 && (
-                  <div
-                    className="ml-3 mr-1 mb-px"
-                    onClick={e => e.stopPropagation()}
-                  >
-                    <DropdownRoot>
-                      <DropdownTrigger asChild>
-                        <button
-                          data-testid={`project-empty-new-task-${p.id}`}
-                          data-guide="new-task-empty"
-                          // Same token as the task row it stands in for, so
-                          // the two cannot drift apart (see --task-row-h).
-                          className="flex h-[var(--task-row-h)] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-transparent px-2 text-[13px] text-[var(--color-fg-dim)] hover:border-[var(--color-accent-soft)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:border-[var(--color-accent-soft)] data-[state=open]:text-[var(--color-fg)]"
-                        >
-                          <Plus className="h-3.5 w-3.5 shrink-0" />
-                          <span>{t("ctxNewTask")}</span>
-                        </button>
-                      </DropdownTrigger>
-                      <DropdownMenu side="right" align="start" sideOffset={4} className="w-[276px]">
-                        <ProjectActionsMenuItems
-                                projectId={p.id}
-                                onPick={(cli, mode) => {
-                                  // The inline name prompt only renders under an
-                                  // expanded project, so expand first or the row
-                                  // would be invisible on a collapsed one.
-                                  setTreeFold("project", p.id, false, compact);
-                                  const value = defaultTaskName(cli, taskList);
-                                  setPendingRepoRoot({
-                                    projectId: p.id,
-                                    cli,
-                                    mode,
-                                    value,
-                                    branch: mode === "worktree" ? derivedBranch(value, branchPrefix) : "",
-                                    branchEdited: false,
-                                  });
-                                }}
-                              />
-                      </DropdownMenu>
-                    </DropdownRoot>
-                  </div>
                 )}
 
                 {/* Store order IS display order. Rust sorts the task list by
@@ -2162,6 +2112,62 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                     }}
                   />
                 )}
+                {/* "New task" under the project's tasks: the SAME dropdown
+                    as the row's `+` icon, at the bottom where the new task
+                    lands (the inline name row renders just above). Always on
+                    an empty project; with tasks, per the newTaskButton pref
+                    (auto: while there are two or fewer projects, where one
+                    long list puts the header's `+` far from its result). */}
+                {bottomNewTask && pendingRepoRoot?.projectId !== p.id && pendingForProject.length === 0 && (
+                  <div
+                    className="ml-3 mr-1 mb-px"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <DropdownRoot>
+                      <DropdownTrigger asChild>
+                        <button
+                          data-testid={`project-empty-new-task-${p.id}`}
+                          data-guide="new-task-empty"
+                          data-variant={taskList.length === 0 ? "empty" : "quiet"}
+                          // Empty project: a dashed box at the task row's height
+                          // (--task-row-h), standing in for the missing row.
+                          // Under tasks: a lone centered `+` on a thin
+                          // borderless row, so it does not read as one more
+                          // task; the row highlights on hover and while open.
+                          aria-label={taskList.length === 0 ? undefined : t("ctxNewTask")}
+                          title={taskList.length === 0 ? undefined : t("ctxNewTask")}
+                          className={taskList.length === 0
+                            ? "flex h-[var(--task-row-h)] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-transparent px-2 text-[13px] text-[var(--color-fg-dim)] hover:border-[var(--color-accent-soft)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:border-[var(--color-accent-soft)] data-[state=open]:bg-[var(--color-hover)] data-[state=open]:text-[var(--color-fg)]"
+                            : "flex h-5 w-full items-center justify-center rounded-md bg-transparent px-2 text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-hover)] data-[state=open]:text-[var(--color-fg)]"}
+                        >
+                          <Plus className="h-3.5 w-3.5 shrink-0" />
+                          {taskList.length === 0 && <span>{t("ctxNewTask")}</span>}
+                        </button>
+                      </DropdownTrigger>
+                      <DropdownMenu side="right" align="start" sideOffset={4} className="w-[276px]">
+                        <ProjectActionsMenuItems
+                                projectId={p.id}
+                                onPick={(cli, mode) => {
+                                  // The inline name prompt only renders under an
+                                  // expanded project, so expand first or the row
+                                  // would be invisible on a collapsed one.
+                                  setTreeFold("project", p.id, false, compact);
+                                  const value = defaultTaskName(cli, taskList);
+                                  setPendingRepoRoot({
+                                    projectId: p.id,
+                                    cli,
+                                    mode,
+                                    value,
+                                    branch: mode === "worktree" ? derivedBranch(value, branchPrefix) : "",
+                                    branchEdited: false,
+                                  });
+                                }}
+                              />
+                      </DropdownMenu>
+                    </DropdownRoot>
+                  </div>
+                )}
+
               </div>
             );
           };
@@ -2600,6 +2606,40 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
 function projectMonogram(name: string): string {
   const cleaned = name.trim();
   return cleaned ? cleaned.slice(0, 2).toUpperCase() : "?";
+}
+
+/** An on/off row in a dropdown: label left, a small switch right, its
+ *  explanation in a tooltip. Selecting it flips the value and keeps the menu
+ *  open. The switch is drawn, not a <button>: the row is the control. */
+function MenuSwitchRow({ label, tip, on, onToggle, testId }: {
+  label: string; tip: string; on: boolean; onToggle: () => void; testId?: string;
+}) {
+  return (
+    <Tip content={tip} side="left">
+      <DropdownItem
+        data-testid={testId}
+        data-on={on ? "true" : "false"}
+        onSelect={(e) => { e.preventDefault(); onToggle(); }}
+        className="items-center justify-between gap-4"
+      >
+        <span>{label}</span>
+        <span
+          aria-hidden
+          className="relative h-4 w-7 shrink-0 rounded-full"
+          style={{ background: on ? "var(--color-accent)" : "var(--color-bg-3)", transition: "background-color 150ms" }}
+        >
+          <span
+            className="absolute top-0.5 h-3 w-3 rounded-full shadow-sm"
+            style={{
+              left: on ? 14 : 2,
+              background: on ? "var(--color-accent-fg)" : "#fff",
+              transition: "left 150ms, background-color 150ms",
+            }}
+          />
+        </span>
+      </DropdownItem>
+    </Tip>
+  );
 }
 
 function iconSize(compact: boolean) {

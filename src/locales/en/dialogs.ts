@@ -129,7 +129,7 @@ export default {
       linkPrompts: "Prompt library",
       linkShortcuts: "Keyboard shortcuts settings",
       linkSandbox: "Sandbox settings",
-      linkCli: "CLI & MCP settings",
+      linkCli: "Agent access settings",
     },
   },
   createPr: {
@@ -544,6 +544,16 @@ export default {
     allowedHostsHint: "One per line. Use * as a wildcard. Per-CLI vendor + github + npm/pypi/crates are always allowed; these are extras.",
     enforceFsNote: "Network is unrestricted in this mode (filesystem cage only). The agent reaches any host directly, with no proxy or host allow-list.",
   },
+  peerPairing: {
+    title: "Paired with {{name}}",
+    together: "{{name}} and this computer can now start, prompt and read agents on each other, which is running code as you. To let {{name}} only reply to tasks here, change it in Settings, Agent access.",
+    replaced: "This replaced the earlier pairing with {{name}}.",
+    question: "What is {{name}} for?",
+    questionHint: "Your agents read this, so they know what to send there. Pick a role, or write your own.",
+    done: "Done",
+    skip: "Skip",
+  },
+
   projectPicker: {
     srTitleTask: "New task",
     srTitleIssue: "New task from an issue",

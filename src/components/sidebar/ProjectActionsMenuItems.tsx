@@ -1,7 +1,8 @@
 // Shared dropdown body for project-level "new task" actions. A [Worktree |
 // Main checkout] toggle at the top picks the mode (remembered app-wide);
-// below it, one list of agents + Terminal + Custom command creates a task in
-// that mode, and "Advanced…" opens the full New Task modal. Used in the
+// below it, the agents, Terminal, Custom command and Review a pull request
+// used in the last 5 days (lib/launcherUsage.ts), then "More" holding the
+// rest, Start a race and Resume; "Advanced…" opens the full New Task modal. Used in the
 // sidebar's project-row `+` icon, the sidebar's empty-project placeholder
 // CTA, and the dashboard project card header.
 //
@@ -16,12 +17,13 @@ import { usePrefs } from "@/store/prefs";
 import { SandboxIcon, DockerSandboxIcon, sandboxPickerLabelT } from "@/components/SandboxIcon";
 import { selectionToFields } from "@/lib/types";
 import { useUI } from "@/store/ui";
-import { defaultCliFirst, visibleCliIds } from "@/lib/agents";
+import { defaultCliFirst, isTerminalEntry, visibleCliIds } from "@/lib/agents";
 import { importQuickWorktree, readNewTaskMode, writeNewTaskMode, type NewTaskMode } from "@/lib/quickTask";
+import { launcherLastUsed, launcherVisibilityOf, pinnedFirst, recordLauncherUse, splitLauncher } from "@/lib/launcherUsage";
 import { taskImportableWorktrees, taskRestore, projectBranchContext, projectUpdate } from "@/lib/ipc";
 import { CliIcon, CLI_BRAND_COLOR, resolveIconId } from "@/icons/cli";
 import { DropdownItem, DropdownSeparator, DropdownSub, DropdownSubTrigger, DropdownSubContent } from "@/components/ui/Dropdown";
-import { GitBranch, GitBranchPlus, Link2, TerminalSquare, SquareChevronRight, Settings2, FolderGit2, Flag, Check, ChevronRight, History, Zap, GitPullRequest } from "lucide-react";
+import { GitBranch, GitBranchPlus, Link2, TerminalSquare, SquareChevronRight, Settings2, FolderGit2, Flag, Check, ChevronRight, History, Zap, GitPullRequest, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Agent, BranchContext, ImportableWorktree, Project } from "@/lib/types";
 
@@ -70,6 +72,7 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
   const { t: tChrome } = useTranslation("chrome");
   const agents = useApp(s => s.agents);
   const detectedClis = useApp(s => s.detectedClis);
+  const openSettings = useApp(s => s.openSettings);
   const openNewTask = useUI(s => s.openNewTask);
   const openRace = useUI(s => s.openRace);
   const openReviewPr = useUI(s => s.openReviewPr);
@@ -122,9 +125,44 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
   // registry is reordered in Settings. Terminal takes part: a repo whose
   // default is a plain shell gets the same treatment.
   const SHELL_ROW: LauncherRow = { id: "shell", display_name: t("projectActions.terminal") };
+  // Where each entry shows is the user's per-entry choice (Settings >
+  // Agents, `launcherVisibility`), defaulting to Always shown for Claude,
+  // Codex and Antigravity. An agent set to Always shown or Pinned is listed
+  // even when not installed: it draws dimmed and opens Settings rather than
+  // launching a command that is not there. Others show once detected.
+  const visibility = usePrefs(s => s.launcherVisibility);
+  const notInstalled = (id: string) => detectedClis[id]?.found === false;
+  const forced = (id: string) => {
+    const v = launcherVisibilityOf(id, visibility);
+    return v === "shown" || v === "pinned";
+  };
   const launcherRows = defaultCliFirst(
-    [...agents.filter(a => visibleClis.has(a.id)), SHELL_ROW],
+    [...agents.filter(a => visibleClis.has(a.id)
+      || (forced(a.id) && !a.disabled && !isTerminalEntry(a))), SHELL_ROW],
     project?.default_cli,
+  );
+
+  // Review and Race need a single-repo git project (a PR to fetch, worktrees
+  // to race in); multi-repo is a later slice.
+  const CUSTOM = "custom", REVIEW = "review", RACE = "race";
+  const withErrands = !isNonGit && !isMulti;
+  const allIds = pinnedFirst([
+    ...launcherRows.map(r => r.id),
+    CUSTOM,
+    ...(withErrands ? [REVIEW, RACE] : []),
+  ], visibility);
+  const { top, more } = useMemo(
+    () => splitLauncher(allIds, launcherLastUsed(tasks), {
+      // The project default stays on top however old, unless sent to More.
+      pinned: new Set([
+        ...allIds.filter(forced),
+        ...(project?.default_cli && launcherVisibilityOf(project.default_cli, visibility) !== "more" ? [project.default_cli] : []),
+      ]),
+      folded: new Set(allIds.filter(id => launcherVisibilityOf(id, visibility) === "more")),
+    }),
+    // The menu is unmounted while closed: this runs once per open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allIds.join(","), tasks, project?.default_cli, visibility],
   );
 
   // Worktrees the user made outside termic (`git worktree add`) that aren't
@@ -207,9 +245,129 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
   // Pick an agent / shell in the current mode: inline when the host supports
   // it, else the modal. Multi-repo worktrees always go to the modal.
   const pick = (cli: string) => {
+    recordLauncherUse(cli);
     if (mode === "worktree" && isMulti) { openAdvanced(); return; }
     if (onPick) { onPick(cli, mode); return; }
     openAdvanced();
+  };
+
+  // Resume sits inside More: an occasional errand, one level further down.
+  const resumeSub = archivedTasks.length > 0 && (
+          <DropdownSub>
+            <DropdownSubTrigger data-testid="resume-sub" className="w-full justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <History className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+                <span className="truncate">{t("projectActions.resume")}</span>
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-faint)]" />
+            </DropdownSubTrigger>
+            <DropdownSubContent className="max-w-[320px]">
+              {archivedTasks.map(task => {
+                const iconId = resolveIconId(task.cli, agents);
+                return (
+                  <DropdownItem key={task.id} onSelect={async () => {
+                    try {
+                      const restored = await taskRestore(task.id);
+                      await loadAll();
+                      setActiveTask(restored.id);
+                    } catch (err) {
+                      // task_restore refuses a live same-name duplicate;
+                      // silently doing nothing here reads as a dead button.
+                      useUI.getState().pushToast(
+                        typeof err === "string" ? err : t("restoreFailed"), "error");
+                    }
+                  }} className="items-center">
+                    <span className={cn("shrink-0", CLI_BRAND_COLOR[iconId] || "text-[var(--color-fg-dim)]")}>
+                      <CliIcon cli={iconId} className="h-4 w-4" />
+                    </span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-fg-faint)]">
+                      {relativeArchivedTime(task.archived_at ?? task.created, t("projectActions.archivedNow"))}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{task.name}</span>
+                  </DropdownItem>
+                );
+              })}
+              {hasMoreArchived && (
+                <DropdownItem onSelect={() => setView("history", { projectId })}>
+                  {t("projectActions.more")}
+                </DropdownItem>
+              )}
+            </DropdownSubContent>
+          </DropdownSub>
+      );
+
+  const renderRow = (id: string) => {
+    const agentRow = launcherRows.find(a => a.id === id);
+    if (agentRow) {
+      const a = agentRow;
+      const missing = a.id !== "shell" && notInstalled(a.id);
+      // data-launcher-cli: the rows all render the same shape, so e2e needs
+      // a handle that survives a display-name change (and says which id a
+      // row actually launches).
+      return (
+        <DropdownItem
+          key={a.id}
+          data-launcher-cli={a.id}
+          data-missing={missing || undefined}
+          className={missing ? "opacity-60" : undefined}
+          onSelect={() => { if (missing) openSettings("agents"); else pick(a.id); }}
+        >
+          {a.id === "shell" ? (
+            <TerminalSquare className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+          ) : (
+            <span className={cn("shrink-0", CLI_BRAND_COLOR[resolveIconId(a.id, agents)] || "text-[var(--color-fg-dim)]")}>
+              <CliIcon cli={resolveIconId(a.id, agents)} className="h-4 w-4" />
+            </span>
+          )}
+          <span className="truncate">{a.display_name}</span>
+          {/* Says WHY this row is first, so the order doesn't read as random
+              once someone reorders their agents in Settings. */}
+          {missing ? (
+            <span className="ml-auto shrink-0 pl-2 text-[11px] text-[var(--color-fg-faint)]">
+              {t("projectActions.notInstalledTag")}
+            </span>
+          ) : a.id === project?.default_cli && (
+            <span className="ml-auto shrink-0 pl-2 text-[11px] text-[var(--color-fg-faint)]">
+              {t("projectActions.defaultTag")}
+            </span>
+          )}
+        </DropdownItem>
+      );
+    }
+    if (id === CUSTOM) {
+      // Custom command needs a name + a command, so it always opens the
+      // dialog (which respects worktree vs main-checkout mode).
+      return (
+        <DropdownItem key={id} data-launcher-cli={id} onSelect={() => {
+          recordLauncherUse(CUSTOM);
+          if (mode === "worktree" && isMulti) { openAdvanced(); return; }
+          openCustomCommand(projectId, mode);
+        }}>
+          <SquareChevronRight className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+          <span className="truncate">{t("projectActions.customCommand")}</span>
+        </DropdownItem>
+      );
+    }
+    if (id === REVIEW) {
+      return (
+        <DropdownItem key={id} data-launcher-cli={id} data-testid="project-review-pr" onSelect={() => {
+          recordLauncherUse(REVIEW);
+          requestAnimationFrame(() => openReviewPr(projectId));
+        }}>
+          <GitPullRequest className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+          <span className="truncate">{t("projectActions.reviewPr")}</span>
+        </DropdownItem>
+      );
+    }
+    // Agent Race: one prompt, several agents, each in its own worktree.
+    // Defers a frame like openAdvanced so the dropdown's focus teardown
+    // doesn't steal the dialog's autofocus.
+    return (
+      <DropdownItem key={id} data-launcher-cli={id} onSelect={() => requestAnimationFrame(() => openRace(projectId))}>
+        <Flag className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+        <span className="truncate">{t("projectActions.startRace")}</span>
+      </DropdownItem>
+    );
   };
 
   return (
@@ -360,73 +518,32 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
         </div>
       )}
 
-      {/* Terminal (the plain login shell) is one of these rows, not a
-          special case appended at the end: it goes through the same inline
-          name prompt as an agent in both modes, so a Main-checkout shell
-          gets a real name instead of whatever Rust auto-assigns. */}
-      {launcherRows.map(a => (
-        // data-launcher-cli: the rows all render the same shape, so e2e needs
-        // a handle that survives a display-name change (and says which id a
-        // row actually launches).
-        <DropdownItem key={a.id} data-launcher-cli={a.id} onSelect={() => pick(a.id)}>
-          {a.id === "shell" ? (
-            <TerminalSquare className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
-          ) : (
-            <span className={cn("shrink-0", CLI_BRAND_COLOR[resolveIconId(a.id, agents)] || "text-[var(--color-fg-dim)]")}>
-              <CliIcon cli={resolveIconId(a.id, agents)} className="h-4 w-4" />
+      {/* Top level: what was used in the last 5 days (and the project
+          default); everything else, Race always, folds under "More" with
+          Resume beside it. The launcher kept growing with every agent and
+          errand until the agents someone actually uses were hard to find. */}
+      {top.map(renderRow)}
+      {(more.length > 0 || archivedTasks.length > 0) && (
+        <DropdownSub>
+          <DropdownSubTrigger data-testid="launcher-more" className="w-full justify-between gap-2">
+            {/* One line. Layers, not the ⋯ dots, which read as a stray
+                glyph at this size and were rejected; it sits in the same
+                icon slot as the rows above. */}
+            <span className="flex min-w-0 items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
+              <span className="truncate">{t("projectActions.moreMenu")}</span>
             </span>
-          )}
-          <span className="truncate">{a.display_name}</span>
-          {/* Says WHY this row is first, so the order doesn't read as random
-              once someone reorders their agents in Settings. */}
-          {a.id === project?.default_cli && (
-            <span className="ml-auto shrink-0 pl-2 text-[11px] text-[var(--color-fg-faint)]">
-              {t("projectActions.defaultTag")}
+            <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-[var(--color-fg-faint)]">
+              {t("projectActions.moreMenuHint")}
+              <ChevronRight className="h-3.5 w-3.5" />
             </span>
-          )}
-        </DropdownItem>
-      ))}
-
-      {/* Custom command needs a name + a command, so it always opens the
-          dialog (which now respects worktree vs main-checkout mode). */}
-      <DropdownItem onSelect={() => {
-        if (mode === "worktree" && isMulti) { openAdvanced(); return; }
-        openCustomCommand(projectId, mode);
-      }}>
-        <SquareChevronRight className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate">{t("projectActions.customCommand")}</span>
-          <span className="truncate text-[11.5px] text-[var(--color-fg-faint)]">
-            {t("projectActions.customCommandHint")}
-          </span>
-        </div>
-      </DropdownItem>
-
-      {/* Agent Race: one prompt, several agents, each in its own worktree.
-          Single-repo git projects only (needs worktree isolation); multi-repo
-          is a later slice. Defers a frame like openAdvanced so the dropdown's
-          focus teardown doesn't steal the dialog's autofocus. */}
-      {!isNonGit && !isMulti && (
-        <DropdownItem data-testid="project-review-pr" onSelect={() => requestAnimationFrame(() => openReviewPr(projectId))}>
-          <GitPullRequest className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate">{t("projectActions.reviewPr")}</span>
-            <span className="truncate text-[11.5px] text-[var(--color-fg-faint)]">
-              {t("projectActions.reviewPrHint")}
-            </span>
-          </div>
-        </DropdownItem>
-      )}
-      {!isNonGit && !isMulti && (
-        <DropdownItem onSelect={() => requestAnimationFrame(() => openRace(projectId))}>
-          <Flag className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate">{t("projectActions.startRace")}</span>
-            <span className="truncate text-[11.5px] text-[var(--color-fg-faint)]">
-              {t("projectActions.startRaceHint")}
-            </span>
-          </div>
-        </DropdownItem>
+          </DropdownSubTrigger>
+          <DropdownSubContent className="max-w-[320px]">
+            {more.map(renderRow)}
+            {more.length > 0 && archivedTasks.length > 0 && <DropdownSeparator />}
+            {resumeSub}
+          </DropdownSubContent>
+        </DropdownSub>
       )}
 
       <DropdownSeparator />
@@ -462,11 +579,7 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
           </div>
         </DropdownItem>
       )}
-      {/* Import and Resume are one group: two errands that reach for something
-          that ALREADY exists, each behind one row. Both self-hide when they
-          have nothing to offer, so the separator belongs to whichever of them
-          renders rather than to either one of them. */}
-      {(importable.length > 0 || archivedTasks.length > 0) && <DropdownSeparator />}
+      {importable.length > 0 && <DropdownSeparator />}
 
       {/* Existing worktrees, one click to adopt. Named by branch (Rust derives
           the task name + CLI), so there's nothing to fill in. Past the first
@@ -475,7 +588,7 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
           A SUBMENU, like Resume beside it: as a flat section this spent a
           label plus a row per worktree at the top level, pushing the agents
           (the thing the menu is for) down the list on exactly the projects
-          that have the most worktrees. */}
+          that have the most worktrees. Self-hides with nothing to offer. */}
       {importable.length > 0 && (
         <DropdownSub>
           <DropdownSubTrigger data-testid="import-worktree-sub" className="w-full justify-between gap-2">
@@ -514,55 +627,6 @@ export function ProjectActionsMenuItems({ projectId, onPick }: {
         </DropdownSub>
       )}
 
-      {/* Recently archived tasks for this project — a shortcut to
-          HistoryView's restore (same task_restore IPC + setActiveTask)
-          without leaving the sidebar. One row that opens the list, the same
-          shape as "Branch from": resuming is an occasional errand, and it was
-          costing the launcher several rows every time the project had history.
-          "More…" hands off to the full page for anything past the limit. */}
-      {archivedTasks.length > 0 && (
-          <DropdownSub>
-            <DropdownSubTrigger data-testid="resume-sub" className="w-full justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-2">
-                <History className="h-4 w-4 shrink-0 text-[var(--color-fg-dim)]" />
-                <span className="truncate">{t("projectActions.resume")}</span>
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-faint)]" />
-            </DropdownSubTrigger>
-            <DropdownSubContent className="max-w-[320px]">
-              {archivedTasks.map(task => {
-                const iconId = resolveIconId(task.cli, agents);
-                return (
-                  <DropdownItem key={task.id} onSelect={async () => {
-                    try {
-                      const restored = await taskRestore(task.id);
-                      await loadAll();
-                      setActiveTask(restored.id);
-                    } catch (err) {
-                      // task_restore refuses a live same-name duplicate;
-                      // silently doing nothing here reads as a dead button.
-                      useUI.getState().pushToast(
-                        typeof err === "string" ? err : t("restoreFailed"), "error");
-                    }
-                  }} className="items-center">
-                    <span className={cn("shrink-0", CLI_BRAND_COLOR[iconId] || "text-[var(--color-fg-dim)]")}>
-                      <CliIcon cli={iconId} className="h-4 w-4" />
-                    </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-fg-faint)]">
-                      {relativeArchivedTime(task.archived_at ?? task.created, t("projectActions.archivedNow"))}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{task.name}</span>
-                  </DropdownItem>
-                );
-              })}
-              {hasMoreArchived && (
-                <DropdownItem onSelect={() => setView("history", { projectId })}>
-                  {t("projectActions.more")}
-                </DropdownItem>
-              )}
-            </DropdownSubContent>
-          </DropdownSub>
-      )}
     </>
   );
 }

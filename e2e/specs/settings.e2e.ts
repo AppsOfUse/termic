@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import os from "node:os";
 import path from "node:path";
 import { dataDir } from "../../wdio.conf.js";
-import { archiveTask, clearLanguagePref, clickWhenVisible, dismissOverlays, openTask, pointerDrag, requireTermicApi, snap, textOf, waitForAppShell, waitForText, waitForTextGone, waitGone, waitVisible, rmTree } from "../helpers";
+import { archiveTask, clearLanguagePref, clickPresent, clickWhenVisible, dismissOverlays, openTask, pointerDrag, requireTermicApi, snap, textOf, waitForAppShell, waitForText, waitForTextGone, waitGone, waitVisible, rmTree } from "../helpers";
 
 /** Click the [role="switch"] in the settings row whose label matches exactly.
  *  Toggle rows are label + switch inside one .justify-between wrapper
@@ -216,7 +216,9 @@ describe("settings rail", () => {
     // page renders only once Docker sandboxing is enabled, and the fixture
     // profile leaves it off.
     ["docker", "Docker Sandbox", "Enable Docker sandbox"],
-    ["cli", "CLI & MCP", "Enable CLI"],
+    // Agent access: the CLI, MCP and other computers (LAN pairing,
+    // docs/peers.md) on one page. Its marker is the CLI's master toggle.
+    ["cli", "Agent access", "Enable MCP endpoint"],
   ];
 
   // The Linux AppImage's launcher entry. The e2e binary is normally NOT an
@@ -607,41 +609,53 @@ describe("settings rail", () => {
     }
   });
 
-  // The CLI graduated in 0.26.0. Inverted rather than deleted: docs/ui.md ties
-  // the badge to being off by default, so a badge reappearing next to a
-  // setting we now ship enabled is a real contradiction to catch. The MCP
-  // section sharing this page IS off by default and badged, so the check is
-  // per-title (and the rail item), never page-wide text. The badge is
-  // CSS-uppercased, so assertions read the node's textContent, not innerText.
-  it("badges the MCP section, never the graduated CLI", async () => {
-    await clickRail("CLI & MCP");
+  // The CLI graduated in 0.26.0 and MCP with LAN pairing. Inverted rather
+  // than deleted: a badge reappearing on either is a decision to catch, not
+  // drift. The check is per-title (and the rail item), never page-wide text.
+  // The badge is CSS-uppercased, so assertions read textContent, not innerText.
+  it("badges neither the graduated CLI nor MCP", async () => {
+    const badgeOf = (title: string) => browser.execute((tt) =>
+      [...document.querySelectorAll("h1")].find((h) => h.textContent === tt)
+        ?.parentElement?.querySelector("span")?.textContent ?? null, title);
+    await clickRail("Agent access");
+    await waitForText("Enable MCP endpoint");
+    expect(await badgeOf("MCP endpoint")).toBe(null);
+    await clickPresent('[data-testid="access-tab-cli"]');
     await waitForText("Enable CLI");
-    await waitForText("MCP endpoint");
-    const titles: { title: string; badge: string | null }[] = await browser.execute(() =>
-      [...document.querySelectorAll("h1")].map((h) => ({
-        title: h.textContent ?? "",
-        badge: h.parentElement?.querySelector("span")?.textContent ?? null,
-      })),
-    );
-    expect(titles.find((t) => t.title === "MCP endpoint")?.badge).toBe("Experimental");
-    expect(titles.find((t) => t.title === "Termic CLI")?.badge ?? null).toBe(null);
+    expect(await badgeOf("Termic CLI")).toBe(null);
     const railText = await browser.execute(
       () => (document.querySelector('[data-rail-item="cli"]') as HTMLElement)?.textContent ?? "",
     );
     expect(railText.toLowerCase()).not.toContain("exp");
+    // The rail keeps the old names in sight, faded, after the rename.
+    expect(railText).toContain("MCP & CLI");
   });
 
   it("shows the live URL and registration commands that carry no secret", async () => {
     // The seeded profile enables the endpoint, so the section must show
     // the real bound URL (mcp_status reads the live handle) plus a
     // registration command per client.
-    await clickRail("CLI & MCP");
-    await waitForText("Connect a client");
-    await browser.waitUntil(
-      async () => (await paneText()).includes("http://127.0.0.1:"),
-      { timeout: 8_000, timeoutMsg: "the bound MCP URL never rendered" },
-    );
-    const pane = await paneText();
+    await clickRail("Agent access");
+    await waitForText("Connect an agent");
+    // One client at a time, Claude Code first, its command folded away.
+    expect(await paneText()).toContain("Add to Claude Code");
+    expect(await paneText()).not.toContain("Add to Codex");
+    expect(await paneText()).not.toContain("claude mcp add-json");
+    // Read every client tab with its block open; the assertions below are
+    // about what the section offers in all, wherever it sits.
+    let pane = "";
+    for (const c of ["claude", "codex", "other"]) {
+      await clickPresent(`[data-testid="mcp-client-${c}"]`);
+      if (c !== "other") await clickPresent('[data-testid="mcp-show-block"]');
+      if (c === "other") {
+        await browser.waitUntil(
+          async () => (await paneText()).includes("http://127.0.0.1:"),
+          { timeout: 8_000, timeoutMsg: "the bound MCP URL never rendered" },
+        );
+      }
+      if (c === "codex") await snap("mcp-client-codex.png");
+      pane += await paneText();
+    }
     // One rule for both clients: a helper command that reads the token
     // file at connect time. A token is minted on every bind, so anything
     // that pasted the VALUE would stop working after a restart.
@@ -672,11 +686,42 @@ describe("settings rail", () => {
     expect(pane).not.toContain(token);
   });
 
+  // Agent access is two tabs: MCP first, with pairing at its top, and the
+  // CLI. The three sections stacked read as one wall of prose, and pairing
+  // sat at the bottom of it where nobody found it.
+  it("opens on MCP with pairing first, and keeps the CLI on its own tab", async () => {
+    await clickRail("Agent access");
+    await waitForText("Enable MCP endpoint");
+    const order = () => browser.execute(() => {
+      const p = (document.querySelector('[data-testid="settings-pane"]') as HTMLElement).innerText;
+      return ["Share on this network", "Enable MCP endpoint", "Enable CLI"]
+        .map((x) => [x, p.indexOf(x)] as const).filter(([, i]) => i >= 0)
+        .sort((x, y) => x[1] - y[1]).map(([x]) => x);
+    });
+    const selected = () => browser.execute(() =>
+      [...document.querySelectorAll('[data-testid^="access-tab-"]')]
+        .filter((b) => b.getAttribute("aria-selected") === "true")
+        .map((b) => b.getAttribute("data-testid")));
+    expect(await order()).toEqual(["Share on this network", "Enable MCP endpoint"]);
+    expect(await selected()).toEqual(["access-tab-mcp"]);
+    expect(await textOf('[data-testid="access-tab-mcp"]')).toContain("orchestrate new tasks");
+    await snap("agent-access-mcp.png");
+    await clickPresent('[data-testid="access-tab-cli"]');
+    await waitForText("Enable CLI");
+    expect(await order()).toEqual(["Enable CLI"]);
+    expect(await selected()).toEqual(["access-tab-cli"]);
+    // The rail item stays lit on both tabs.
+    expect(await browser.execute(() =>
+      document.querySelector('[data-rail-item="cli"]')!.className.includes("color-sel"))).toBe(true);
+    await snap("agent-access-cli.png");
+  });
+
   it("documents that agents in tasks can drive the CLI", async () => {
     // Task PTYs carry TERMIC_CLI / TERMIC_TASK_ID (lib.rs), so an unsandboxed
     // agent can spawn sibling tasks. The page has to say so: it is the least
     // guessable thing the CLI does.
-    await clickRail("CLI & MCP");
+    await clickRail("Agent access");
+    await clickPresent('[data-testid="access-tab-cli"]');
     await waitForText("Agents can drive it too");
     const pane = await paneText();
     expect(pane).toContain("$TERMIC_CLI");
@@ -687,7 +732,8 @@ describe("settings rail", () => {
     // index.css turns selection off app-wide, so these copy-me commands have to
     // opt back in. Read off the command text, not the `data-selectable`
     // attribute, so only losing selectability fails.
-    await clickRail("CLI & MCP");
+    await clickRail("Agent access");
+    await clickPresent('[data-testid="access-tab-cli"]');
     await waitForText("Getting started");
     const selectable = await browser.execute(() => {
       const cmd = [
@@ -1149,7 +1195,7 @@ describe("settings navigation", () => {
       "Task settings",
       "Notification settings",
       "Sandbox settings",
-      "CLI & MCP settings",
+      "Agent access settings",
     ]) {
       expect(labels.some((l) => l.includes(needle))).toBe(true);
     }

@@ -529,6 +529,21 @@ appears next to a selection (the diff's labelled pill stays on the diff, see
 [ui.md](ui.md#inline-review-comments-two-surfaces)). Both paths land in the
 same place; neither writes to a PTY on its own.
 
+## ⌘W inside a preview iframe
+
+The keydown handler only hears keys the TOP document gets. The HTML preview
+(and the diff's HTML view) is a `sandbox=""` iframe: opaque origin, no
+scripts, so nothing can listen inside it. Click into one and ⌘W used to fall
+through to macOS's default menu, whose Close Window owns ⌘W, and Termic
+closed instead of the file.
+
+`lib.rs` `app_menu` rebinds it: the menu's ⌘W item is **Close Tab**, which
+emits `menu://close-tab` to the focused window, and `useShortcuts` runs the
+same `closeInnermost()` as the keydown path (focus is on the `<iframe>`
+element, which sits inside `[data-main-content]`, so the active tab closes).
+Close Window stays in File and Window with no shortcut. A ⌘W the page DOES
+handle never reaches the menu: the keydown `preventDefault` consumes it.
+
 ## ⌘W on an empty window closes the profile
 
 `close-tab` closes the innermost thing there is to close, and when a window

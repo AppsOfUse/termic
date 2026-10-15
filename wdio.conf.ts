@@ -77,6 +77,12 @@ export const config: WebdriverIO.Config = {
     // The app is launched as a child of this process and inherits env, so
     // point it at the throwaway profile (seeded by scripts/e2e-seed.mjs).
     process.env.TERMIC_DATA_DIR = dataDir;
+    // LAN sharing (peers.e2e.ts) binds loopback only and skips mDNS in this
+    // run: on the real network it would raise macOS's Local Network prompt
+    // on the developer's machine and Windows's firewall prompt on CI, for a
+    // spec whose second machine is a fake in this process. Debug builds only
+    // (src-tauri/src/peers.rs, Node::start).
+    process.env.TERMIC_PEER_LOOPBACK = "1";
     // Windows: WebView2 keeps its profile (localStorage, so every pref) in a
     // folder named after the app identifier, NOT under TERMIC_DATA_DIR, and
     // runs one browser process per folder. Left alone, a run shares both with

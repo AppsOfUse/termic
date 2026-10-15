@@ -16,8 +16,7 @@ import { GeneralSection } from "./GeneralSection";
 import { TasksSection } from "./TasksSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { SandboxSection } from "./SandboxSection";
-import { CliSection } from "./CliSection";
-import { McpSection } from "./McpSection";
+import { AgentAccessSection } from "./AgentAccessSection";
 import { ProfilesSection } from "@/components/settings/ProfilesSection";
 import { ShortcutsSection } from "./ShortcutsSection";
 import { AgentsSection } from "./AgentsSection";
@@ -126,8 +125,10 @@ export function Settings() {
           active={tab === "sandbox"} onClick={() => openSettings("sandbox")} />
         <RailItem icon={<Container className="h-4 w-4" />} label={t("rail.docker")} badge={t("rail.badgeExp")} tabId="docker"
           active={tab === "docker"} onClick={() => openSettings("docker")} />
-        <RailItem icon={<SquareTerminal className="h-4 w-4" />} label={t("rail.cli")} tabId="cli"
-          active={tab === "cli"} onClick={() => openSettings("cli")} />
+        {/* One rail item for every way an agent reaches Termic: the CLI,
+            MCP, and other computers, each a tab of the same page. */}
+        <RailItem icon={<SquareTerminal className="h-4 w-4" />} label={t("rail.cli")} hint={t("rail.cliHint")} tabId="cli"
+          active={tab === "cli" || tab === "mcp" || tab === "peers"} onClick={() => openSettings("mcp")} />
 
         <div className="mt-5 px-2 pb-1 text-[11.5px] uppercase tracking-wider text-[var(--color-fg-faint)]">
           {t("rail.projects")}
@@ -165,9 +166,10 @@ export function Settings() {
           {tab === "notifications" && <NotificationsSection />}
           {tab === "sandbox"     && <SandboxSection />}
           {tab === "docker"      && <DockerSection />}
-          {/* MCP shares the CLI page: one "control plane" surface, two
-              presentations of the same verbs (docs/ideas/mcp.md). */}
-          {tab === "cli"         && <><CliSection /><div className="mt-10"><McpSection /></div></>}
+          {/* Agent access: the CLI and MCP are two presentations of the
+              same verbs (docs/ideas/mcp.md), and other computers are a
+              third, reached through either (docs/peers.md). */}
+          {(tab === "cli" || tab === "mcp" || tab === "peers") && <AgentAccessSection tab={tab} />}
           {tab === "appearance"  && <AppearanceSection />}
           {tab === "agents"      && <AgentsSection />}
           {tab === "prompts"     && <PromptLibrarySection />}
@@ -248,8 +250,8 @@ function RailDivider() {
   return <div className="mx-2.5 my-2 h-px bg-[var(--color-border-soft)]" />;
 }
 
-function RailItem({ icon, label, badge, tabId, active, onClick }: {
-  icon?: React.ReactNode; label: string; badge?: string; tabId?: string; active: boolean; onClick: () => void;
+function RailItem({ icon, label, hint, badge, tabId, active, onClick }: {
+  icon?: React.ReactNode; label: string; hint?: string; badge?: string; tabId?: string; active: boolean; onClick: () => void;
 }) {
   return (
     <button
@@ -266,6 +268,11 @@ function RailItem({ icon, label, badge, tabId, active, onClick }: {
       <FolderGit2 className="hidden" /> {/* keep lucide tree-shake happy when we later add per-section icons */}
       {icon}
       <span className="truncate">{label}</span>
+      {/* A faded second name, for a label that renamed something people
+          know by another word ("Agent access" is where MCP and the CLI went). */}
+      {hint && (
+        <span className="ml-auto shrink-0 text-[11px] font-normal text-[var(--color-fg-faint)]">{hint}</span>
+      )}
       {badge && (
         <span className="ml-auto shrink-0 rounded bg-[var(--color-bg-3)] px-1 py-px text-[10px] uppercase tracking-wider text-[var(--color-fg-faint)]">
           {badge}

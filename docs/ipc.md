@@ -81,6 +81,26 @@
 
   Under `--features e2e` both halves are stubbed, and they differ: `open_with_app` records `<key>\t<dir>` to `e2e-open-with.log` (its own file, not `e2e-opened.log`, which the file-tree specs assert line-for-line) and `open_with_apps` returns a FIXED three-entry list, because the CI runner has no editors and a spec keyed on real detection would assert an empty menu. Real detection is unit-tested with an injected `exists` predicate instead.
 - **Validating a browser command**: `browser_command_check` (`{ command }`) rejects an unparseable template or a launcher missing from `PATH`, for the Settings field. It can only vouch for the launcher: `open -a "Gogle Chrome"` passes (because `open` exists) and still fails at launch, which is exactly why the runtime fallback above also exists.
+- **LAN pairing** ([peers.md](peers.md)): `peer_status` (whole page
+  state: sharing on, this machine's id / name / default name, listener
+  port and `ip:port` addresses, bind and discovery errors, `platform`,
+  `peers`, `nearby` (each with `pairing`: in pairing mode), `pair_mode`
+  (this machine's code and deadline while it shows one); answers with
+  sharing off too, for the paired list), `peer_set_name { name }` (`""` =
+  the computer's own name; re-announces), `peer_pair_mode { open }` (open:
+  a fresh four-digit code for 5 minutes, and `pair=1` in the advert;
+  close: both end), `peer_pair { target, code }` (async +
+  spawn_blocking: SPAKE2 start and confirm over the network with the code
+  the other machine shows; resolves with the `PairingView` once both hold
+  the pair, rejects with a readable reason), `peer_rename { peer, name }`,
+  `peer_set_grant { peer, grant }` (`"reply"` / `"drive"`),
+  `peer_set_note { peer, note }` (what it is for), `peer_unpair
+  { peer }` (async: it sends the notice), `peer_refresh` (an mDNS query
+  now). Events: `peer://changed` (no payload; re-read `peer_status`) and
+  `peer://pairing` (a `PairingView` once per completed pairing, on both
+  machines; the global dialog asks what the other machine is for). The setting itself,
+  `lan_sharing_enabled`, rides `settings_save`, which binds or unbinds
+  before it resolves (`peers::apply_enabled`).
 
 ## `termic://` deep links (GH #192)
 
@@ -187,6 +207,21 @@ It is deliberately narrow, and the narrowness is the contract: `reconcile_link` 
 It installs into `~/.local/bin` and never `/usr/local/bin`: writing there needs an admin prompt, and a launch must never raise one, so system-wide stays on the explicit button where the user asked for it and can answer. The tradeoff is real and is not hidden: `~/.local/bin` is NOT on a stock macOS PATH (`/etc/paths` ships `/usr/local/bin` and not it), so Settings reports whether the command it installed is actually reachable, and offers system-wide when it is not.
 
 The gate is a MARKER (`cli_user_link_installed`), not "install whenever it is missing", and that distinction is the whole design. On disk the two look identical and mean opposite things: a command that was never installed wants installing, and a command the user DELETED wants leaving alone. The marker is set on the first attempt, success or failure, so a user who removes the link is never re-installed behind their back, and a failing install does not retry on every launch.
+
+**Paired machines (wire v22).** `Request` gains `peer` (the global
+`--peer` flag: forward the whole verb to that paired machine) and
+`from_task` (the caller's `$TERMIC_TASK_ID`, sent only with `peer`, so the
+other machine may reply into it). Not `caller_task`: the command is
+flattened into the request and `group` already owns that key; the
+`peer_*` verbs name their machine `target` for the same reason. New
+verbs `peer_list`, `peer_pair { target, code }` (the code the other
+machine shows in pairing mode), `peer_unpair { target
+}`, `peer_rename { target, name }`, all answered by `peers::handle_verb`
+and refused with `peer` set. `ErrorCode::PeerUnreachable` maps to exit
+12. `handle_request` skips local `--profile` resolution when `peer` is
+set (the name is the OTHER machine's profile), and
+`dispatch_authenticated` forwards before matching a verb. See
+[peers.md](peers.md).
 
 ## Critical shapes (fail silently)
 

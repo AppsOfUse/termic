@@ -153,17 +153,18 @@ export function StatusSection({ matchIds = null }: { matchIds?: ReadonlySet<stri
           }
         }}
         className={cn(
-          "group flex h-7 cursor-pointer select-none items-center justify-between rounded-md px-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
-          "bg-[var(--color-bg-2)]/60 hover:bg-[var(--color-bg-2)] text-[var(--color-fg)] border border-[var(--color-border-soft)]/50",
+          // The same bar as PROJECTS (Sidebar.tsx projects-section-header):
+          // one fill, no border, 12px caps in the icon buttons' colour.
+          "group mb-0.5 flex h-8 cursor-pointer select-none items-center justify-between rounded-md bg-[var(--color-bg-2)] pl-2 pr-0.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--color-fg-dim)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)]",
         )}
       >
         <div className="flex min-w-0 items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+          <Activity className="h-4 w-4 shrink-0" />
           <span className="truncate">{t("statusHeader")}</span>
           {totalStatusCount > 0 && (
             <span
               data-testid="status-section-total-count"
-              className="ml-0.5 rounded-full bg-[var(--color-bg-3)]/80 px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-[var(--color-fg-dim)] group-hover:text-[var(--color-fg)]"
+              className="ml-0.5 rounded-full bg-[var(--color-bg-3)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[var(--color-fg-dim)] group-hover:text-[var(--color-fg)]"
             >
               {totalStatusCount}
             </span>
@@ -176,16 +177,18 @@ export function StatusSection({ matchIds = null }: { matchIds?: ReadonlySet<stri
           {isCollapsed ? (
             <span
               data-testid="status-section-expand-indicator"
-              className="flex h-4 w-4 items-center justify-center rounded text-[var(--color-accent)]"
+              // A 28px slot, the PROJECTS bar's icon-button size, so the
+              // two bars' right edges line up.
+              className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-accent)]"
             >
-              <Plus className="h-3 w-3" strokeWidth={2.5} />
+              <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
             </span>
           ) : (
             <span
               data-testid="status-section-collapse-indicator"
-              className="flex h-4 w-4 items-center justify-center rounded"
+              className="flex h-7 w-7 items-center justify-center rounded"
             >
-              <Minus className="h-3 w-3" strokeWidth={2.5} />
+              <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
             </span>
           )}
         </div>

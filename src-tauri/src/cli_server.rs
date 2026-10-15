@@ -182,7 +182,14 @@ fn raise_existing(sock: &Path, deep_link: Option<&str>) -> bool {
     let mut reader = BufReader::new(stream);
     // Confirm a live instance via hello. A parseable hello reply (any
     // protocol) means a sibling is running and owns this data dir.
-    let hello = Request { id: "preflight".into(), token: None, profile: None, cmd: Command::Hello };
+    let hello = Request {
+        id: "preflight".into(),
+        token: None,
+        profile: None,
+        peer: None,
+        from_task: None,
+        cmd: Command::Hello,
+    };
     if proto::write_msg(&mut writer, &hello).is_err() {
         return false;
     }
@@ -202,7 +209,14 @@ fn raise_existing(sock: &Path, deep_link: Option<&str>) -> bool {
         Some(url) => Command::OpenUrl { url: url.to_string() },
         None => Command::Raise,
     };
-    let _ = proto::write_msg(&mut writer, &Request { id: "preflight".into(), token: None, profile: None, cmd });
+    let _ = proto::write_msg(&mut writer, &Request {
+        id: "preflight".into(),
+        token: None,
+        profile: None,
+        peer: None,
+        from_task: None,
+        cmd,
+    });
     let _ = proto::read_msg::<_, Reply>(&mut reader);
     true
 }
@@ -324,6 +338,13 @@ fn serve_conn(stream: LocalStream, host: Arc<dyn CliHost>) {
         };
         // A live attach session takes over the WHOLE connection (frames
         // flow both ways); only a refused attach stays in the loop.
+        if matches!(req.cmd, Command::Attach { .. }) && req.peer.is_some() {
+            let reply = Reply::err(&req.id, ErrorCode::Unsupported, "attach does not reach across machines");
+            if proto::write_msg(&mut writer, &reply).is_err() {
+                return;
+            }
+            continue;
+        }
         if matches!(req.cmd, Command::Attach { .. }) {
             match validate_attach(&req, &*host) {
                 Err(reply) => {
@@ -638,6 +659,12 @@ pub(crate) trait CliHost: Send + Sync {
     fn stop_tab_ptys(&self, task_id: &str, tab_id: &str) -> u32;
     /// The user's home directory (session transcripts live under it).
     fn home_dir(&self) -> Option<PathBuf>;
+    /// This app's LAN pairing node (docs/peers.md): the `peer` verbs and
+    /// `--peer` forwarding go through it. None in test hosts that do not
+    /// exercise pairing, and in an app with no data dir.
+    fn peers(&self) -> Option<Arc<crate::peers::Node>> {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -715,6 +742,15 @@ pub(crate) fn handle_request(req: &Request, host: &dyn CliHost, sink: &mut dyn E
             }),
         );
     }
+    // `--peer`: the verb runs on another machine, so `--profile` names one of
+    // ITS profiles and must not be resolved against ours. Authenticated here
+    // all the same; the forwarding is a verb like any other.
+    if req.peer.is_some() {
+        if let Some(refused) = auth_gate(req, host) {
+            return refused;
+        }
+        return dispatch_authenticated(req, host, sink);
+    }
     // `--profile` (GH #280). Resolved ONCE, here, so an unknown name fails as
     // a usage error before any verb acts. Never a fallback to another
     // profile: this server already refuses to guess for an unknown project
@@ -758,7 +794,22 @@ pub(crate) fn dispatch_authenticated(
     host: &dyn CliHost,
     sink: &mut dyn EventSink,
 ) -> Reply {
+    // `--peer` / MCP `peer_call`: the whole verb runs on a paired machine.
+    // A request that arrived FROM a peer never has this set (peers.rs builds
+    // it with `peer: None`), so nothing is forwarded twice.
+    if req.peer.is_some() {
+        return match host.peers() {
+            Some(node) => node.forward(req, sink),
+            None => Reply::err(&req.id, ErrorCode::Unsupported, "pairing is not available in this app"),
+        };
+    }
     match &req.cmd {
+        Command::PeerList | Command::PeerPair { .. } | Command::PeerUnpair { .. } | Command::PeerRename { .. } => {
+            match host.peers() {
+                Some(node) => crate::peers::handle_verb(&node, req, sink),
+                None => Reply::err(&req.id, ErrorCode::Unsupported, "pairing is not available in this app"),
+            }
+        }
         // Unauthenticated verbs never reach dispatch via the socket
         // path; via MCP they are not tools, so any arrival is a caller
         // bug, answered rather than panicked on (MCP has no serve_conn
@@ -4297,6 +4348,9 @@ impl CliHost for TauriHost {
     fn home_dir(&self) -> Option<PathBuf> {
         dirs::home_dir()
     }
+    fn peers(&self) -> Option<Arc<crate::peers::Node>> {
+        crate::peers::node()
+    }
 }
 
 /// Cheap diff stat vs the base branch: one `git diff --numstat` plus one
@@ -6269,7 +6323,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn req(cmd: Command, token: Option<&str>) -> Request {
-        Request { id: "r".into(), token: token.map(str::to_string), profile: None, cmd }
+        Request { id: "r".into(), token: token.map(str::to_string), profile: None, peer: None, from_task: None, cmd }
     }
 
     /// Sink that records events; can simulate a hung-up client.

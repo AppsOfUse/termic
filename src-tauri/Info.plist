@@ -5,6 +5,10 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>Termic uses your microphone for Claude Code voice input.</string>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>Termic uses your local network so terminal processes can connect to development services and devices on your network.</string>
+  <string>Termic uses your local network so terminal processes can connect to development services and devices on your network, and, when you turn on sharing, to find and pair with Termic on your other computers.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_termic._tcp</string>
+  </array>
 </dict>
 </plist>

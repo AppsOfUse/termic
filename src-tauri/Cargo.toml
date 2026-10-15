@@ -96,8 +96,20 @@ termic-proto = { path = "../termic-proto" }
 # so every npm `.cmd` agent shim) refuses as a working directory. A no-op
 # re-export of std on unix.
 dunce = "1"
+# LAN discovery (mdns.rs): SO_REUSEPORT and the per-interface multicast
+# controls std's UdpSocket does not expose, so Termic can share 5353 with
+# mDNSResponder / dnscache / avahi. Already in the tree via hyper-util and
+# tokio, with the same "all" feature, so pinning it direct does not change
+# resolution.
+socket2 = { version = "0.6", features = ["all"] }
+# LAN pairing's cryptography (peer_crypto.rs): X25519 for the pairing
+# exchange, HKDF-SHA256, ChaCha20-Poly1305 for every call after it. Already
+# in the tree via rustls (reqwest, the updater), so pinning it direct does
+# not change resolution, and it saves a TLS stack plus certificates.
+ring = "0.17"
 # Optional: only pulled in by the `e2e` feature (WebdriverIO harness).
 tauri-plugin-wdio-webdriver = { version = "1", optional = true }
+spake2 = "0.4"
 
 # Windows-only: process-tree kill and liveness (proc_ctl.rs). Already in
 # the dependency tree via tauri/wry, so this adds no build time.
@@ -112,6 +124,11 @@ windows-sys = { version = "0.60", features = [
   "Win32_Security",
   "Win32_System_IO",
   "Win32_System_Registry",
+  # GetAdaptersAddresses, to join the mDNS group on every interface
+  # (mdns.rs). Features of a crate we already link, no new crate.
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
 ] }
 # WebView2's settings object, to switch off its browser accelerator keys
 # (lib.rs `disable_browser_accelerators`). Both are what wry itself uses.

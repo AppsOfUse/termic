@@ -185,7 +185,7 @@ describe("sidebar filter bar", () => {
         el.click();
       });
       await waitVisible('[data-testid="sidebar-task-git-icon"]');
-      await clickMenuItemUntilReady("Show task git icon", () => present('[role="menuitem"][data-value="main"]') as Promise<boolean>);
+      await clickMenuItemUntilReady("Git icon", () => present('[role="menuitem"][data-value="main"]') as Promise<boolean>);
       await snap("sidebar-task-git-icon-menu.png");
       await clickWhenVisible('[role="menuitem"][data-value="main"]');
       await browser.waitUntil(async () => { const g = await glyphs(); return g.main && !g.worktree; },
@@ -252,7 +252,7 @@ describe("sidebar filter bar", () => {
         el.click();
       });
       await waitVisible('[data-testid="sidebar-task-pr-badge"]');
-      await clickMenuItemUntilReady("Show task PR", () => present('[role="menuitem"][data-pr-value="both"]') as Promise<boolean>);
+      await clickMenuItemUntilReady("PR badge", () => present('[role="menuitem"][data-pr-value="both"]') as Promise<boolean>);
       await snap("sidebar-task-pr-menu.png");
       await clickWhenVisible('[role="menuitem"][data-pr-value="both"]');
       await waitBadge({ text: "#42", icon: true }, "the submenu's Icon and number");

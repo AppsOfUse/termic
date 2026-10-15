@@ -128,7 +128,7 @@ export default {
       linkPrompts: "提示词库",
       linkShortcuts: "键盘快捷键设置",
       linkSandbox: "沙箱设置",
-      linkCli: "CLI 与 MCP 设置",
+      linkCli: "智能体访问设置",
     },
   },
   createPr: {
@@ -538,6 +538,16 @@ export default {
     allowedHostsHint: "每行一个。可使用 * 作为通配符。对应 CLI 的厂商域名以及 github、npm/pypi/crates 始终允许；这里是额外项。",
     enforceFsNote: "此模式下网络不受限制（仅文件系统沙箱）。智能体可直接访问任何主机，没有代理或主机白名单。",
   },
+  peerPairing: {
+    title: "已与 {{name}} 配对",
+    together: "{{name}} 与这台计算机现在可以在对方那里启动、提示和读取智能体，这相当于以你的身份运行代码。若只想让 {{name}} 回复这里的任务，请在“设置 > 智能体访问”中修改。",
+    replaced: "这替换了之前与 {{name}} 的配对。",
+    question: "{{name}} 用来做什么？",
+    questionHint: "你的智能体会读取这段说明，从而知道该把什么发到那里。选择一个角色，或自己填写。",
+    done: "完成",
+    skip: "跳过",
+  },
+
   projectPicker: {
     srTitleTask: "新建任务",
     srTitleIssue: "从 issue 新建任务",

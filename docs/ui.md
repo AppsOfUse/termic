@@ -132,9 +132,62 @@ than being pinned to the tail.
 Rows carry `data-launcher-cli="<id>"` so tests can assert the order by id
 instead of by display name.
 
+**Recent on top, the rest under More.** The menu's top level holds only the
+entries used in the last 5 days (agents, Terminal, Custom command, Review a
+pull request) plus the project default; everything else folds into a "More"
+submenu ("Used less often"), which also always holds Start a race and
+Resume. `lib/launcherUsage.ts` (unit-tested) decides: an entry's last use is
+the newest of a task created with that cli (archived included, so launches
+from the dialog, CLI and MCP count) and a per-profile stamp written when the
+menu itself is picked. The task scan is cached per tasks array, and the menu
+is unmounted while closed, so it runs on open and only when tasks changed.
+With no history at all nothing folds but Race (a new user sees the whole
+list), and a More of one entry is not made.
+
+Each entry has a placement (`launcherVisibility` pref, synced): Auto (the
+5-day rule above), Always shown (never folds), Pinned (never folds, and
+listed first), In More (always folded). Settings > Agents sets it per
+agent with one dropdown that also carries Off, replacing the old Enable
+switch (`disabled`); terminal entries are not in the menu and keep the
+switch. Only departures from the default are stored. Defaults: Claude,
+Codex and Antigravity (`STANDARD_AGENTS`) Always shown, Race In More,
+everything else Auto (`launcherVisibilityOf`). An agent Always shown or
+Pinned is listed even when not installed: dimmed, "not installed", and it
+opens Settings > Agents instead of launching. Other agents show only once
+detected. The project default stays on top unless set to In More. More
+carries the Layers icon (the ⋯ dots were rejected as a stray glyph).
+
+**The New task button under a project.** The dashed button the empty project
+shows sits BELOW the task rows, where a new task lands. The
+`newTaskButton` pref (Settings > Appearance, sidebar) decides when a project
+that has tasks shows it too: Empty projects (never), Auto (while there are
+two or fewer projects, the default: one long list puts the header's `+` far
+from where the task appears), or Always (`newTaskButtonShown` in
+`store/prefs.ts`). Under tasks it draws as a lone centered `+` on a thin borderless row
+(`data-variant="quiet"`, labelled by its tooltip), so it does not read as
+one more task; the row highlights on hover and while its menu is open. The
+dashed "New task" box at full row height is only for the empty project.
+While either one shows, the project header's `+` is hidden (same menu, one
+row apart). The e2e profile pins the pref to Empty projects so specs keep
+the header `+` on projects with tasks. Consecutive projects are set apart by a
+gap and the project header's light band (`--color-bg-2` at 50%). Tried and
+rejected: whitespace alone (no separation), a full-strength rule (harsh).
+
+## The View options menu
+
+The sliders icon on the PROJECTS bar. Three sections, one control style
+each: Expand all / Collapse all (actions, which close the menu); SHOW (on/off
+switches for the Status section and Inactive projects at bottom, then the Git
+icon and PR badge submenus); and "Open agent list on" (pick one: Chevron,
+Click on name, Always open, marked by a check, never a fill). Every row is
+one line and its explanation is a tooltip: the hint sentences under each row
+made the menu twice the height of its content. A setting row
+`preventDefault`s its select, so the menu stays open and several can be
+flipped in one visit; e2e closes it with Escape after.
+
 ## The project row's task filter
 
-The project header's hover carries a filter icon, left of ⋯
+The project header's hover carries a filter icon, left of ⋮
 (`sidebar/ProjectTaskFilter.tsx`, GH #324). It opens a bar
 on its OWN line under the header, full width: a text input and a bell.
 Inline in the header, the input left a long project name almost no room.
@@ -251,7 +304,14 @@ it keeps now (the "Lens" concept of the sidebar rethink):
 - **Project names stay all caps**, like folder names. A project groups its
   tasks the way a folder groups projects, and the caps are what set a
   project's header apart from the task rows under it.
-- **The project header's hover shows the filter, ⋯ and `+`.** ⋯ opens the
+- **Headers are FILLS, not borders.** The filter field is the only outlined
+  control in the sidebar's head; the status chips are borderless (glyph and
+  count, a fill on hover or while on). The PROJECTS header is a filled bar
+  (`--color-bg-2`) holding its label at 12px in the icon buttons' colour, so
+  label and buttons read as one row; each project header is a lighter band
+  (`--color-bg-2` at 50%). Borders on top of fills were what read as clutter.
+- **The project header always shows its menu (vertical ⋮), the filter on
+  hover.** ⋮ opens the
   project's own right-click menu at the button, which is where Settings
   lives now; the filter (#324) keeps its own icon, pinned while it filters.
 - **One nesting style:** a 1px guide line. A project folder's is neutral (or
@@ -887,15 +947,17 @@ on screen while you work (#298).
 
 **Off by default** (`prefs.showStatusSection`): with two tasks it is clutter,
 with twenty it is the point. Two switches write the one pref: a check row in
-the Project list options menu next to "Collapse inactive projects", and
-Settings > Appearance > Interface & Sidebar > Sidebar. The STATUS header and
-PROJECTS header are highlighted section bars with semantic icons, and STATUS
+the View options menu (the sliders icon on the PROJECTS bar) next to "Inactive projects at bottom", and
+Settings > Appearance > Interface & Sidebar > Sidebar. The STATUS header is a
+filled bar identical to PROJECTS (see "Headers are FILLS, not borders": same
+height, fill, 12px caps, and its fold mark in a 28px slot so both bars' right
+edges line up), and STATUS
 carries an item count (PROJECTS does not: the list is right there). Clicking
 the STATUS header collapses and expands its section in place
 (using Plus/Minus fold indicators rather than chevrons, which avoids arrow
 clutter). The PROJECTS header is a plain label and does NOT fold: it is the
 tree itself, not a copy of it, and folding it left a sidebar with nothing in
-it. A clean divider line separates Status from Projects. Each
+it. A small gap, not a rule, separates Status from Projects. Each
 bucket folds too, and those folds are a pref (`statusBucketCollapsed`,
 a scoped localStorage key, with a setter that bails on an unchanged value).
 

@@ -66,7 +66,7 @@ import * as ipc from "@/lib/ipc";
 import { maybeRebuildDockerImageForLaunch } from "@/lib/dockerDailyRebuild";
 import { commandShell, loginShell, loginShellArgs } from "@/lib/loginShell";
 import { usePrefs, useResolvedThemeFull, currentTerminalStack, currentTerminalTheme, currentColorFgBg, currentMinimumContrastRatio } from "@/store/prefs";
-import { spawnArgsForCli, spawnCommandForCli, tryToggleYoloLive, envForCli, agentDisplayName, cliSupportsIdSession, cliSupportsCaptureResume, postLaunchCaptureForCli, decideResume, spawnResumeShape, resumeIdArgsForCli, resumePickerArgsForCli, workDoneCapable, terminalLaunchCommand, isTerminalCli, classifyAgentTitle, compileSignals, hasPendingWork, notificationWantsAttention, PENDING_TAIL_ROWS, STICKY_DONE_MS, ATTENTION_ECHO_MS, builtinBaseId, BUILTIN_OUTPUT_SIGNALS, resolveAgent } from "@/lib/agents";
+import { spawnArgsForCli, spawnCommandForCli, tryToggleYoloLive, envForCli, agentDisplayName, cliSupportsIdSession, cliSupportsCaptureResume, postLaunchCaptureForCli, decideResume, spawnResumeShape, resumeIdArgsForCli, resumePickerArgsForCli, workDoneCapable, terminalLaunchCommand, isTerminalCli, classifyAgentTitle, compileSignals, hasPendingWork, notificationWantsAttention, PENDING_TAIL_ROWS, STICKY_DONE_MS, ATTENTION_ECHO_MS, permissionPromptShown, PERMISSION_PROMPT_TAIL_ROWS, builtinBaseId, BUILTIN_OUTPUT_SIGNALS, resolveAgent } from "@/lib/agents";
 import { recordTitle, noteSubmit, noteDone } from "@/lib/agentSignalLog";
 import { MessageQueueButton } from "./MessageQueueButton";
 import { ReviewCommentsBar } from "./ReviewCommentsBar";
@@ -2428,6 +2428,27 @@ const captureArmedRef = useRef(false);
       dbg("osc133", sub);
       if (sub === "C") {
         goWorking(`${origin} C`);
+        // A bell whose prompt went away without an answer: auto-denied by
+        // claude's own safety check after its countdown, or answered from a
+        // remote control, and the agent is working again. The heartbeat alone
+        // cannot clear it (a parallel subagent may still sit on a prompt), so
+        // it also takes the screen showing no prompt (PERMISSION_PROMPT_SIGNALS,
+        // which has the whole story). Not within the first seconds of the
+        // mark: the same tool's PreToolUse lands ~20ms BEFORE its
+        // PermissionRequest, and the prompt paints just after. One store read
+        // per heartbeat, and the row scan only while a bell is held.
+        if (origin === "hook") {
+          const live = useApp.getState().tabs[task.id]
+            ?.find(t => t.id === tab.id) as TerminalTab | undefined;
+          const term = termRef.current;
+          if (live?.unread?.reason === "attention" && term
+            && Date.now() - attnMarkedAtRef.current > ATTENTION_ECHO_MS
+            && !permissionPromptShown(tab.cli, visibleTailRows(term, PERMISSION_PROMPT_TAIL_ROWS))) {
+            logWorkState("attention-cleared", `cli=${tab.cli} task=${JSON.stringify(task.name)}`
+              + " working again with no permission prompt on screen");
+            useApp.getState().clearAttention(task.id, tab.id);
+          }
+        }
       } else if (sub === "D") {
         // A done that reports nothing outstanding is the agent saying the
         // whole thing is finished, leftovers included. Drop both the chip and

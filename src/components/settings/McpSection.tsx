@@ -1,7 +1,6 @@
 // MCP endpoint (Phase A, docs/ideas/mcp.md): a loopback HTTP listener
-// serving the app's verbs as MCP tools to outside clients. Off by default
-// and EXPERIMENTAL per the docs/ui.md rule (a surface still settling ships
-// off + badged).
+// serving the app's verbs as MCP tools to outside clients. Off by default,
+// but no longer badged Experimental: it graduated alongside LAN pairing.
 //
 // Unlike the CLI socket the listener only exists while the toggle is on
 // (bind-on-enable, live both ways), so the URL and credential shown here
@@ -24,6 +23,7 @@
 // copy affordance fetches it on click and hands it to the clipboard.
 
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import { mcpInstallClient, mcpRegenerateToken, mcpStatus, mcpToken } from "@/lib/ipc";
 import type { McpStatus } from "@/lib/types";
@@ -82,20 +82,9 @@ function isLoopback(s: string): boolean {
   return s.startsWith("127.") || s === "::1";
 }
 
-/** A client's heading with its own install action on the right. */
-function ClientHeader({ title, action, busy, disabled, onInstall }: {
-  title: string; action: string; busy: boolean; disabled: boolean; onInstall: () => void;
-}) {
-  const { t } = useTranslation("settings");
-  return (
-    <div className="mt-5 flex items-center justify-between gap-4">
-      <div className="text-[13px] font-medium">{title}</div>
-      <Button variant="secondary" size="md" disabled={disabled} onClick={onInstall}>
-        {busy ? t("mcp.adding") : action}
-      </Button>
-    </div>
-  );
-}
+/** The clients the Connect block offers, one shown at a time. */
+const CLIENTS = ["claude", "codex", "other"] as const;
+const linkClass = "text-[12px] text-[var(--color-fg-faint)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-fg-dim)]";
 
 export function McpSection() {
   const { t } = useTranslation("settings");
@@ -108,6 +97,8 @@ export function McpSection() {
   // Kept per client, so a result line appears under the section whose
   // button produced it rather than floating above both.
   const [installed, setInstalled] = useState<{ client: string; message: string } | null>(null);
+  const [client, setClient] = useState<(typeof CLIENTS)[number]>("claude");
+  const [showBlock, setShowBlock] = useState(false);
 
   // Drafts, saved on blur: a half-typed address must not rebind the
   // listener on every keystroke.
@@ -158,6 +149,9 @@ export function McpSection() {
   // The SAVED address, not the draft: the warning describes what is bound.
   const saved = settings?.mcp_bind_address ?? "";
   const exposed = saved !== "" && !isLoopback(saved);
+  // null: follow `exposed` (folded on loopback); a click pins it.
+  const [advanced, setAdvanced] = useState<boolean | null>(null);
+  const advancedOpen = advanced ?? exposed;
 
   // The one place the token IS rendered, and only once the endpoint is
   // bound off loopback: another device cannot read the token file, so
@@ -228,7 +222,7 @@ export function McpSection() {
 
   return (
     <div className="flex flex-col gap-7">
-      <SectionTitle title={t("mcp.title")} badge={t("shared.experimental")} />
+      <SectionTitle title={t("mcp.title")} />
 
       <Block first>
         <Toggle
@@ -238,52 +232,6 @@ export function McpSection() {
           onChange={saveMcpEnabled}
         />
       </Block>
-
-      {mcpEnabled && (
-        <Block>
-          <div className="text-[14px] font-medium">{t("mcp.bind.title")}</div>
-          <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("mcp.bind.hint")}</div>
-          <div className="mt-3 flex items-center gap-2">
-            <Input
-              data-testid="mcp-bind-address"
-              aria-label={t("mcp.bind.address")}
-              value={address}
-              placeholder="127.0.0.1"
-              onChange={e => setAddress(e.target.value)}
-              onBlur={saveBind}
-              onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-              className="w-56 font-mono"
-            />
-            <span className="text-[var(--color-fg-faint)]">:</span>
-            <Input
-              data-testid="mcp-bind-port"
-              aria-label={t("mcp.bind.port")}
-              value={port}
-              placeholder={t("mcp.bind.portAuto")}
-              inputMode="numeric"
-              onChange={e => setPort(e.target.value)}
-              onBlur={saveBind}
-              onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-              className="w-28 font-mono"
-            />
-          </div>
-          {bindError && (
-            <p className="mt-2 text-[12px] text-[var(--color-warn,inherit)]">{bindError}</p>
-          )}
-          {exposed && (
-            <p data-testid="mcp-bind-warning" className="mt-2 text-[12px] text-[var(--color-warn,inherit)]">
-              {t("mcp.bind.exposed")}
-            </p>
-          )}
-          {remoteCommand && (
-            <>
-              <div className="mt-4 text-[13px] font-medium">{t("mcp.bind.remoteTitle")}</div>
-              <p className="mt-0.5 text-[12px] text-[var(--color-fg-faint)]">{t("mcp.bind.remoteHint")}</p>
-              <CopyRow text={remoteCommand} label={t("mcp.bind.remoteLabel")} className="mt-2" />
-            </>
-          )}
-        </Block>
-      )}
 
       {mcpEnabled && (
         <Block>
@@ -297,76 +245,154 @@ export function McpSection() {
             </p>
           ) : url && tokenPath ? (
             <>
-              <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">
-                <Trans
-                  t={t}
-                  i18nKey="mcp.listening"
-                  values={{ path: tokenPath }}
-                  components={{ 1: <code className="font-mono" /> }}
-                />
+              {/* One client at a time: the three stacked (two config
+                  blocks and the raw URL and token) were a wall of monospace
+                  nobody needs more than one of. The button is the path; the
+                  block it writes stays behind a disclosure for checking. */}
+              <div className="mt-3 flex gap-1" role="tablist" data-testid="mcp-clients">
+                {CLIENTS.map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    role="tab"
+                    aria-selected={client === c}
+                    data-testid={`mcp-client-${c}`}
+                    onClick={() => { setClient(c); setShowBlock(false); }}
+                    className={cn(
+                      "rounded-md px-2.5 py-1 text-[12.5px] font-medium",
+                      client === c
+                        ? "bg-[var(--color-sel)] text-[var(--color-fg)]"
+                        : "text-[var(--color-fg-dim)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]",
+                    )}
+                  >
+                    {c === "claude" ? "Claude Code" : c === "codex" ? "Codex" : t("mcp.otherClient")}
+                  </button>
+                ))}
               </div>
-              <CopyRow text={url} label={t("mcp.copyUrlLabel")} className="mt-3 items-center text-[12.5px]" />
-              <button
-                type="button"
-                onClick={copyToken}
-                className="mt-2 text-[12px] text-[var(--color-fg-faint)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-fg-dim)]"
-              >
-                {t("mcp.copyToken")}
-              </button>
-              <button
-                type="button"
-                data-testid="mcp-regenerate-token"
-                onClick={regenerateToken}
-                className="ml-4 mt-2 text-[12px] text-[var(--color-fg-faint)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-fg-dim)]"
-              >
-                {t("mcp.regenerateToken")}
-              </button>
-              <p className="mt-1 text-[12px] text-[var(--color-fg-faint)]">
-                {t("mcp.tokenNote")}
-              </p>
-
-              {/* Each client's button sits in its own header: the action
-                  and the config it writes are the same subject, and a
-                  shared row made the reader match two buttons to two
-                  blocks by position. */}
-              <ClientHeader
-                title="Codex"
-                action={t("mcp.addToCodex")}
-                busy={installing === "codex"}
-                disabled={installing !== null}
-                onInstall={() => install("codex")}
-              />
-              <p className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">
-                <Trans
-                  t={t}
-                  i18nKey="mcp.codexHint"
-                  components={{ 1: <code className="font-mono" /> }}
-                />
-              </p>
-              {installed?.client === "codex" && (
-                <p className="mt-1.5 text-[12px] text-[var(--color-fg-dim)]">{installed.message}</p>
-              )}
-              {codexConfig && <CopyRow text={codexConfig} label={t("mcp.copyCodexLabel")} className="mt-1.5" />}
-
-              <ClientHeader
-                title="Claude Code"
-                action={t("mcp.addToClaude")}
-                busy={installing === "claude"}
-                disabled={installing !== null}
-                onInstall={() => install("claude")}
-              />
-              <p className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">
-                {t("mcp.claudeHint")}
-              </p>
-              {installed?.client === "claude" && (
-                <p className="mt-1.5 text-[12px] text-[var(--color-fg-dim)]">{installed.message}</p>
-              )}
-              {claudeCommand && <CopyRow text={claudeCommand} label={t("mcp.copyClaudeLabel")} className="mt-1.5" />}
+              <div className="mt-3 rounded-md border border-[var(--color-border-soft)] p-3.5">
+                {client !== "other" ? (
+                  <>
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-[12.5px] text-[var(--color-fg-dim)]">
+                        {client === "claude"
+                          ? t("mcp.claudeHint")
+                          : <Trans t={t} i18nKey="mcp.codexHint" components={{ 1: <code className="font-mono" /> }} />}
+                      </p>
+                      <Button variant="secondary" size="md" disabled={installing !== null} onClick={() => install(client)}>
+                        {installing === client ? t("mcp.adding") : client === "claude" ? t("mcp.addToClaude") : t("mcp.addToCodex")}
+                      </Button>
+                    </div>
+                    {installed?.client === client && (
+                      <p className="mt-2 text-[12px] text-[var(--color-fg-dim)]">{installed.message}</p>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="mcp-show-block"
+                      aria-expanded={showBlock}
+                      onClick={() => setShowBlock(v => !v)}
+                      className="mt-2 flex items-center gap-1 text-[12px] text-[var(--color-fg-faint)] hover:text-[var(--color-fg-dim)]"
+                    >
+                      <ChevronRight className={cn("h-3 w-3 transition-transform", showBlock && "rotate-90")} />
+                      {client === "claude" ? t("mcp.showCommand") : t("mcp.showConfig")}
+                    </button>
+                    {showBlock && client === "claude" && claudeCommand && (
+                      <CopyRow text={claudeCommand} label={t("mcp.copyClaudeLabel")} className="mt-2" />
+                    )}
+                    {showBlock && client === "codex" && codexConfig && (
+                      <CopyRow text={codexConfig} label={t("mcp.copyCodexLabel")} className="mt-2" />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <CopyRow text={url} label={t("mcp.copyUrlLabel")} className="items-center text-[12.5px]" />
+                    <div className="mt-2 text-[12.5px] text-[var(--color-fg-dim)]">
+                      <Trans
+                        t={t}
+                        i18nKey="mcp.listening"
+                        values={{ path: tokenPath }}
+                        components={{ 1: <code className="font-mono" /> }}
+                      />
+                    </div>
+                    <div className="mt-2 flex gap-4">
+                      <button type="button" onClick={copyToken} className={linkClass}>{t("mcp.copyToken")}</button>
+                      <button type="button" data-testid="mcp-regenerate-token" onClick={regenerateToken} className={linkClass}>
+                        {t("mcp.regenerateToken")}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[12px] text-[var(--color-fg-faint)]">{t("mcp.tokenNote")}</p>
+                  </>
+                )}
+              </div>
             </>
           ) : (
             <p data-testid="mcp-bind-failed" className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">
               {status.bind_error ?? t("mcp.bindFailed")}
             </p>
+          )}
+        </Block>
+      )}
+      {/* The network address is for a client that is not Termic (or a
+          private network like Tailscale). Linking two Termics is pairing,
+          below, so this sits folded: it used to read as THE way to reach
+          another machine, with one all-powerful token sent in the clear.
+          Open by default only when it is already off loopback. */}
+      {mcpEnabled && (
+        <Block>
+          <button
+            type="button"
+            data-testid="mcp-advanced"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvanced(v => !(v ?? exposed))}
+            className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]"
+          >
+            <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", advancedOpen && "rotate-90")} />
+            {t("mcp.bind.advanced")}
+          </button>
+          {advancedOpen && (
+            <div className="mt-3">
+              <p className="mb-3 text-[12.5px] text-[var(--color-fg-dim)]">{t("mcp.bind.pairInstead")}</p>
+              <div className="text-[14px] font-medium">{t("mcp.bind.title")}</div>
+              <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("mcp.bind.hint")}</div>
+              <div className="mt-3 flex items-center gap-2">
+                <Input
+                  data-testid="mcp-bind-address"
+                  aria-label={t("mcp.bind.address")}
+                  value={address}
+                  placeholder="127.0.0.1"
+                  onChange={e => setAddress(e.target.value)}
+                  onBlur={saveBind}
+                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  className="w-56 font-mono"
+                />
+                <span className="text-[var(--color-fg-faint)]">:</span>
+                <Input
+                  data-testid="mcp-bind-port"
+                  aria-label={t("mcp.bind.port")}
+                  value={port}
+                  placeholder={t("mcp.bind.portAuto")}
+                  inputMode="numeric"
+                  onChange={e => setPort(e.target.value)}
+                  onBlur={saveBind}
+                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  className="w-28 font-mono"
+                />
+              </div>
+              {bindError && (
+                <p className="mt-2 text-[12px] text-[var(--color-warn,inherit)]">{bindError}</p>
+              )}
+              {exposed && (
+                <p data-testid="mcp-bind-warning" className="mt-2 text-[12px] text-[var(--color-warn,inherit)]">
+                  {t("mcp.bind.exposed")}
+                </p>
+              )}
+              {remoteCommand && (
+                <>
+                  <div className="mt-4 text-[13px] font-medium">{t("mcp.bind.remoteTitle")}</div>
+                  <p className="mt-0.5 text-[12px] text-[var(--color-fg-faint)]">{t("mcp.bind.remoteHint")}</p>
+                  <CopyRow text={remoteCommand} label={t("mcp.bind.remoteLabel")} className="mt-2" />
+                </>
+              )}
+            </div>
           )}
         </Block>
       )}

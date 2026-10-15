@@ -94,7 +94,7 @@ async function setBucketOpen(b: string, open: boolean): Promise<void> {
   });
 }
 
-/** The Project list options menu. Radix opens on pointerdown, so a bare
+/** The View options menu. Radix opens on pointerdown, so a bare
  *  .click() is not enough (same as projects.e2e.ts's openMenu). */
 async function openListOptions(): Promise<void> {
   await waitVisible('[data-testid="sidebar-list-options"]');
@@ -106,6 +106,15 @@ async function openListOptions(): Promise<void> {
     el.click();
   });
   await waitVisible(TOGGLE_ROW);
+}
+
+/** Flip the menu's Status section switch. A setting row keeps the menu open
+ *  (so several can be flipped in one visit), so close it after, as a user
+ *  would, before driving the tree. */
+async function toggleStatusRow(): Promise<void> {
+  await click(TOGGLE_ROW);
+  await browser.keys("Escape");
+  await waitGone(TOGGLE_ROW);
 }
 
 /** The value a profile-scoped localStorage key holds, whatever the scope
@@ -186,7 +195,7 @@ describe("sidebar status section", () => {
     expect(await present(SECTION)).toBe(false);
 
     await openListOptions();
-    await click(TOGGLE_ROW);
+    await toggleStatusRow();
     await waitVisible(SECTION);
 
     // The header is a highlighted section bar with an expand/collapse toggle.
@@ -284,12 +293,12 @@ describe("sidebar status section", () => {
     expect(await present(CHIPS)).toBe(false);
 
     await openListOptions();
-    await click(TOGGLE_ROW);
+    await toggleStatusRow();
     await waitVisible(`${CHIPS} [data-status-chip="attention"]`);
     expect(await present(SECTION)).toBe(false);
 
     await openListOptions();
-    await click(TOGGLE_ROW);
+    await toggleStatusRow();
     await waitVisible(SECTION);
     expect(await present(CHIPS)).toBe(false);
   });
@@ -802,14 +811,14 @@ describe("sidebar status section", () => {
     await waitVisible(SECTION);
     await browser.execute(() => window.__termic!.useApp.getState().closeSettings());
 
-    // The menu row agrees: it shows the check, and turns the section off.
+    // The menu row agrees: its switch is on, and it turns the section off.
     await openListOptions();
-    expect(await present(`${TOGGLE_ROW} svg`)).toBe(true);
-    await click(TOGGLE_ROW);
+    expect(await present(`${TOGGLE_ROW}[data-on="true"]`)).toBe(true);
+    await toggleStatusRow();
     await waitGone(SECTION);
     await openListOptions();
-    expect(await present(`${TOGGLE_ROW} svg`)).toBe(false);
-    await click(TOGGLE_ROW);
+    expect(await present(`${TOGGLE_ROW}[data-on="false"]`)).toBe(true);
+    await toggleStatusRow();
     await waitVisible(SECTION);
   });
 

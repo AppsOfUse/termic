@@ -450,6 +450,8 @@ function SidebarSection() {
   const setShowBoard = usePrefs(s => s.setShowBoard);
   const scheduledNav = usePrefs(s => s.scheduledNav);
   const setScheduledNav = usePrefs(s => s.setScheduledNav);
+  const newTaskButton = usePrefs(s => s.newTaskButton);
+  const setNewTaskButton = usePrefs(s => s.setNewTaskButton);
 
   return (
     <div className="flex flex-col gap-6">
@@ -602,6 +604,36 @@ function SidebarSection() {
                 className={cn(
                   "h-7 rounded-[5px] px-2.5 text-[12px] transition-colors",
                   scheduledNav === id
+                    ? "bg-[var(--color-accent-deep)] text-white"
+                    : "text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]",
+                )}
+              >{label}</button>
+            </Tip>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-start justify-between gap-6" data-testid="new-task-button-setting">
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-medium">{t("appearance.newTaskButton.label")}</div>
+          <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">
+            {t("appearance.newTaskButton.hint")}
+          </div>
+        </div>
+        <div className="inline-flex items-stretch rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-[3px]">
+          {([
+            ["empty",  t("appearance.newTaskButton.empty"),  t("appearance.newTaskButton.emptyHint")],
+            ["auto",   t("appearance.newTaskButton.auto"),   t("appearance.newTaskButton.autoHint")],
+            ["always", t("appearance.newTaskButton.always"), t("appearance.newTaskButton.alwaysHint")],
+          ] as const).map(([id, label, hint]) => (
+            <Tip key={id} content={hint} side="top">
+              <button
+                type="button"
+                data-value={id}
+                aria-pressed={newTaskButton === id}
+                onClick={() => setNewTaskButton(id)}
+                className={cn(
+                  "h-7 rounded-[5px] px-2.5 text-[12px] transition-colors",
+                  newTaskButton === id
                     ? "bg-[var(--color-accent-deep)] text-white"
                     : "text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]",
                 )}

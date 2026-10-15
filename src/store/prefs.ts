@@ -109,6 +109,8 @@ const LS_SHOW_STATUS_SECTION = scoped("showStatusSection");
 const LS_STATUS_SECTION_COLLAPSED = scoped("statusSectionCollapsed");
 const LS_SHOW_BOARD = scoped("showBoard");
 const LS_SCHEDULED_NAV = scoped("scheduledNav");
+const LS_NEW_TASK_BUTTON = scoped("newTaskButton");
+const LS_LAUNCHER_VISIBILITY = scoped("launcherVisibility");
 const LS_TASK_LOCATION_ICON = scoped("taskLocationIcon");
 const LS_TASK_PR_BADGE = scoped("taskPrBadge");
 const LS_STATUS_BUCKET_COLLAPSED = scoped("statusBucketCollapsed");
@@ -838,6 +840,14 @@ interface PrefsState {
    *  this profile has a schedule ("auto"), or always. Always by default, the
    *  shape it shipped in. */
   scheduledNav: ScheduledNavMode;
+  /** The dashed "New task" button under a project's tasks: only on an empty
+   *  project, "auto" (also under every project while there are two or
+   *  fewer, where a long task list puts the header's `+` far from where the
+   *  new task lands), or always. Auto by default. */
+  newTaskButton: NewTaskButtonMode;
+  /** Per new-task-menu entry: where it shows. Only overrides are stored;
+   *  `launcherVisibilityOf` (lib/launcherUsage) supplies the defaults. */
+  launcherVisibility: Record<string, LauncherVisibility>;
   /** Which task rows in the sidebar tree draw their location glyph (link =
    *  main checkout, branch = worktree). Both by default. */
   taskLocationIcon: TaskLocationIconMode;
@@ -1045,6 +1055,8 @@ interface PrefsState {
   setStatusSectionCollapsed: (v: boolean) => void;
   setShowBoard: (v: boolean) => void;
   setScheduledNav: (m: ScheduledNavMode) => void;
+  setNewTaskButton: (m: NewTaskButtonMode) => void;
+  setLauncherVisibility: (id: string, v: LauncherVisibility | null) => void;
   setTaskLocationIcon: (m: TaskLocationIconMode) => void;
   setTaskPrBadge: (m: TaskPrBadgeMode) => void;
   setStatusBucketCollapsed: (bucket: StatusBucket, collapsed: boolean) => void;
@@ -1085,6 +1097,32 @@ export type ScheduledNavMode = "off" | "auto" | "always";
  *  never hides the entry. */
 export function parseScheduledNav(raw: string): ScheduledNavMode {
   return raw === "off" || raw === "auto" ? raw : "always";
+}
+/** Where an entry of the new-task menu shows. auto: top level while used in
+ *  the last 5 days, else under More. shown: always top level. pinned: always
+ *  top level and first. more: always under More. */
+export type LauncherVisibility = "auto" | "shown" | "pinned" | "more";
+const LAUNCHER_VISIBILITIES: readonly LauncherVisibility[] = ["auto", "shown", "pinned", "more"];
+export function parseLauncherVisibility(raw: string): Record<string, LauncherVisibility> {
+  try {
+    const v = JSON.parse(raw || "{}");
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, LauncherVisibility> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (LAUNCHER_VISIBILITIES.includes(x as LauncherVisibility)) out[k] = x as LauncherVisibility;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+export type NewTaskButtonMode = "empty" | "auto" | "always";
+export function parseNewTaskButton(raw: string): NewTaskButtonMode {
+  return raw === "empty" || raw === "always" ? raw : "auto";
+}
+/** Whether a project draws the "New task" button under its tasks. */
+export function newTaskButtonShown(mode: NewTaskButtonMode, taskCount: number, projectCount: number): boolean {
+  return taskCount === 0 || mode === "always" || (mode === "auto" && projectCount <= 2);
 }
 export type TaskLocationIconMode = "both" | "main" | "worktree" | "none";
 export function parseTaskLocationIcon(raw: string): TaskLocationIconMode {
@@ -1317,6 +1355,8 @@ function readStoredPrefs() {
   const initialStatusSectionCollapsed = lsGet(LS_STATUS_SECTION_COLLAPSED, "") === "1";
   const initialShowBoard = lsGet(LS_SHOW_BOARD, "") !== "0";
   const initialScheduledNav = parseScheduledNav(lsGet(LS_SCHEDULED_NAV, ""));
+  const initialNewTaskButton = parseNewTaskButton(lsGet(LS_NEW_TASK_BUTTON, ""));
+  const initialLauncherVisibility = parseLauncherVisibility(lsGet(LS_LAUNCHER_VISIBILITY, ""));
   const initialTaskLocationIcon = parseTaskLocationIcon(lsGet(LS_TASK_LOCATION_ICON, ""));
   const initialTaskPrBadge = parseTaskPrBadge(lsGet(LS_TASK_PR_BADGE, ""));
   const initialStatusBucketCollapsed = parseStatusBucketCollapsed(lsGet(LS_STATUS_BUCKET_COLLAPSED, ""));
@@ -1416,6 +1456,8 @@ function readStoredPrefs() {
     statusSectionCollapsed: initialStatusSectionCollapsed,
     showBoard: initialShowBoard,
     scheduledNav: initialScheduledNav,
+    newTaskButton: initialNewTaskButton,
+    launcherVisibility: initialLauncherVisibility,
     taskLocationIcon: initialTaskLocationIcon,
     taskPrBadge: initialTaskPrBadge,
     statusBucketCollapsed: initialStatusBucketCollapsed,
@@ -1842,6 +1884,19 @@ export const usePrefs = create<PrefsState>(set => ({
     if (s.scheduledNav === m) return s;
     try { localStorage.setItem(LS_SCHEDULED_NAV, m); } catch {}
     return { scheduledNav: m };
+  }),
+  setNewTaskButton: (m) => set(s => {
+    if (s.newTaskButton === m) return s;
+    try { localStorage.setItem(LS_NEW_TASK_BUTTON, m); } catch {}
+    return { newTaskButton: m };
+  }),
+  // null drops the override, back to the entry's default.
+  setLauncherVisibility: (id, v) => set(s => {
+    if ((s.launcherVisibility[id] ?? null) === v) return s;
+    const next = { ...s.launcherVisibility };
+    if (v === null) delete next[id]; else next[id] = v;
+    try { localStorage.setItem(LS_LAUNCHER_VISIBILITY, JSON.stringify(next)); } catch {}
+    return { launcherVisibility: next };
   }),
   setTaskLocationIcon: (m) => set(s => {
     if (s.taskLocationIcon === m) return s;

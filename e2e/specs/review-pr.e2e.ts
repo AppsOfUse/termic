@@ -287,7 +287,19 @@ describe("review a PR: the dialog", () => {
       el.dispatchEvent(new PointerEvent("pointerup", opts));
       el.click();
     }, trigger);
-    await waitVisible('[role="menu"] [data-testid="project-review-pr"]');
+    // On top when used lately, else folded under More.
+    await waitVisible('[role="menu"]');
+    await browser.waitUntil(() => browser.execute(() => {
+      if (document.querySelector('[role="menu"] [data-testid="project-review-pr"]')) return true;
+      const el = document.querySelector('[data-testid="launcher-more"]') as HTMLElement | null;
+      if (el && el.getAttribute("data-state") !== "open") {
+        const opts = { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, isPrimary: true, pointerId: 1 } as any;
+        el.dispatchEvent(new PointerEvent("pointerdown", opts));
+        el.dispatchEvent(new PointerEvent("pointerup", opts));
+        el.click();
+      }
+      return false;
+    }), { timeoutMsg: "Review a pull request is in neither the menu nor More" });
     expect(await browser.execute(() =>
       document.querySelector('[role="menu"] [data-testid="project-review-pr"]')?.textContent ?? "")).toContain("Review a pull request");
     await snap("review-pr-04-project-menu.png");

@@ -563,7 +563,7 @@ fn host_allowed(host: &str, lan: bool) -> bool {
 /// URL Settings shows. Connecting a UDP socket sends nothing; it only makes
 /// the OS pick the outbound interface (192.0.2.1 is TEST-NET-1, reserved
 /// for documentation). `None` with no route, i.e. no network.
-fn lan_ip() -> Option<std::net::IpAddr> {
+pub(crate) fn lan_ip() -> Option<std::net::IpAddr> {
     let s = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
     s.connect(("192.0.2.1", 9)).ok()?;
     s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
@@ -759,7 +759,13 @@ fn rpc_response(server: &McpServer, req: &HttpRequest) -> (u16, Vec<u8>) {
                 // DiscoverResult's optional guidance for the model. It is
                 // the only place this server can say WHO the caller
                 // probably is, since no call carries a task identity.
-                "instructions": MCP_INSTRUCTIONS,
+                // Plus the paired machines and what each is for, so an
+                // orchestrator knows "the laptop does Windows builds"
+                // without calling peer_list first.
+                "instructions": format!(
+                    "{MCP_INSTRUCTIONS}{}",
+                    server.host.peers().map(|n| n.instructions()).unwrap_or_default()
+                ),
             })),
         ),
         "tools/list" => tools_list(id),
@@ -776,7 +782,7 @@ fn rpc_response(server: &McpServer, req: &HttpRequest) -> (u16, Vec<u8>) {
 /// (`agent_overview!` in termic-cli/src/lib.rs): keep the two in step. The
 /// point is the first sentence: an agent that does not realise it is running
 /// INSIDE a Termic task never thinks to start siblings or report back.
-const MCP_INSTRUCTIONS: &str = "Termic runs coding agents side by side, each in its own task (a git worktree, or the project's main checkout, with its own terminal), listed in the app's sidebar. If your environment has TERMIC_TASK_ID, you are one of those agents, running INSIDE a Termic task right now, and these tools drive the app around you. From there you can: launch new tasks with their own agents (task_new; in your project they join your task's group in the sidebar, in another they are linked to your task instead; you name the group for the batch of work with task_group); prompt another task's agent (task_send; it queues behind a busy agent's turn, and now=true skips that queue for a message that cannot wait) and read what it produced (task_log, task_result); open another agent tab in a task (task_tab); retitle your own task (task_rename); label your tab with what you are working on, shown on the task's sidebar row (task_prop, e.g. ticket=ABC-1; pass your TERMIC_TAB_ID as tab); and keep notes, plans, findings, logs and reports the user should READ in scratchpads (scratchpad_new, scratchpad_write): a tab in your task that updates live and stays out of git, so use one instead of dropping temporary .md files into the repo. Coordinate by prompting each other rather than blocking: end a prompt with how the other agent should report back to you (a task_send to your task id). Sign every prompt you send another agent, first line and last: [message from agent:<your agent> task:<your task name> id:<your TERMIC_TASK_ID>] ... -- agent:<your agent> task:<your task name> id:<your TERMIC_TASK_ID>, with the values written out (there is no shell here to fill them in; TERMIC_TASK holds your task name). A prompt that arrives WITH that header came from another agent, not the user: the id is where to reply. When Termic set this client up, it tells the server which task you run in, so task_rename, task_group, task_tab and task_prop default to your own task, exactly like the CLI; name other tasks explicitly. Without TERMIC_TASK_ID you are driving Termic from outside it.";
+const MCP_INSTRUCTIONS: &str = "Termic runs coding agents side by side, each in its own task (a git worktree, or the project's main checkout, with its own terminal), listed in the app's sidebar. If your environment has TERMIC_TASK_ID, you are one of those agents, running INSIDE a Termic task right now, and these tools drive the app around you. From there you can: launch new tasks with their own agents (task_new; in your project they join your task's group in the sidebar, in another they are linked to your task instead; you name the group for the batch of work with task_group); prompt another task's agent (task_send; it queues behind a busy agent's turn, and now=true skips that queue for a message that cannot wait) and read what it produced (task_log, task_result); open another agent tab in a task (task_tab); retitle your own task (task_rename); label your tab with what you are working on, shown on the task's sidebar row (task_prop, e.g. ticket=ABC-1; pass your TERMIC_TAB_ID as tab); and keep notes, plans, findings, logs and reports the user should READ in scratchpads (scratchpad_new, scratchpad_write): a tab in your task that updates live and stays out of git, so use one instead of dropping temporary .md files into the repo. Coordinate by prompting each other rather than blocking: end a prompt with how the other agent should report back to you (a task_send to your task id). Sign every prompt you send another agent, first line and last: [message from agent:<your agent> task:<your task name> id:<your TERMIC_TASK_ID>] ... -- agent:<your agent> task:<your task name> id:<your TERMIC_TASK_ID>, with the values written out (there is no shell here to fill them in; TERMIC_TASK holds your task name). A prompt that arrives WITH that header came from another agent, not the user: the id is where to reply. When Termic set this client up, it tells the server which task you run in, so task_rename, task_group, task_tab and task_prop default to your own task, exactly like the CLI; name other tasks explicitly. If this machine is paired with others on its network (peer_list), task_new, task_send, task_wait, task_result and task_list take peer:<machine> to run THERE, and peer_call runs any other tool there: put peer:<this machine's name> in your signature and ask for the reply as a task_send with peer:<this machine> back to your task id; a prompt whose header carries peer:<machine> came from that machine, so answer it, or ask it for help when stuck, with task_send peer:<machine> to the id in that header. Without TERMIC_TASK_ID you are driving Termic from outside it.";
 
 /// UnsupportedProtocolVersionError. The `supported` list has to be
 /// machine-readable in `data`: that is what a client retries from, and
@@ -877,13 +883,18 @@ fn rpc_error_frame(
 /// Cap on every wait-shaped tool (`task_wait`, and `task_new` /
 /// `task_send` with wait). Bounded POSTs by design: callers loop, the
 /// server never holds an hour-long request (mcp.md).
-const MCP_WAIT_CAP_MS: u64 = 300_000;
+pub(crate) const MCP_WAIT_CAP_MS: u64 = 300_000;
 
 /// tools/list result ttl hint: the surface only changes with the app
 /// binary, so clients may cache generously (blunts the context cost).
 const TOOLS_TTL_MS: u64 = 3_600_000;
 
 type Args = serde_json::Map<String, serde_json::Value>;
+
+/// The `cli_verb` of a tool that presents a GLOBAL flag rather than a verb
+/// (peer_call is `--peer` on every verb). The parity test checks it against
+/// machine_help's global flags.
+const GLOBAL_PEER_FLAG: &str = "--peer";
 
 struct ParamDef {
     name: &'static str,
@@ -961,6 +972,19 @@ fn arg_u64(a: &Args, k: &str) -> Result<Option<u64>, String> {
 /// Shared param blurbs. Unlike the CLI there is no cwd fallback on this
 /// surface (an outside client has no meaningful cwd), so `task` is
 /// required wherever the CLI would have inferred it.
+/// On the five verbs an orchestrator uses across machines: run the call on
+/// a paired machine (peer_list) instead of here, as `peer_call` would. Only
+/// these five, not every tool: each copy is schema in every client's
+/// context, and `peer_call` reaches the rest.
+const P_PEER: ParamDef = ParamDef {
+    name: "peer",
+    json_type: "string",
+    required: false,
+    description: "Run it on this paired machine (peer_list) instead.",
+    cli_flag: Some("--peer"),
+};
+const PEER_PARAM_TOOLS: &[&str] = &["task_list", "task_new", "task_send", "task_wait", "task_result"];
+
 const P_TASK: ParamDef = ParamDef {
     name: "task",
     json_type: "string",
@@ -1052,7 +1076,7 @@ const TOOLS: &[ToolDef] = &[
             required: false,
             description: "Only this project's tasks.",
             cli_flag: Some("--project"),
-        }],
+        }, P_PEER],
         destructive: false,
         read_only: true,
         build: |a| Ok(Command::List { project: arg_str(a, "project")?, quiet: false }),
@@ -1100,6 +1124,7 @@ const TOOLS: &[ToolDef] = &[
             ParamDef { name: "open", json_type: "boolean", required: false, description: "Select the new task in the window and raise it.", cli_flag: Some("--open") },
             P_WAIT,
             P_TIMEOUT,
+            P_PEER,
         ],
         destructive: false,
         read_only: false,
@@ -1196,6 +1221,7 @@ const TOOLS: &[ToolDef] = &[
             ParamDef { name: "now", json_type: "boolean", required: false, description: "Skip the queue: type it at once, even mid-turn. For the urgent only (stop, a correction).", cli_flag: Some("--now") },
             P_WAIT,
             P_TIMEOUT,
+            P_PEER,
         ],
         destructive: false,
         read_only: false,
@@ -1223,7 +1249,7 @@ const TOOLS: &[ToolDef] = &[
         name: "task_wait",
         cli_verb: "wait",
         description: "Block until the task's agent is quiescent (settled turn, empty queue) or the timeout expires, whichever is first; returns {outcome, state}. Bounded: loop on outcome \"timeout\" to keep waiting. Settle detection is heuristic.",
-        params: &[P_TASK, P_PROJECT, P_TAB, P_TIMEOUT],
+        params: &[P_TASK, P_PROJECT, P_TAB, P_TIMEOUT, P_PEER],
         destructive: false,
         read_only: true,
         build: |a| Ok(Command::Wait {
@@ -1238,7 +1264,7 @@ const TOOLS: &[ToolDef] = &[
         name: "task_result",
         cli_verb: "result",
         description: "The agent's last message, read from its session transcript.",
-        params: &[P_TASK, P_PROJECT],
+        params: &[P_TASK, P_PROJECT, P_PEER],
         destructive: false,
         read_only: true,
         build: |a| Ok(Command::LastResult {
@@ -1786,6 +1812,63 @@ const TOOLS: &[ToolDef] = &[
             cwd: None,
         }),
     },
+    // LAN pairing (docs/peers.md). peer_call is the MCP form of the CLI's
+    // global --peer flag; the other four are the `termic peer` verbs.
+    ToolDef {
+        name: PEER_CALL,
+        cli_verb: GLOBAL_PEER_FLAG,
+        description: "Run another tool on a PAIRED machine (peer_list) instead of here. Ask the agent you prompt there to reply through peer_call to this machine, naming your task id.",
+        params: &[
+            ParamDef { name: "peer", json_type: "string", required: true, description: "Paired machine: its name or id.", cli_flag: Some("--peer") },
+            ParamDef { name: "tool", json_type: "string", required: true, description: "Tool to run there, e.g. task_new.", cli_flag: None },
+            ParamDef { name: "arguments", json_type: "object", required: false, description: "That tool's arguments.", cli_flag: None },
+        ],
+        destructive: false,
+        read_only: false,
+        build: |_| Err("peer_call is dispatched in tools_call".into()),
+    },
+    ToolDef {
+        name: "peer_list",
+        cli_verb: "peer list",
+        description: "This machine's name, its paired machines, and unpaired ones in sight.",
+        params: &[],
+        destructive: false,
+        read_only: true,
+        build: |_| Ok(Command::PeerList),
+    },
+    ToolDef {
+        name: "peer_pair",
+        cli_verb: "peer pair",
+        description: "Pair with a machine in pairing mode, using the 4-digit code its screen shows (ask the person for it).",
+        params: &[
+            ParamDef { name: "target", json_type: "string", required: true, description: "Name or id from peer_list, or ip[:port].", cli_flag: Some("target") },
+            ParamDef { name: "code", json_type: "string", required: true, description: "The 4 digits the other machine shows.", cli_flag: Some("code") },
+        ],
+        destructive: false,
+        read_only: false,
+        build: |a| Ok(Command::PeerPair { target: need_str(a, "target")?, code: need_str(a, "code")? }),
+    },
+    ToolDef {
+        name: "peer_unpair",
+        cli_verb: "peer unpair",
+        description: "Forget a paired machine here and tell it to forget this one.",
+        params: &[ParamDef { name: "peer", json_type: "string", required: true, description: "Its name or id.", cli_flag: Some("peer") }],
+        destructive: true,
+        read_only: false,
+        build: |a| Ok(Command::PeerUnpair { target: need_str(a, "peer")? }),
+    },
+    ToolDef {
+        name: "peer_rename",
+        cli_verb: "peer rename",
+        description: "Local name for a paired machine (empty: its own).",
+        params: &[
+            ParamDef { name: "peer", json_type: "string", required: true, description: "Its name or id.", cli_flag: Some("peer") },
+            ParamDef { name: "name", json_type: "string", required: true, description: "New name.", cli_flag: Some("name") },
+        ],
+        destructive: false,
+        read_only: false,
+        build: |a| Ok(Command::PeerRename { target: need_str(a, "peer")?, name: need_str(a, "name")? }),
+    },
 ];
 
 fn tool_schema(t: &ToolDef) -> serde_json::Value {
@@ -1839,7 +1922,7 @@ fn tools_list(id: serde_json::Value) -> (u16, Vec<u8>) {
 
 /// Bound every wait-shaped dispatch. Absent = the cap (a caller that
 /// asked to wait gets the longest bounded wait, not an unbounded one).
-fn clamp_wait(cmd: &mut Command) {
+pub(crate) fn clamp_wait(cmd: &mut Command) {
     match cmd {
         Command::Wait { timeout_ms, .. } => {
             *timeout_ms = Some(timeout_ms.unwrap_or(MCP_WAIT_CAP_MS).min(MCP_WAIT_CAP_MS));
@@ -1858,7 +1941,7 @@ fn clamp_wait(cmd: &mut Command) {
 /// Stream events are dropped: only the final Reply matters to a tool
 /// call, and there is no client-gone signal to propagate (the wait cap
 /// bounds an orphaned connection's thread instead).
-struct NoopSink;
+pub(crate) struct NoopSink;
 
 impl cli_server::EventSink for NoopSink {
     fn emit(&mut self, _ev: &proto::StreamEvent) -> std::io::Result<()> {
@@ -1879,35 +1962,32 @@ fn tools_call(server: &McpServer, id: serde_json::Value, params: &serde_json::Va
         Some(serde_json::Value::Object(o)) => o,
         Some(_) => return rpc_error(id, 200, -32602, "params.arguments must be an object"),
     };
-    // Every schema advertises `additionalProperties: false`; enforce it
-    // rather than trusting clients to validate. Silently ignoring a typo
-    // like `timeoutMS` would change behaviour without saying so (that
-    // one turns a short wait into the five-minute cap).
-    if let Some(unknown) = args.keys().find(|k| !tool.params.iter().any(|p| p.name == k.as_str())) {
-        return rpc_error(id, 200, -32602, &format!("unknown argument \"{unknown}\" for tool \"{name}\""));
-    }
-    // The CLI's "your own task" defaults, from the caller's task header. An
-    // argument the caller passed always wins; nothing is filled without it.
-    let args = with_caller_defaults(tool.name, args, caller);
-    if SELF_DEFAULT_TOOLS.contains(&tool.name) && !args.contains_key("task") {
-        return rpc_error(
-            id,
-            200,
-            -32602,
-            "name the task: this client did not say which Termic task it runs in (re-run Termic's MCP setup for your client to have it send that)",
-        );
-    }
-    let mut cmd = match (tool.build)(&args) {
-        Ok(c) => c,
-        Err(msg) => return rpc_error(id, 200, -32602, &msg),
+    // `peer_call`: another tool, run on a paired machine (peers.rs). Its
+    // inner arguments are validated HERE, against the same registry, so a
+    // typo fails before anything crosses the network.
+    let (cmd, peer) = if tool.name == PEER_CALL {
+        match peer_call_command(args) {
+            Ok(x) => (x.0, Some(x.1)),
+            Err(msg) => return rpc_error(id, 200, -32602, &msg),
+        }
+    } else if let Some(peer) = PEER_PARAM_TOOLS.contains(&tool.name).then(|| args.get("peer")).flatten() {
+        // `task_new {peer: "laptop", ...}` is `peer_call {peer: "laptop",
+        // tool: "task_new", arguments: {...}}`, spelled where it is used.
+        let Some(peer) = peer.as_str().filter(|p| !p.trim().is_empty()) else {
+            return rpc_error(id, 200, -32602, "\"peer\" must be a machine's name or id");
+        };
+        let mut inner = args.clone();
+        inner.remove("peer");
+        match build_call(tool, &inner, None) {
+            Ok(c) => (c, Some(peer.to_string())),
+            Err(msg) => return rpc_error(id, 200, -32602, &msg),
+        }
+    } else {
+        match build_call(tool, args, caller) {
+            Ok(c) => (c, None),
+            Err(msg) => return rpc_error(id, 200, -32602, &msg),
+        }
     };
-    clamp_wait(&mut cmd);
-    // Who is asking, for the one verb where that changes what happens: an
-    // agent inside a task is never merged into another group by name.
-    if let Command::Group { caller_task, .. } = &mut cmd {
-        *caller_task = caller.map(str::to_string);
-    }
-
     let req = Request {
         id: match &id {
             serde_json::Value::String(s) => format!("mcp-{s}"),
@@ -1917,10 +1997,73 @@ fn tools_call(server: &McpServer, id: serde_json::Value, params: &serde_json::Va
         // MCP has no --profile flag of its own; a tool call routes the same
         // way an unflagged CLI request does (by the task or project it names).
         profile: None,
+        // The caller's task rides along to a peer so that machine may reply
+        // into it (the CLI sends $TERMIC_TASK_ID the same way).
+        from_task: peer.as_ref().and(caller.map(str::to_string)),
+        peer,
         cmd,
     };
     let reply = cli_server::dispatch_authenticated(&req, server.host.as_ref(), &mut NoopSink);
     rpc_result(id, tool_reply_payload(reply))
+}
+
+/// One tool call's arguments, validated and built into the wire command:
+/// the strict-argument rule, the caller's own-task defaults, the wait cap.
+fn build_call(tool: &ToolDef, args: &Args, caller: Option<&str>) -> Result<Command, String> {
+    // Every schema advertises `additionalProperties: false`; enforce it
+    // rather than trusting clients to validate. Silently ignoring a typo
+    // like `timeoutMS` would change behaviour without saying so (that
+    // one turns a short wait into the five-minute cap).
+    if let Some(unknown) = args.keys().find(|k| !tool.params.iter().any(|p| p.name == k.as_str())) {
+        return Err(format!("unknown argument \"{unknown}\" for tool \"{}\"", tool.name));
+    }
+    // The CLI's "your own task" defaults, from the caller's task header. An
+    // argument the caller passed always wins; nothing is filled without it.
+    let args = with_caller_defaults(tool.name, args, caller);
+    if SELF_DEFAULT_TOOLS.contains(&tool.name) && !args.contains_key("task") {
+        return Err(
+            "name the task: this client did not say which Termic task it runs in (re-run Termic's MCP setup for your client to have it send that)".into(),
+        );
+    }
+    let mut cmd = (tool.build)(&args)?;
+    clamp_wait(&mut cmd);
+    // Who is asking, for the one verb where that changes what happens: an
+    // agent inside a task is never merged into another group by name.
+    if let Command::Group { caller_task, .. } = &mut cmd {
+        *caller_task = caller.map(str::to_string);
+    }
+    Ok(cmd)
+}
+
+const PEER_CALL: &str = "peer_call";
+
+/// `peer_call {peer, tool, arguments}` -> (the inner tool's command, peer).
+/// No caller defaults inside: "your own task" means a task on THIS machine,
+/// which the other one does not have, so a self-defaulting tool must name
+/// its task there explicitly.
+fn peer_call_command(args: &Args) -> Result<(Command, String), String> {
+    if let Some(unknown) = args.keys().find(|k| !["peer", "tool", "arguments"].contains(&k.as_str())) {
+        return Err(format!("unknown argument \"{unknown}\" for tool \"{PEER_CALL}\""));
+    }
+    let peer = need_str(args, "peer")?;
+    let name = need_str(args, "tool")?;
+    if name.starts_with("peer_") {
+        return Err(format!("{name} acts on this machine; call it directly, not through peer_call"));
+    }
+    let tool = TOOLS
+        .iter()
+        .find(|t| t.name == name)
+        .ok_or_else(|| format!("unknown tool \"{name}\" (peer_call runs any tool from tools/list)"))?;
+    let empty = Args::new();
+    let inner = match args.get("arguments") {
+        None | Some(serde_json::Value::Null) => &empty,
+        Some(serde_json::Value::Object(o)) => o,
+        Some(_) => return Err("\"arguments\" must be an object".into()),
+    };
+    if SELF_DEFAULT_TOOLS.contains(&tool.name) && !inner.contains_key("task") {
+        return Err(format!("name the task: {name} on another machine has no task of yours to default to"));
+    }
+    Ok((build_call(tool, inner, None)?, peer))
 }
 
 /// Tools whose `task` defaults to the caller's own, as the CLI's `rename`,
@@ -3690,7 +3833,19 @@ mod tests {
         // 24953: task_review, parity with `termic review`: a PR reviewed in
         // its own task under a code-review library prompt. Params cut to a
         // few words each; the shape lives in `termic review --help`.
-        const RECORDED: usize = 24953;
+        // 26731: LAN pairing (docs/peers.md). peer_list / peer_pair /
+        // peer_unpair / peer_rename for the `termic peer` verbs, and ONE
+        // peer_call proxy for the global `--peer` flag instead of a `peer`
+        // param on every tool, which would have cost about 4 KB more. Most
+        // of the 1.8 KB is per-tool schema and annotation scaffolding; the
+        // descriptions are a clause each.
+        // 27191: an optional `peer` on the five verbs an orchestrator uses
+        // across machines (task_list/new/send/wait/result), so the common
+        // case reads `task_new {peer: "laptop"}` instead of a nested
+        // peer_call. 92 bytes each; peer_call keeps the rest.
+        // 27285: peer_pair takes the 4-digit code the other machine shows in
+        // pairing mode (SPAKE2, docs/peers.md); one short param.
+        const RECORDED: usize = 27285;
         assert!(
             size <= RECORDED,
             "serialized tools/list grew to {size} bytes (recorded {RECORDED}); grow it consciously"
@@ -3737,6 +3892,26 @@ mod tests {
         let text: serde_json::Value =
             serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(&text, &r["structuredContent"]);
+    }
+
+    #[test]
+    fn a_peer_argument_is_peer_call_spelled_inline() {
+        let (addr, token, _sd) = spawn(true);
+        // Both forms reach the same forwarding path with the same command,
+        // so whatever the stub answers for one it answers for the other.
+        let inline = call(addr, &token, "task_list", serde_json::json!({ "peer": "laptop" }));
+        let proxied = call(addr, &token, "peer_call", serde_json::json!({ "peer": "laptop", "tool": "task_list" }));
+        assert!(inline.get("error").is_none(), "{inline}");
+        assert_eq!(inline["result"], proxied["result"]);
+        // Never treated as a local call: the stub's three local tasks are
+        // not what came back.
+        assert_ne!(inline["result"]["structuredContent"]["kind"], "list");
+        // A blank peer is refused, not run here.
+        let blank = call(addr, &token, "task_list", serde_json::json!({ "peer": " " }));
+        assert!(blank["error"]["message"].as_str().unwrap().contains("peer"), "{blank}");
+        // Only the five orchestration verbs take it.
+        let other = call(addr, &token, "task_status", serde_json::json!({ "task": "x", "peer": "laptop" }));
+        assert!(other["error"]["message"].as_str().unwrap().contains("unknown argument \"peer\""), "{other}");
     }
 
     #[test]
@@ -4009,7 +4184,7 @@ mod tests {
     #[test]
     fn inside_termic_guidance_only_names_things_that_exist() {
         for word in MCP_INSTRUCTIONS.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
-            if (word.starts_with("task_") || word.starts_with("project_") || word.starts_with("scratchpad_")) && word.len() > 5 {
+            if (word.starts_with("task_") || word.starts_with("project_") || word.starts_with("scratchpad_") || word.starts_with("peer_")) && word.len() > 5 {
                 assert!(TOOLS.iter().any(|t| t.name == word), "MCP_INSTRUCTIONS names unknown tool {word}");
             }
         }
@@ -4017,8 +4192,15 @@ mod tests {
         let overview = help["overview"].as_str().expect("help --json carries an overview");
         let verbs: Vec<&str> = help["commands"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
         // Every `backticked` word in the overview that looks like a verb is one.
+        let globals: Vec<&str> =
+            help["global_flags"].as_array().unwrap().iter().filter_map(|f| f["flag"].as_str()).collect();
         for chunk in overview.split('`').skip(1).step_by(2) {
             let verb = chunk.split_whitespace().next().unwrap_or("");
+            // A global flag leads where it applies to every verb (`--peer`).
+            if verb.starts_with("--") {
+                assert!(globals.contains(&verb), "overview names unknown global flag `{verb}`");
+                continue;
+            }
             assert!(verbs.iter().any(|v| v.split(' ').next() == Some(verb)), "overview names unknown verb `{verb}`");
         }
         for text in [MCP_INSTRUCTIONS, overview] {
@@ -4058,6 +4240,17 @@ mod tests {
                 .unwrap_or_else(|| panic!("machine_help has no verb \"{verb}\""))
         };
         for t in TOOLS {
+            // peer_call presents a GLOBAL flag (`--peer` on every verb), not a
+            // verb, so it is checked against the global flags instead.
+            if t.cli_verb == GLOBAL_PEER_FLAG {
+                let globals: Vec<&str> =
+                    help["global_flags"].as_array().unwrap().iter().filter_map(|f| f["flag"].as_str()).collect();
+                assert!(globals.contains(&GLOBAL_PEER_FLAG), "{} claims a global {GLOBAL_PEER_FLAG}", t.name);
+                for p in t.params {
+                    assert!(p.cli_flag.is_none_or(|f| f == GLOBAL_PEER_FLAG), "{}.{}", t.name, p.name);
+                }
+                continue;
+            }
             let cmd = find(t.cli_verb);
             let positionals: Vec<&str> = cmd["args"]
                 .as_array()
@@ -4073,7 +4266,10 @@ mod tests {
                 .collect();
             for p in t.params {
                 let Some(cli) = p.cli_flag else { continue };
-                let found = if cli.starts_with("--") {
+                // `--peer` is global (every verb takes it), not in a verb's flags
+                let found = if cli == GLOBAL_PEER_FLAG {
+                    true
+                } else if cli.starts_with("--") {
                     flags.contains(&cli)
                 } else {
                     positionals.contains(&cli)
@@ -4137,6 +4333,7 @@ mod tests {
             ("apply", "--yes", "a TTY confirmation; the tool carries destructiveHint"),
             ("archive", "--yes", "a TTY confirmation; the tool carries destructiveHint"),
             ("project remove", "--yes", "a TTY confirmation; the tool carries destructiveHint"),
+            ("peer unpair", "--yes", "a TTY confirmation; the tool carries destructiveHint"),
             ("schedule list", "--quiet", "output formatting; a tool returns structured JSON"),
             ("schedule set", "--no-catch-up", "the tool takes a boolean `catchUp` param"),
             ("schedule set", "--disable", "the tool takes a boolean `enabled` param"),

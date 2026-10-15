@@ -103,7 +103,15 @@ use std::io::{self, BufRead, Read, Write};
 /// review of that pull request, on its fetched branch, holding the PR's
 /// details ahead of a prompt tagged "Code review". A v20 server would drop
 /// the field and create a task named after nothing on a fresh branch.
-pub const PROTOCOL_VERSION: u32 = 21;
+///
+/// v22: paired machines on the LAN (docs/peers.md). `Request` gains `peer`
+/// (run this verb on that paired Termic instead of here) and `from_task`;
+/// the `peer_list` / `peer_pair` / `peer_unpair` / `peer_rename` verbs; and
+/// the `peer_unreachable` error code (exit 12). A v21 server would drop
+/// `peer` and run the verb HERE, on the wrong machine, so the bump is not
+/// optional. Two paired apps must ALSO speak the same version to call each
+/// other, for the same reason one hop further away.
+pub const PROTOCOL_VERSION: u32 = 22;
 
 /// A pasted "123", "#123", "!123" or a PR / MR link, reduced to its number.
 /// None for anything else. The webview's `parsePrRef` (src/lib/prReview.ts)
@@ -262,6 +270,9 @@ pub mod exit_code {
     /// An attach session ended because the target went away underneath
     /// it (task archived, agent exited), as opposed to a clean detach (0).
     pub const ATTACH_CLOSED: i32 = 11;
+    /// `--peer`: the paired machine could not be reached (off, asleep, left
+    /// the network, firewall). Nothing ran there.
+    pub const PEER_UNREACHABLE: i32 = 12;
 }
 
 /// How a watched run ended (`wait`, `new --wait`). Ordered by the exit
@@ -310,6 +321,22 @@ pub struct Request {
     /// would silently act on the wrong profile's data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// `--peer <name>` (v22): run this verb on that PAIRED Termic, not here.
+    /// The app this request reaches forwards it, sealed with the pair's own
+    /// key; the caller never holds a credential for the other machine. A
+    /// request that arrives FROM a peer never carries this (no second hop).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// The task the caller runs in (`$TERMIC_TASK_ID`), sent alongside `peer`
+    /// only. Not `caller_task`: the command is flattened into this object and
+    /// `group` already owns that key (and `peer_*` verbs say `target`, not
+    /// `peer`, for the same reason). The forwarding app records it, so that peer may later reply into
+    /// this task even when it is only allowed to reply (docs/peers.md,
+    /// "What a paired machine may do"). Caller-asserted, like the env var it
+    /// comes from: it can only ever name a task the caller could have
+    /// prompted itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_task: Option<String>,
     #[serde(flatten)]
     pub cmd: Command,
 }
@@ -742,6 +769,21 @@ pub enum Command {
     /// Unregister a project. Archives and deletes ALL its tasks; the
     /// CLI confirms before sending.
     ProjectRemove { name: String },
+    /// This machine, the machines paired with it, and the unpaired ones in
+    /// sight on the LAN (v22, docs/peers.md).
+    PeerList,
+    /// Pair with a machine in sight (its name or id) or at an address (`ip`
+    /// or `ip:port`) that is in pairing mode, using the four-digit code its
+    /// screen shows. Returns once both machines hold the pair, or fails on a
+    /// wrong code or a machine not in pairing mode.
+    PeerPair { target: String, code: String },
+    /// Forget a paired machine and tell it to forget this one. Its key is
+    /// deleted here at once, so it can no longer call in even when it is
+    /// offline and never hears about it.
+    PeerUnpair { target: String },
+    /// Set the local name of a paired machine (empty: back to the name it
+    /// gives itself). Local only: the other machine is not told.
+    PeerRename { target: String, name: String },
     /// List recurring schedules across projects, optionally filtered to one project.
     ScheduleList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1030,6 +1072,10 @@ pub enum ReplyData {
     LastResult(ResultData),
     Attach(AttachData),
     Schedule(ScheduleData),
+    /// `peer list`, `peer unpair` and `peer rename` (v22).
+    Peers(PeersData),
+    /// `peer pair` (v22).
+    PeerPair(PeerPairData),
 }
 
 /// One property as a tab carries it (GH #358).
@@ -1406,6 +1452,80 @@ pub struct ProjectRemoveData {
     pub removed_tasks: u32,
 }
 
+/// This Termic, as `peer list` shows it and other machines see it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PeerSelf {
+    pub id: String,
+    /// The name other machines see (Settings, defaults to the computer name).
+    pub name: String,
+    /// LAN sharing is on (Settings > Nearby machines).
+    pub sharing: bool,
+    /// Where other machines reach this one, `ip:port`. Empty when sharing
+    /// is off or the machine has no network.
+    #[serde(default)]
+    pub addresses: Vec<String>,
+}
+
+/// A paired machine.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PeerInfo {
+    pub id: String,
+    /// What to call it: the local name when one is set, else its own.
+    pub name: String,
+    /// The name it gives itself.
+    pub advertised_name: String,
+    /// Seen on the network in the last few minutes.
+    pub online: bool,
+    /// When it was last seen or heard from, RFC 3339. None: never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+    /// Last known `ip:port`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// What THAT machine may do HERE: "reply" or "drive".
+    pub grant: String,
+    /// What THIS machine may do THERE, as it last said. None: not heard yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub their_grant: Option<String>,
+    /// It answered "not paired" the last time this machine called it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub revoked_by_peer: bool,
+    /// What the user says this machine is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// An unpaired Termic in sight on the LAN.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct NearbyInfo {
+    pub id: String,
+    pub name: String,
+    pub address: String,
+    pub version: String,
+    /// Speaks this machine's CLI protocol, so the two could call each other
+    /// once paired.
+    pub compatible: bool,
+    /// In pairing mode: showing a code, ready to be paired with.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pairing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PeersData {
+    #[serde(rename = "self")]
+    pub this: PeerSelf,
+    pub peers: Vec<PeerInfo>,
+    #[serde(default)]
+    pub nearby: Vec<NearbyInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PeerPairData {
+    pub peer: PeerInfo,
+}
+
 /// One schedule cadence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default)]
@@ -1731,6 +1851,8 @@ pub enum ErrorCode {
     ApplyConflict,
     /// Server-side failure.
     Internal,
+    /// `--peer`: the paired machine did not answer (v22). Nothing ran there.
+    PeerUnreachable,
 }
 
 impl ErrorCode {
@@ -1740,6 +1862,7 @@ impl ErrorCode {
             ErrorCode::CliDisabled => exit_code::CLI_DISABLED,
             ErrorCode::Auth => exit_code::REFUSED,
             ErrorCode::ApplyConflict => exit_code::APPLY_CONFLICT,
+            ErrorCode::PeerUnreachable => exit_code::PEER_UNREACHABLE,
             ErrorCode::BadRequest
             | ErrorCode::NotFound
             | ErrorCode::Ambiguous
@@ -2341,6 +2464,10 @@ mod tests {
             Command::ProjectAdd { path: "/notes/plain".into(), non_git: true },
             Command::ProjectList,
             Command::ProjectRemove { name: "web".into() },
+            Command::PeerList,
+            Command::PeerPair { target: "192.168.1.20:23620".into(), code: "4821".into() },
+            Command::PeerUnpair { target: "laptop".into() },
+            Command::PeerRename { target: "laptop".into(), name: "".into() },
             Command::Send {
                 task: Some("fix-auth".into()),
                 project: Some("web".into()),
@@ -2410,8 +2537,61 @@ mod tests {
             Command::ScheduleDelete { task: Some("parent-1".into()), project: None, delete_reports: true, archive_tasks: false, cwd: None },
             Command::ScheduleDelete { task: Some("parent-1".into()), project: None, delete_reports: false, archive_tasks: true, cwd: None },
         ] {
-            roundtrip(&Request { id: "r1".into(), token: Some("t".into()), profile: None, cmd });
+            roundtrip(&Request {
+                id: "r1".into(),
+                token: Some("t".into()),
+                profile: None,
+                peer: None,
+                from_task: None,
+                cmd,
+            });
         }
+    }
+
+    #[test]
+    fn peer_fields_ride_on_the_request_and_vanish_when_absent() {
+        // `peer` is what sends a verb to another machine. An older CLI's
+        // request (no field) must parse as "run it here", and a request with
+        // no peer must not grow the keys, so the wire stays what it was.
+        let plain = r#"{"id":"1","token":"t","cmd":"list"}"#;
+        let req: Request = serde_json::from_str(plain).unwrap();
+        assert_eq!((req.peer.as_deref(), req.from_task.as_deref()), (None, None));
+        let line = serde_json::to_string(&req).unwrap();
+        assert!(!line.contains("peer") && !line.contains("from_task"), "{line}");
+
+        let req = Request {
+            id: "1".into(),
+            token: Some("t".into()),
+            profile: None,
+            peer: Some("laptop".into()),
+            from_task: Some("w1".into()),
+            cmd: Command::List { project: None, quiet: false },
+        };
+        let line = serde_json::to_string(&req).unwrap();
+        assert!(line.contains(r#""peer":"laptop""#) && line.contains(r#""from_task":"w1""#), "{line}");
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), req);
+    }
+
+    #[test]
+    fn peer_unreachable_has_its_own_exit_code() {
+        // Scripts branch on "the other machine is off" vs "it refused": 12 is
+        // nothing ran there, 6 is it said no.
+        assert_eq!(ErrorCode::PeerUnreachable.exit_code(), exit_code::PEER_UNREACHABLE);
+        assert_eq!(exit_code::PEER_UNREACHABLE, 12);
+        let line = serde_json::to_string(&ErrorCode::PeerUnreachable).unwrap();
+        assert_eq!(line, r#""peer_unreachable""#);
+    }
+
+    #[test]
+    fn peers_data_names_this_machine_self_on_the_wire() {
+        let d = PeersData {
+            this: PeerSelf { id: "a".into(), name: "Studio".into(), sharing: true, addresses: vec![] },
+            peers: vec![],
+            nearby: vec![],
+        };
+        let v = serde_json::to_value(ReplyData::Peers(d)).unwrap();
+        assert_eq!(v["kind"], "peers");
+        assert_eq!(v["self"]["name"], "Studio");
     }
 
     #[test]
@@ -2422,6 +2602,8 @@ mod tests {
             id: "r1".into(),
             token: Some("t".into()),
             profile: None,
+            peer: None,
+            from_task: None,
             cmd: Command::LastResult { task: None, project: None, cwd: None },
         };
         let line = serde_json::to_string(&req).unwrap();

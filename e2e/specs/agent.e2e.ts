@@ -2068,17 +2068,17 @@ describe("agent notifications", () => {
       usage: document.querySelectorAll('[data-testid="usage-gauge"]').length,
     }));
 
-    await toggle("Show context window");
+    await toggle("Context window");
     await browser.waitUntil(async () => (await shown()).ctx === false,
       { timeout: 8_000, timeoutMsg: "hiding context left the gauge on screen" });
     expect((await shown()).usage).toBe(2);
 
-    await toggle("Show plan usage");
+    await toggle("Plan usage");
     await browser.waitUntil(async () => (await shown()).usage === 0,
       { timeout: 8_000, timeoutMsg: "hiding usage left the plan gauges on screen" });
 
-    await toggle("Show context window");
-    await toggle("Show plan usage");
+    await toggle("Context window");
+    await toggle("Plan usage");
     await browser.waitUntil(async () => {
       const s = await shown();
       return s.ctx && s.usage === 2;

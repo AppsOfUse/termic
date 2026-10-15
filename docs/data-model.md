@@ -3,6 +3,19 @@
 ## Directories
 
 Three directories, different owners:
+- `<global_dir>/peers.json`: LAN pairing ([peers.md](peers.md)). This
+  instance's random id, the name other machines see (empty = the
+  computer's own), the listener's last port, and one record per paired
+  machine: its id and name, the local alias, the 256-bit pair KEY (hex),
+  what it may do here (`grant`), what it lets us do (`their_grant`), last
+  seen / address / port / version, `revoked_by_peer`, and `contacts` (the
+  tasks here that called it, which a Reply-only peer may answer), and
+  `note` (what the user says it is for, read by agents). Written
+  0600 via a temp file and rename; unreadable = moved to
+  `peers.json.unreadable`. Global, not per profile, like the CLI socket.
+  The switch is the setting `lan_sharing_enabled` (default false), which
+  is machine-local: `config_sync` never syncs it, because a synced `true`
+  would open a machine to its network that nobody chose to open.
 - `~/Library/Application Support/termic/` — app-owned: `projects.json`, `tasks/`, `scratch/`, `settings.json`. With PROFILES (GH #280) those four are the ROOT profile's; every other profile keeps its own copy under `profiles/<slug>/`, and `profiles.json` (the registry) sits alongside them and is ABSENT until the first profile is created. `lib.rs#global_dir()` is the machine-wide root (tokens, docker, `servers/`, `backups/`, and the sandbox deny rule, which must cover every profile); `lib.rs#profile_dir(id)` is one profile's. See [profiles.md](profiles.md). Docker mode adds three more here: `docker/` (the editable Dockerfile + build metadata), `docker-agents/<agent>/` (one container config dir per agent, so a login survives `--rm`) and `docker-forge/config/{gh,glab-cli}` + `docker-forge/azure/` (the gh / glab / az logins — the host layout mirrors each container path minus the leading dot, SHARED by every agent and task, see [sandbox.md](sandbox.md)). Path via `dirs::data_local_dir().join("termic")` in `lib.rs#global_dir()` (renamed from `data_dir()` when profiles landed, so a caller that wants machine-wide state has to say so).
 - `<global_dir>/sync/` + `<global_dir>/sync-state.json`: config sync (`config_sync.rs`, the idea doc is [ideas/config-sync.md](ideas/config-sync.md)). `sync/` is ONE git clone per machine of the user's private sync repo, holding `README.md`, a machine-wide `prefs.json` (the unscoped "sync" keys of `src/lib/prefsRegistry.ts`), `themes/`, and `profiles/<sync-id>/` per bound profile (`profile.json` with its name, `projects/<id>.json`, `agents/<id>.json`, `settings.json`, the profile-scoped `prefs.json`, and `removed.json` tombstones). Every file is sorted-key, pretty-printed JSON with a trailing newline. `sync-state.json` is never committed: last sync time and error, the files a rebase stopped on and the choice made for each, and the notices a pull applied until dismissed (safety-default changes, and custom agents deleted on another machine, which are applied rather than asked because they delete no files). Both live inside the data dir on purpose: the Seatbelt deny covers them and Docker mounts only named subfolders, so a caged agent can neither read the setup nor push to the repo (see [sandbox.md](sandbox.md)).
 - `$TMPDIR/termic-attachments/` — files handed to an agent as FILES rather than as text: `<task_id>/` for a staged drop, `clipboard/` for an image pasted into a terminal (`clipboard_image_save`, pruned after 7 days). Deliberately NOT under the app data dir, which the Seatbelt profile ends by denying outright (CLI token); `$TMPDIR` is on `builtin_runtime_paths` and is mounted read-only into every Docker container at the same absolute path. `lib.rs#attachments_dir()`.

@@ -115,6 +115,10 @@ pub(crate) const SETTINGS_LOCAL: &[&str] = &[
     // CLI and MCP install state, one-time migration markers.
     "cli_enabled", "cli_default_migrated", "hooks_auto_default_migrated",
     "cli_user_link_installed", "mcp_enabled", "mcp_bind_address", "mcp_port",
+    // Opening this machine to its network is a decision about THIS machine
+    // and THIS network; a synced `true` would switch sharing on somewhere
+    // nobody chose to.
+    "lan_sharing_enabled",
     "welcomed", "schema_version",
     // This module's own per-profile state.
     "sync",
@@ -3497,6 +3501,7 @@ mod tests {
             mcp_enabled: true,
             mcp_bind_address: "0.0.0.0".into(),
             mcp_port: 8123,
+            lan_sharing_enabled: true,
             close_action: Some("ask".into()),
             tray_enabled: Some(true),
             auto_install_hooks: true,

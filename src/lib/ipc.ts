@@ -10,7 +10,7 @@ import type {
   Project, ProjectMember, Task, CreateTaskArgs, CreateMultiArgs, CreateMultiMember, Settings, DiscoveredRepo,
   ImportableWorktree, CliInfo, ChangeFile, Changes, GitStatus, CheckoutResult, UpdateMode, UpdateResult, UpdateInfo, UpdateAllItem, FileEntry, Agent, RepoConfig,
   SandboxMode, TaskDiffSummary, TaskDiffStat, DesktopIntegration, CliInstallStatus, McpStatus, BranchContext, PrPickList, PrScope, BlameFile, GitCommit, GitCompare, GitFile, GitLogPage, GitRef,
-  ForgeCliStatus, ForgeProvider, PrLookup, MemberPrLookup, PrComment, IssueLookup, IssueScope, AgentHookStatus, HookPlan,
+  ForgeCliStatus, ForgeProvider, PeerStatus, PeerGrant, PairingView, PairModeView, PrLookup, MemberPrLookup, PrComment, IssueLookup, IssueScope, AgentHookStatus, HookPlan,
   ProfileView, ProfilesView, ProfileDeletePreview, AgentAccountsView, ExternalAppInfo,
   SyncStatus, SyncConnectInfo, SyncChange, SyncPrefsSnapshot, SyncRunResult,
 } from "./types";
@@ -1285,6 +1285,30 @@ export const mcpRegenerateToken = () => invoke<void>("mcp_regenerate_token");
  *  to a human-readable confirmation; rejects with the reason. */
 export const mcpInstallClient  = (client: "claude" | "codex") =>
   invoke<string>("mcp_install_client", { client });
+// ───────────────────────── LAN peers ─────────────────────────
+// Settings > Agent access and the global pairing dialog (docs/peers.md).
+// Whether sharing is on comes from `settings.lan_sharing_enabled`.
+export const peerStatus        = () => invoke<PeerStatus>("peer_status");
+/** Rename this machine as others see it. Empty goes back to the default. */
+export const peerSetName       = (name: string) => invoke<void>("peer_set_name", { name });
+/** Pair with a nearby id, or an "ip" / "ip:port", in pairing mode, using the
+ *  code its screen shows. Resolves once both hold the pair; rejects with a
+ *  readable reason (wrong code, not in pairing mode, unreachable). */
+export const peerPair          = (target: string, code: string) => invoke<PairingView>("peer_pair", { target, code });
+/** Open pairing mode (a fresh code, for 5 minutes) or close it. */
+export const peerPairMode      = (open: boolean) => invoke<PairModeView | null>("peer_pair_mode", { open });
+/** Local alias for a paired machine. Empty clears it. */
+export const peerRename        = (peer: string, name: string) => invoke<void>("peer_rename", { peer, name });
+export const peerSetGrant      = (peer: string, grant: PeerGrant) => invoke<void>("peer_set_grant", { peer, grant });
+/** What a paired machine is for, in the user's words; agents read it. */
+export const peerSetNote       = (peer: string, note: string) => invoke<void>("peer_set_note", { peer, note });
+/** Forget a pairing here and tell the other machine to forget it too. */
+export const peerUnpair        = (peer: string) => invoke<void>("peer_unpair", { peer });
+/** Ask discovery to look for other machines now. */
+export const peerRefresh       = () => invoke<void>("peer_refresh");
+export const PEER_CHANGED_EVENT = "peer://changed";
+export const PEER_PAIRING_EVENT = "peer://pairing";
+
 export const listMonospaceFonts = () => invoke<string[]>("list_monospace_fonts");
 /** Every installed font family, unfiltered — for hiding curated picker
  *  entries whose font isn't installed. See list_font_families in lib.rs

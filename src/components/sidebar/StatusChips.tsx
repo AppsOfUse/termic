@@ -135,7 +135,7 @@ export const StatusChips = memo(function StatusChips() {
   return (
     // One line at any sidebar width: a chip is its glyph and count, and its
     // name lives in the tooltip and the accessible label.
-    <div data-testid="status-chips" className="no-scrollbar flex min-w-0 flex-nowrap gap-1 overflow-x-auto">
+    <div data-testid="status-chips" className="no-scrollbar flex min-w-0 flex-nowrap gap-0.5 overflow-x-auto">
       {STATUS_CHIPS.map(c => {
         const isAction = c === "action";
         const clause = isAction
@@ -178,12 +178,15 @@ export const StatusChips = memo(function StatusChips() {
                 }
               }}
               className={cn(
-                "flex h-[22px] shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11.5px] tabular-nums transition-colors",
+                // Borderless: glyph and count on the sidebar's own surface,
+                // a fill only on hover and while on. The filter field above
+                // is the one outlined control in the sidebar's head.
+                "flex h-[22px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums",
                 on
-                  ? "border-[var(--color-accent)] text-[var(--color-fg)]"
+                  ? "text-[var(--color-fg)]"
                   : empty
-                    ? "cursor-default border-[var(--color-border-soft)] text-[var(--color-fg-faint)] opacity-60"
-                    : "border-[var(--color-border-soft)] text-[var(--color-fg-dim)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)]",
+                    ? "cursor-default text-[var(--color-fg-faint)] opacity-60"
+                    : "text-[var(--color-fg-dim)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]",
               )}
               style={on ? { backgroundColor: "color-mix(in srgb, var(--color-accent) 14%, transparent)" } : undefined}
             >

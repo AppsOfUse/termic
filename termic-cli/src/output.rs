@@ -3,7 +3,7 @@
 //! CLI output.
 
 use serde::Serialize;
-use termic_proto::{GroupData, 
+use termic_proto::{GroupData, PeerInfo, PeerPairData, PeersData, 
     send_mode, AgentsData, ApplyData, ArchiveData, DiffData, DiffStat, NewData, OpenData,
     ProjectInfo, ProjectRemoveData, PromptEntry, QuitData, RenameData, ResultData, SendData,
     StreamEvent, TabCloseData, TabData, TabStatus, TaskStatus, TaskSummary, WaitData, WaitOutcome,
@@ -442,6 +442,85 @@ pub fn result_text(r: &ResultData) -> String {
 
 pub fn project_add_text(p: &ProjectInfo) -> String {
     format!("added project {} at {}", p.name, p.root_path)
+}
+
+/// What a grant means, in the words a person deciding needs.
+fn grant_text(g: &str) -> &str {
+    match g {
+        "drive" => "drive agents",
+        "reply" => "reply only",
+        other => other,
+    }
+}
+
+fn peer_row(p: &PeerInfo) -> String {
+    let state = if p.revoked_by_peer {
+        "no longer paired there".to_string()
+    } else if p.online {
+        "online".into()
+    } else {
+        match &p.last_seen {
+            Some(t) => format!("last seen {t}"),
+            None => "never seen".into(),
+        }
+    };
+    let theirs = p.their_grant.as_deref().map(grant_text).unwrap_or("unknown");
+    let mut line = format!(
+        "{}  {state}  may here: {}  lets you: {theirs}  id {}",
+        p.name,
+        grant_text(&p.grant),
+        &p.id[..p.id.len().min(8)]
+    );
+    if p.advertised_name != p.name {
+        line.push_str(&format!("  (calls itself {})", p.advertised_name));
+    }
+    if let Some(a) = &p.address {
+        line.push_str(&format!("  {a}"));
+    }
+    if let Some(n) = &p.note {
+        line.push_str(&format!("\n    for: {n}"));
+    }
+    line
+}
+
+/// `peer list`: this machine, then the pairs, then what is in sight.
+pub fn peers_text(d: &PeersData) -> String {
+    let mut out = format!(
+        "This machine: {} (sharing {}{})",
+        d.this.name,
+        if d.this.sharing { "on" } else { "off" },
+        if d.this.addresses.is_empty() { String::new() } else { format!(", {}", d.this.addresses.join(", ")) }
+    );
+    out.push_str("\n\nPaired:");
+    if d.peers.is_empty() {
+        out.push_str("\n  none (pair in Settings > Agent access, or `termic peer pair <name or address> <code>`)");
+    }
+    for p in &d.peers {
+        out.push_str("\n  ");
+        out.push_str(&peer_row(p));
+    }
+    if !d.nearby.is_empty() {
+        out.push_str("\n\nIn sight, not paired:");
+        for n in &d.nearby {
+            out.push_str(&format!("\n  {}  {}  Termic {}", n.name, n.address, n.version));
+            if n.pairing {
+                out.push_str("  (ready to pair: `termic peer pair` it with the code it shows)");
+            }
+            if !n.compatible {
+                out.push_str("  (different version: update both to talk)");
+            }
+        }
+    }
+    out
+}
+
+pub fn peer_paired_text(p: &PeerPairData) -> String {
+    format!(
+        "paired with {}. It may {} here; run verbs there with `termic --peer \"{}\" ...`",
+        p.peer.name,
+        grant_text(&p.peer.grant),
+        p.peer.name
+    )
 }
 
 pub fn project_remove_text(r: &ProjectRemoveData) -> String {

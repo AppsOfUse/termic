@@ -297,6 +297,20 @@ prints: have it write a file inside its own worktree and read that from
 outside. If you need the prompt-back protocol, run the task in `Monitor`
 (which reaches the CLI by contract, see the gap above) or uncaged.
 
+## Paired machines (LAN sharing)
+
+[peers.md](peers.md). A caged agent has no control plane, so it has no
+`--peer` either: forwarding goes through the same socket and MCP surface
+the cage denies. In the other direction, a verb arriving FROM a paired
+machine runs with whatever sandbox the request asks for, or the
+project's default, so a peer allowed to Drive agents can start an
+uncaged YOLO agent here. That is why Drive is described as remote code
+execution. The machine-level "Reply only" grant is not the reply-only
+addressing rejected above: that was a channel out of a cage, this is a
+person deciding what another computer they paired may do, and peers.md
+says plainly that it is still a prompt typed into an agent. LAN sharing
+sits outside the sandbox threat model the same way the MCP endpoint does.
+
 ## Do NOT
 
 - Sandbox AuxTerminal, setup, run, or archive scripts.

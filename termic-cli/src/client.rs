@@ -93,8 +93,7 @@ impl Conn {
     /// Send a request WITHOUT reading a reply. Attach's opening move:
     /// the reply arrives later, interleaved with session frames.
     pub fn send_request(&mut self, cmd: proto::Command, token: &str) -> Result<(), CliError> {
-        let req =
-            proto::Request { id: "1".into(), token: Some(token.to_string()), profile: profile(), cmd };
+        let req = authed(token, cmd);
         proto::write_msg(&mut self.writer, &req).map_err(lost)
     }
 
@@ -212,7 +211,14 @@ fn exchange(conn: &mut Conn, req: &proto::Request) -> Result<proto::Reply, CliEr
 pub fn hello(conn: &mut Conn) -> Result<proto::HelloData, CliError> {
     let reply = exchange(
         conn,
-        &proto::Request { id: "hello".into(), token: None, profile: None, cmd: proto::Command::Hello },
+        &proto::Request {
+            id: "hello".into(),
+            token: None,
+            profile: None,
+            peer: None,
+            from_task: None,
+            cmd: proto::Command::Hello,
+        },
     )?;
     match reply.data {
         Some(proto::ReplyData::Hello(h)) => {
@@ -265,16 +271,38 @@ fn profile() -> Option<String> {
     PROFILE.get().cloned().flatten()
 }
 
+/// `--peer <name>` (v22): every request of this invocation runs on that paired
+/// machine. Set once from `run()`, like the profile.
+static PEER: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+pub fn set_peer(p: Option<String>) {
+    let _ = PEER.set(p);
+}
+
+pub fn peer() -> Option<String> {
+    PEER.get().cloned().flatten()
+}
+
+/// An authenticated request carrying this invocation's profile and peer. The
+/// caller's task rides along only when the verb goes to a peer: that is the
+/// one place it is used (the forwarding app records it so the peer may reply
+/// into this task), and sending it everywhere would be noise on every verb.
+fn authed(token: &str, cmd: proto::Command) -> proto::Request {
+    let peer = peer();
+    let from_task = peer
+        .as_ref()
+        .and_then(|_| std::env::var("TERMIC_TASK_ID").ok())
+        .filter(|t| !t.trim().is_empty());
+    proto::Request { id: "1".into(), token: Some(token.to_string()), profile: profile(), peer, from_task, cmd }
+}
+
 /// Send one authenticated verb and unwrap the reply.
 pub fn request(
     conn: &mut Conn,
     cmd: proto::Command,
     token: &str,
 ) -> Result<proto::ReplyData, CliError> {
-    let reply = exchange(
-        conn,
-        &proto::Request { id: "1".into(), token: Some(token.to_string()), profile: profile(), cmd },
-    )?;
+    let reply = exchange(conn, &authed(token, cmd))?;
     reply_to_result(reply)
 }
 
@@ -290,7 +318,7 @@ pub fn exchange_streamed(
     token: &str,
     on_event: &mut dyn FnMut(&proto::StreamEvent),
 ) -> Result<proto::Reply, CliError> {
-    let req = proto::Request { id: "1".into(), token: Some(token.to_string()), profile: profile(), cmd };
+    let req = authed(token, cmd);
     proto::write_msg(&mut conn.writer, &req).map_err(lost)?;
     loop {
         let line = match proto::read_line(&mut conn.reader) {
