@@ -1,6 +1,11 @@
 {
   "versions": [
     {
+      "version": "1.17.0",
+      "date": "2026-10-15",
+      "summary": "Pair your computers so agents work across them, and a tidier sidebar and new-task menu."
+    },
+    {
       "version": "1.16.1",
       "date": "2026-10-14",
       "summary": "A guided first launch, Review a PR, History by PR, and new-file previews."

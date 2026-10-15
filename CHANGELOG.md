@@ -4,6 +4,51 @@ All notable changes to Termic, newest first. This file is the human-authored
 source of truth: the in-app Update card and the /changelog page on termic.dev
 are generated from it. See the `release` skill for how entries are added.
 
+## [1.17.0] - 2026-10-15
+
+Pair your computers so agents work across them, and a tidier sidebar and new-task menu.
+
+### Features
+- **Pair computers on your network (experimental).** Settings, Agent access,
+  Other computers. Click Pair on a computer Termic finds nearby; it shows a
+  four-digit code, you type it here, and the two are paired. Name the other
+  computer on this side (it keeps its own name everywhere else) and give it a
+  role, Orchestrator or Worker, or none. Agents on either one can then start,
+  prompt and read tasks on the other (`termic --peer`, the MCP `peer`
+  argument), a report back skips the waiting agent's queue, and work a paired
+  computer starts in a closed profile opens that profile's window. Off by
+  default, and macOS asks for local network access the first time.
+- **Agent access.** The CLI and MCP settings are one page with a tab each.
+  Connecting an agent over MCP has a tab per client (Claude Code, Codex,
+  other) with just the command or config to copy.
+- **A shorter new-task menu.** Entries you have not used in five days move
+  under More, with Start a race and Resume. Each agent's place is a choice in
+  Settings, Agents: Auto, Always shown, Pinned (first), In More, or Off,
+  which replaces the Enable switch. Claude, Codex and Antigravity are always
+  shown, dimmed with "not installed" until they are.
+- **New task under a project's tasks.** A `+` row below the last task, where
+  the new task lands, with a setting in Appearance (empty projects, two or
+  fewer projects, or always).
+- **View options.** The sidebar's list menu (now a sliders icon) is three
+  short sections, with switches that keep the menu open while you change
+  several.
+
+### Improvements
+- The sidebar's headers are filled bars instead of boxes and borders, each
+  project's menu is always visible, and every menu uses one text size.
+- An agent's card in Settings folds its rarely used fields away and moves
+  the long explanations into tooltips.
+- The deep review prompt labels findings BL, SG and NT.
+
+### Bug fixes
+- ⌘W in a focused HTML preview closes the preview, not the Termic window.
+- A "needs you" bell no longer stays on after the prompt went away without
+  an answer (denied by the agent's own countdown, say) and the agent carried
+  on working.
+- Turning the CLI or MCP endpoint on or off from a second profile's window
+  now holds after a restart.
+- Windows: Ctrl+V with an image on the clipboard pastes the image's path.
+
 ## [1.16.1] - 2026-10-14
 
 A guided first launch, Review a PR, History by PR, and new-file previews.
