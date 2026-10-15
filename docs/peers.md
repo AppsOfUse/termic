@@ -113,7 +113,7 @@ still close the mode. The advert gains `pair=1` while it is open.
 
 **A name on this side.** The after-pairing dialog asks "Name it on this
 computer", starting from the name the other machine gives itself, and a
-role chip (Orchestrator / Executor / Worker) fills it in unless one was
+role chip (Orchestrator / Worker) fills it in unless one was
 typed. It is LOCAL (`peer_rename`): the Mac stays "MacBook Pro" to itself
 and to every other pair, and is "Orchestrator" to the Windows box, which is
 the name agents there use for it (`--peer`, the MCP `peer` argument). Either machine can be B; both
@@ -324,7 +324,7 @@ role presets, online or last seen, "May do on this computer", "Lets this
 computer", Unpair behind a confirm); Pair by address (address and code).
 The after-pairing dialog is global, on both machines, since the one that
 showed the code may be on any screen: the one line on working together,
-then "What is X for?" with Orchestrator / Executor / Worker presets that
+then "What is X for?" with Just a pair / Orchestrator / Worker presets that
 fill the note, Done / Skip. Everything is read from
 `peer_status` and refreshed on `peer://changed`, never polled
 ([ipc.md](ipc.md)).

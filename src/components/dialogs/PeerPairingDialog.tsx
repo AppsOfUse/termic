@@ -95,7 +95,7 @@ export function PeerPairingDialog() {
           <PeerRoleChips
             note={note}
             // A role is also a good name for it here, unless one was typed.
-            onPick={(text, label) => { setNote(text); if (!aliasTouched) setAlias(label); }}
+            onPick={(text, label) => { setNote(text); if (!aliasTouched) setAlias(label || current.peer_name); }}
             testid="peer-pair-roles"
           />
           <Input

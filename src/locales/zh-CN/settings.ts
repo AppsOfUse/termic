@@ -385,10 +385,10 @@ export default {
       wrongCodes: "已输入错误代码：{{count}} / 3。达到 3 次时配对模式会关闭。",
     },
     roles: {
+      none: "仅配对",
       hint: "选择一个角色来填写，之后可以再修改。",
       orchestrator: { label: "编排者", note: "编排者：规划工作，把任务分给其他计算机并审阅返回的结果。遇到困难时可以问它。" },
-      executor: { label: "执行者", note: "执行者：运行编排者分配的任务，完成后汇报结果。" },
-      worker: { label: "工作者", note: "工作者：独立运行长时间任务，遇到困难时向编排者求助。" },
+      worker: { label: "工作者", note: "工作者：独立运行编排者交给它的任务，完成或遇到困难时汇报。" },
     },
     nearby: {
       title: "附近",

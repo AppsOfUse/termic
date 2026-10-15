@@ -386,10 +386,10 @@ export default {
       wrongCodes: "Wrong codes typed: {{count}} of 3. Pairing mode closes at 3.",
     },
     roles: {
+      none: "Just a pair",
       hint: "Pick a role to fill this in, then edit it if you like.",
       orchestrator: { label: "Orchestrator", note: "Orchestrator: plans the work, hands tasks to the other computers and reviews what comes back. Ask it when stuck." },
-      executor: { label: "Executor", note: "Executor: runs the tasks the orchestrator hands it, then reports back with the result." },
-      worker: { label: "Worker", note: "Worker: runs long tasks on its own and asks the orchestrator for help when it gets stuck." },
+      worker: { label: "Worker", note: "Worker: runs the tasks the orchestrator hands it, on its own, and reports back when done or stuck." },
     },
     nearby: {
       title: "Nearby",
