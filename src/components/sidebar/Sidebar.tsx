@@ -3819,8 +3819,11 @@ function TaskRow({ w, compact, dragging = false, dragTy = 0, onDragPointerDown, 
             onClick={() => {
               // The click that trails a drop is not a selection.
               if (tabDrag.clickSuppressed.current) { tabDrag.clickSuppressed.current = false; return; }
-              setActive(w.id);
+              // Tab first: activating the task reads its CURRENT active tab
+              // as seen, which must be this row's tab, not the one the task
+              // last showed (a manual unread mark on that one would go).
               setActiveTabId(w.id, tab.id);
+              setActive(w.id);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();

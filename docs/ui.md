@@ -473,8 +473,14 @@ entries:
   was not active, for its active tab. Picking the tab already on screen
   again is not a visit (every sidebar row click re-activates its task
   first), so marking the open tab lasts until you leave it and come back.
-  Opening the task on another tab leaves it. It is persisted (`marked_unread`), so it
-  survives a relaunch, and only agent tabs persist at all.
+  Opening the task on another tab leaves it, which is why a tab row click
+  picks its tab BEFORE activating the task (`setActiveTask` reads the
+  task's current active tab as seen). A close or a move that hands the
+  main pane to a marked tab clears it (`clearShownMark`), and a tab moved
+  into a split pane loses it, since a pane tab has no sidebar row to clear
+  it from. It is persisted (`marked_unread`), so it survives a relaunch,
+  and only agent tabs persist at all. The one exception is the open tab of
+  the task on screen: the relaunch shows it again, which reads it.
 - **Close** is `requestCloseTab`, so a running agent still asks first.
 
 It is a Radix `DropdownMenu` opened on `contextmenu`, the task row's

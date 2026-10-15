@@ -612,6 +612,33 @@ function withPriorScheduled(next: PersistedTab[], prior: PersistedTab[]): Persis
   return next.map(t => byId.has(t.id) ? { ...t, scheduled: byId.get(t.id) } : t);
 }
 
+/** A tab moved into a split pane has no sidebar row, so nothing could ever
+ *  clear a manual unread mark there, and dragging it in is looking at it. */
+function intoPane(t: Tab, paneId: string): Tab {
+  return { ...t, paneId, ...((t as TerminalTab).markedUnread ? { markedUnread: false } : {}) } as Tab;
+}
+
+/** Clear the manual unread mark on the tab a close or a move just put on
+ *  screen in the main pane. Those paths write `activeTab` directly rather
+ *  than through setActiveTabId, and a click on the revealed tab is no
+ *  visit (it is already showing), so without this the dot would stick.
+ *  Only when the task is the one on screen; persists the clear. */
+function clearShownMark(
+  get: () => AppState,
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  taskId: string,
+) {
+  const s = get();
+  if (s.activeTaskId !== taskId) return;
+  const id = s.activeTab[taskId];
+  const tab = (s.tabs[taskId] ?? []).find(t => t.id === id);
+  if (!tab || tab.type !== "terminal" || !tab.markedUnread) return;
+  set(st => ({
+    tabs: { ...st.tabs, [taskId]: (st.tabs[taskId] ?? []).map(t => t.id === id ? { ...t, markedUnread: false } as Tab : t) },
+  }));
+  get().syncDurableTabs(taskId);
+}
+
 /** `list` with `tab` added: right after `afterTabId` when that tab is in
  *  the list, else at the end. An unpinned tab never lands inside the pinned
  *  block at the front of the main strip (the invariant `reseatAtPinBoundary`
@@ -1742,7 +1769,7 @@ export const useApp = create<AppState>((set, get) => ({
       }
 
       const updatedTabs = (s.tabs[taskId] ?? []).map(t =>
-        t.id !== tabId ? t : { ...t, paneId: toPaneId },
+        t.id !== tabId ? t : intoPane(t, toPaneId),
       );
 
       // Moving the ACTIVE main tab out: hand the main pane to its neighbor
@@ -1766,6 +1793,8 @@ export const useApp = create<AppState>((set, get) => ({
         } : {}),
       };
     });
+    // The main pane's next tab just came on screen.
+    clearShownMark(get, set, taskId);
     // The moved tab becomes the target pane's visible tab — focus follows the
     // drop so the user can type immediately (terminal or editor).
     focusPaneTab(tabId);
@@ -1826,6 +1855,7 @@ export const useApp = create<AppState>((set, get) => ({
       };
     });
     if (moved) {
+      clearShownMark(get, set, taskId);
       focusMainTab(tabId);
       get().syncDurableTabs(taskId);
       get().saveSplitLayout(taskId);
@@ -1892,7 +1922,7 @@ export const useApp = create<AppState>((set, get) => ({
       moved = true;
 
       const updatedTabs = (s.tabs[taskId] ?? []).map(t =>
-        t.id !== tabId ? t : { ...t, paneId: newLeafId },
+        t.id !== tabId ? t : intoPane(t, newLeafId),
       );
       // Moving the ACTIVE main tab out: hand main to its neighbor (same rule
       // as closeTab / moveTabToPane).
@@ -2403,6 +2433,8 @@ export const useApp = create<AppState>((set, get) => ({
    // it), while a closed MAIN tab stays durable and auto-resumes when the
    // task wakes — see the merge rule in syncDurableTabs. No-op if
    // nothing changed, and skipped entirely when nothing was closed.
+   // The tab that takes over the main pane just came on screen.
+   if (closed) clearShownMark(get, set, taskId);
    if (closed) get().syncDurableTabs(taskId);
    if (focusId) {
      // Sync activePaneId to the main pane so the store agrees with where
@@ -2451,7 +2483,7 @@ export const useApp = create<AppState>((set, get) => ({
     // A manual mark clears when the tab COMES on screen, not when the tab
     // that is already showing is picked again: marking the open tab must
     // last until the user leaves it and comes back.
-    const alreadyShown = get().activeTab[taskId] === tabId;
+    const alreadyShown = get().activeTaskId === taskId && get().activeTab[taskId] === tabId;
     const marked = !alreadyShown
       && (get().tabs[taskId] || []).some(t => t.id === tabId && t.type === "terminal" && t.markedUnread);
     set(s => {

@@ -11,6 +11,7 @@ vi.mock("@/lib/ipc", () => ({
   detectClis: vi.fn().mockResolvedValue([]),
   taskSetTabs: vi.fn().mockResolvedValue(undefined),
   taskSetTabSessionId: vi.fn().mockResolvedValue(undefined),
+  taskSetSplitLayout: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/tabFocus", () => ({
@@ -983,6 +984,48 @@ describe("markTabUnread", () => {
     useApp.getState().setActiveTask("ws1");
     useApp.getState().setActiveTabId("ws1", "t0");
     expect(marked("t0")).toBe(false);
+  });
+
+  it("opening an inactive task on another tab leaves its last tab's mark", () => {
+    // The row click order: the row's tab first, then the task.
+    useApp.setState(s => ({ activeTab: { ...s.activeTab, ws1: "t0" }, activeTaskId: null }));
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().setActiveTabId("ws1", "t1");
+    useApp.getState().setActiveTask("ws1");
+    expect(marked("t0")).toBe(true);
+  });
+
+  it("picking the remembered tab of an inactive task is a visit", () => {
+    useApp.setState(s => ({ activeTab: { ...s.activeTab, ws1: "t0" }, activeTaskId: null }));
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().setActiveTabId("ws1", "t0");
+    expect(marked("t0")).toBe(false);
+  });
+
+  it("a marked tab moved into a split pane loses the mark", () => {
+    addTab("ws1", makeTermTab({ id: "t2", cli: "claude" }));
+    useApp.getState().markTabUnread("ws1", "t2");
+    useApp.getState().moveTabToSplit("ws1", "t2", null, "right");
+    expect(marked("t2")).toBe(false);
+    expect(lastPersisted().some(p => p.marked_unread)).toBe(false);
+  });
+
+  it("a marked tab that takes over the main pane on a close is read", () => {
+    useApp.setState({ activeTaskId: "ws1" } as never);
+    useApp.getState().setActiveTabId("ws1", "t1");
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().closeTab("ws1", "t1");
+    expect(useApp.getState().activeTab["ws1"]).toBe("t0");
+    expect(marked("t0")).toBe(false);
+    expect(lastPersisted().some(p => p.marked_unread)).toBe(false);
+  });
+
+  it("a close on a task not on screen leaves the revealed tab's mark", () => {
+    useApp.setState({ activeTaskId: null } as never);
+    useApp.setState(s => ({ activeTab: { ...s.activeTab, ws1: "t1" } }));
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().closeTab("ws1", "t1");
+    expect(marked("t0")).toBe(true);
   });
 
   it("is not agent news: no unread, so no notification", () => {
