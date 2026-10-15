@@ -1,4 +1,5 @@
-// Pasting an image into a terminal running in a DOCKER container.
+// Pasting an image into a terminal running in a DOCKER container, and Ctrl+V
+// with an image on WINDOWS (`windowsPasteText`, below).
 //
 // Only there. Outside a container the agent reads the Mac clipboard itself
 // (claude shells out to `osascript -e 'the clipboard as «class PNGf»'`) and
@@ -20,8 +21,8 @@
 // The two pure pieces live here so they can be tested without a DataTransfer
 // or a PTY.
 
-import { shellEscapePath } from "./terminalDrop";
-import { toContainerPath } from "@/lib/osPath";
+import { terminalPathText } from "@/lib/osPath";
+import { IS_WINDOWS } from "./platform";
 
 /** What we are willing to write to disk, matching what agents accept. */
 export const PASTEABLE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -62,8 +63,40 @@ export function imageFromClipboard(dt: DataTransfer | null | undefined): File | 
  * leaves the caret ready for the sentence the user was going to write about
  * the image.
  */
-export function pastePathText(path: string): string {
-  // Only Docker tasks paste an image as a path (TerminalPane), so this is
-  // always the container's view of it: `/c/...` on a Windows host.
-  return `${shellEscapePath(toContainerPath(path))} `;
+export function pastePathText(path: string, docker: boolean, windows: boolean = IS_WINDOWS): string {
+  // A Docker task gets the container's view of it (`/c/...` on a Windows
+  // host). A Windows task outside Docker gets the native path, quoted rather
+  // than escaped: its separators ARE backslashes.
+  return `${terminalPathText(path, docker, windows)} `;
+}
+
+/**
+ * What Ctrl+V pastes on WINDOWS: the clipboard's text, or the path of its
+ * image when there is no text, or null when it holds neither.
+ *
+ * There the keystroke never reaches the agent. Ctrl+V is the terminal's own
+ * paste on Windows, so the agent CLIs moved their "attach the clipboard
+ * image" action to Alt+V, and a Ctrl+V with a screenshot on the clipboard
+ * pasted an empty string: nothing happened, where the same keys attach the
+ * image on macOS and Linux. So the image takes the route a Docker task's
+ * does (saved by `clipboard_image_capture`, pasted as a path).
+ *
+ * Text first, so the ordinary paste never waits on an image read, and a
+ * clipboard holding both (a chunk of a web page) stays a text paste, as in
+ * `imageFromClipboard`. A failed text read counts as "no text": an
+ * image-only clipboard is allowed to reject it.
+ */
+export async function windowsPasteText(
+  readText: () => Promise<string>,
+  captureImage: () => Promise<string>,
+  docker: boolean,
+  windows: boolean = IS_WINDOWS,
+): Promise<string | null> {
+  const text = await readText().catch(() => "");
+  if (text) return text;
+  try {
+    return pastePathText(await captureImage(), docker, windows);
+  } catch {
+    return null;
+  }
 }

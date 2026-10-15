@@ -47,7 +47,7 @@ import { footerChipMode, moreMarkerClass } from "./footerChipMode";
 import { activeFooterAgent, footerAgentIds, footerAgentKey } from "@/lib/footerAgents";
 import { useAgentUsage } from "@/store/agentUsage";
 import { useAgentContext } from "@/store/agentContext";
-import { imageFromClipboard, pastePathText } from "@/lib/clipboardImage";
+import { imageFromClipboard, pastePathText, windowsPasteText } from "@/lib/clipboardImage";
 import { setupImeReplacementBridge } from "@/lib/ime";
 import { deliverMessage } from "@/lib/agentSend";
 import { queueLooksStalled } from "@/lib/queueStall";
@@ -1344,7 +1344,7 @@ const captureArmedRef = useRef(false);
           // after the gesture, and either could have changed in between.
           const now = useApp.getState().tasks.find(t => t.id === task.id);
           if (!now?.docker_sandbox_enabled || !ptyRef.current) return;
-          term.paste(pastePathText(path));
+          term.paste(pastePathText(path, true));
         })
         .catch(err => {
           // Silence here would read as "paste is broken": the image is gone
@@ -1448,7 +1448,7 @@ const captureArmedRef = useRef(false);
         e.preventDefault();
         e.stopPropagation();
         ipc.clipboardImageCapture()
-          .then(path => { term.paste(pastePathText(path)); })
+          .then(path => { term.paste(pastePathText(path, true)); })
           .catch(() => {
             // No image on the clipboard (or the read failed): hand the agent
             // the keystroke it was going to get anyway and let it answer.
@@ -1467,11 +1467,17 @@ const captureArmedRef = useRef(false);
       // every other Windows app. (macOS pastes with Cmd+V natively; Linux
       // keeps Ctrl+V for the shell's quoted-insert and pastes with
       // Ctrl+Shift+V, below.)
+      //
+      // With an image and no text on the clipboard it pastes the image's
+      // path, which the agent turns into an attachment: the agents bind their
+      // own image paste to Alt+V here, because this keystroke never reaches
+      // them (`windowsPasteText`).
       if (
         IS_WINDOWS && e.type === "keydown" && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
         && (e.key === "v" || e.key === "V")
       ) {
-        readClipboardText().then(t => term.paste(t)).catch(() => {});
+        windowsPasteText(readClipboardText, ipc.clipboardImageCapture, false)
+          .then(t => { if (t && ptyRef.current) term.paste(t); });
         e.preventDefault();
         e.stopPropagation();
         return false;

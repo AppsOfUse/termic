@@ -184,6 +184,10 @@ Each of these is a deliberate choice; the reasoning lives next to the code.
   Shortcut hints read `Ctrl+Alt+P`.
   In a terminal, plain Ctrl+letter goes to the shell (Ctrl+P is readline's,
   not the file finder), and Ctrl+V pastes, as in every Windows terminal.
+  With an image and no text on the clipboard, Ctrl+V saves the image and
+  pastes its path, which the agent attaches (`windowsPasteText` in
+  `src/lib/clipboardImage.ts`). The agents bind their own image paste to
+  Alt+V on Windows, because Ctrl+V never reaches them.
   Ctrl+Shift+F in a terminal opens that terminal's find, as in Windows
   Terminal, rather than find-in-files, which has the same keys there.
   Ctrl+Shift+W closes the tab from inside a terminal, for the same reason:
