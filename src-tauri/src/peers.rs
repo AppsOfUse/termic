@@ -2055,7 +2055,7 @@ fn localize_signature(cmd: Command, rec: &PeerRecord) -> Command {
             (format!("peer:\"{}\"", rec.name), format!("peer:\"{alias}\"")),
             (format!("peer:{}", rec.name), format!("peer:{alias}")),
         ] {
-            out = replace_ignore_case(&out, &from, &to);
+            out = replace_loosely(&out, &from, &to);
         }
         out
     };
@@ -2068,26 +2068,40 @@ fn localize_signature(cmd: Command, rec: &PeerRecord) -> Command {
     cmd
 }
 
-/// `text` with every case-insensitive occurrence of `from` replaced.
-fn replace_ignore_case(text: &str, from: &str, to: &str) -> String {
-    if from.is_empty() {
+/// One character as the loose match sees it: case folded, and typographic
+/// quotes as their plain forms. A Mac calls itself `Simion’s MacBook Pro`
+/// with a curly apostrophe, and an agent retyping that name in its
+/// signature writes a straight one, so an exact match missed it and the
+/// report arrived under the old name.
+fn loose(c: char) -> char {
+    match c {
+        '\u{2018}' | '\u{2019}' | '\u{02BC}' | '`' => '\'',
+        '\u{201C}' | '\u{201D}' => '"',
+        c => c.to_lowercase().next().unwrap_or(c),
+    }
+}
+
+/// `text` with every occurrence of `from` replaced, matched character by
+/// character through `loose` (case and quote style ignored).
+fn replace_loosely(text: &str, from: &str, to: &str) -> String {
+    let needle: Vec<char> = from.chars().map(loose).collect();
+    if needle.is_empty() {
         return text.to_string();
     }
-    let lower = text.to_lowercase();
-    let needle = from.to_lowercase();
-    // Lowercasing can change byte lengths outside ASCII; then fall back to
-    // the exact match rather than cut a character in half.
-    if lower.len() != text.len() || needle.len() != from.len() {
-        return text.replace(from, to);
-    }
+    let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
-    while let Some(at) = lower[i..].find(&needle) {
-        out.push_str(&text[i..i + at]);
-        out.push_str(to);
-        i += at + needle.len();
+    while i < chars.len() {
+        if i + needle.len() <= chars.len()
+            && chars[i..i + needle.len()].iter().zip(&needle).all(|(c, n)| loose(*c) == *n)
+        {
+            out.push_str(to);
+            i += needle.len();
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
     }
-    out.push_str(&text[i..]);
     out
 }
 
@@ -2423,6 +2437,16 @@ mod tests {
             text(localize_signature(send("[message from agent:claude peer:desktop-do50eus id:1] done -- peer:\"DESKTOP-DO50EUS\""), &rec)),
             "[message from agent:claude peer:windows laptop id:1] done -- peer:\"windows laptop\""
         );
+        // Quote style does not matter: the name it gives itself has a curly
+        // apostrophe, the agent retyped a straight one.
+        rec.name = "Simion\u{2019}s MacBook Pro (2)".into();
+        rec.alias = Some("orchestrator".into());
+        assert_eq!(
+            text(localize_signature(send("[message from agent:claude peer:Simion's MacBook Pro (2)] done"), &rec)),
+            "[message from agent:claude peer:orchestrator] done"
+        );
+        rec.name = "DESKTOP-DO50EUS".into();
+        rec.alias = Some("windows laptop".into());
         // Only after `peer:`: the name elsewhere in the text stays.
         assert_eq!(text(localize_signature(send("built on DESKTOP-DO50EUS"), &rec)), "built on DESKTOP-DO50EUS");
     }
