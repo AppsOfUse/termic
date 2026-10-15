@@ -88,6 +88,7 @@
   (this machine's code and deadline while it shows one); answers with
   sharing off too, for the paired list), `peer_set_name { name }` (`""` =
   the computer's own name; re-announces), `peer_pair_mode { open }` (open:
+- `peer_pair_request(target)` → the other machine's name: asks it to open pairing mode and show its code (`/pair/request`). The first half of Pair; `peer_pair(target, code)` is the second.
   a fresh four-digit code for 5 minutes, and `pair=1` in the advert;
   close: both end), `peer_pair { target, code }` (async +
   spawn_blocking: SPAKE2 start and confirm over the network with the code

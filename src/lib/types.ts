@@ -1049,6 +1049,9 @@ export interface PairModeView {
   code: string;
   expires_at_ms: number;
   wrong_codes: number;
+  /** Who clicked Pair on this machine and opened the mode; null when it
+   *  was opened here by hand. */
+  requested_by: string | null;
 }
 
 /** Live LAN-sharing state (peer_status). */

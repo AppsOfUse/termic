@@ -26027,6 +26027,7 @@ pub fn run() {
             peers::peer_set_name,
             peers::peer_pair,
             peers::peer_pair_mode,
+            peers::peer_pair_request,
             peers::peer_rename,
             peers::peer_set_grant,
             peers::peer_set_note,

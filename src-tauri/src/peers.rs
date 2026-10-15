@@ -79,6 +79,10 @@ const ONLINE_WINDOW: Duration = Duration::from_secs(180);
 /// it are refused for this long, so a neighbour cannot keep a dialog up.
 /// After a wrong code, that address waits this long before the next try.
 const WRONG_CODE_COOLDOWN: Duration = Duration::from_millis(if cfg!(test) { 0 } else { 2000 });
+/// How soon one address may ask to pair again: a click that went through
+/// already put the code on the other screen, so a second one is noise, and
+/// a script cannot make another machine's screen flash codes.
+const REQUEST_COOLDOWN: Duration = Duration::from_millis(if cfg!(any(test, feature = "e2e")) { 0 } else { 5000 });
 /// Tasks per peer that may be replied into (oldest dropped first).
 const MAX_CONTACTS: usize = 200;
 
@@ -439,6 +443,9 @@ pub(crate) struct PairModeView {
     pub expires_at_ms: i64,
     /// Wrong codes typed so far; the mode closes at `MAX_WRONG_CODES`.
     pub wrong_codes: u8,
+    /// The machine whose person clicked Pair on this one, which opened the
+    /// mode (`/pair/request`). None when it was opened here by hand.
+    pub requested_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -497,6 +504,7 @@ struct PairMode {
     until: Instant,
     expires_at_ms: i64,
     wrong_codes: u8,
+    requested_by: Option<String>,
 }
 
 /// An incoming pairing between start and confirm: the key the code would
@@ -527,6 +535,8 @@ pub(crate) struct Node {
     incoming: Mutex<Option<Incoming>>,
     /// address -> refused until (after a wrong code).
     cooldown: Mutex<HashMap<IpAddr, Instant>>,
+    /// Per source address: when it may ask to pair again (`/pair/request`).
+    request_cooldown: Mutex<HashMap<IpAddr, Instant>>,
     /// Request ids seen inside the freshness window: a replayed call is
     /// refused even with a valid seal.
     replay: Mutex<HashMap<String, i64>>,
@@ -566,6 +576,7 @@ impl Node {
             pair_mode: Mutex::new(None),
             incoming: Mutex::new(None),
             cooldown: Mutex::new(HashMap::new()),
+            request_cooldown: Mutex::new(HashMap::new()),
             replay: Mutex::new(HashMap::new()),
             failures: Mutex::new(0),
             runtime: Mutex::new(None),
@@ -952,6 +963,10 @@ impl Node {
     /// person here opening it is the consent, and the code that only this
     /// screen shows is the proof the other side's person can see it.
     pub(crate) fn open_pair_mode(self: &Arc<Self>) -> Result<PairModeView, String> {
+        self.open_pair_mode_for(None)
+    }
+
+    fn open_pair_mode_for(self: &Arc<Self>, requested_by: Option<String>) -> Result<PairModeView, String> {
         if self.port().is_none() {
             return Err("Turn on sharing on this network first (Settings > Agent access).".into());
         }
@@ -962,6 +977,7 @@ impl Node {
             until,
             expires_at_ms: now_ms() + PAIR_MODE_TTL.as_millis() as i64,
             wrong_codes: 0,
+            requested_by,
         });
         self.readvertise();
         self.ui.changed();
@@ -997,6 +1013,7 @@ impl Node {
             code: m.code.clone(),
             expires_at_ms: m.expires_at_ms,
             wrong_codes: m.wrong_codes,
+            requested_by: m.requested_by.clone(),
         })
     }
 
@@ -1025,6 +1042,49 @@ impl Node {
     }
 
     // ── pairing: the machine in pairing mode (B) ─────────────────────
+
+    /// Step 0: the person at another machine clicked Pair on this one. Open
+    /// pairing mode here, naming who asked, so this screen shows the code
+    /// they now have to type there. That is the whole consent: the code
+    /// exists only on this screen, so pairing still needs someone who can
+    /// read it, and a wrong one counts toward `MAX_WRONG_CODES` as before.
+    /// Unauthenticated by nature (nothing is shared yet), so it is limited:
+    /// once per `REQUEST_COOLDOWN` per address, and an open mode is reused,
+    /// never replaced, so a second asker cannot swap the code under the
+    /// first one's person.
+    fn on_pair_request(self: &Arc<Self>, body: &[u8], src: IpAddr) -> (u16, Vec<u8>) {
+        #[derive(Deserialize)]
+        struct Ask {
+            from: Who,
+        }
+        let Ok(req) = serde_json::from_slice::<Ask>(body) else { return (400, Vec::new()) };
+        if req.from.pv != PV {
+            return json(409, &serde_json::json!({ "error": "peer protocol mismatch", "pv": PV }));
+        }
+        if req.from.id == self.self_id() || req.from.id.len() != 32 {
+            return (400, Vec::new());
+        }
+        let now = Instant::now();
+        {
+            let mut cd = self.request_cooldown.lock().unwrap();
+            cd.retain(|_, until| *until > now);
+            if cd.contains_key(&src) {
+                return (429, Vec::new());
+            }
+            cd.insert(src, now + REQUEST_COOLDOWN);
+        }
+        let name = clean_name(&req.from.name);
+        let open = self.pair_mode_view();
+        let view = match open {
+            Some(v) => v,
+            None => match self.open_pair_mode_for(Some(name.clone())) {
+                Ok(v) => v,
+                Err(_) => return (503, Vec::new()),
+            },
+        };
+        dlog(&format!("[peers] {name} asked to pair; showing the code"));
+        json(200, &serde_json::json!({ "to": self.who(), "expires_at_ms": view.expires_at_ms }))
+    }
 
     /// Step 1: the other side's SPAKE2 message, answered with ours. Nothing
     /// tells either side yet whether the codes matched; the confirm does.
@@ -1140,6 +1200,41 @@ impl Node {
 
     // ── pairing: the machine whose person types the code (A) ─────────
 
+    /// Ask a machine to show a pairing code (`/pair/request`): the first
+    /// half of "click Pair, type the code the other screen shows". Returns
+    /// its name, for "Type the code shown on <name>".
+    pub(crate) fn request_pair(&self, target: &str) -> Result<String, String> {
+        if self.port().is_none() {
+            return Err("Turn on sharing on this network first (Settings > Agent access).".into());
+        }
+        let target = target.trim();
+        if target.is_empty() {
+            return Err("Name the machine to pair with.".into());
+        }
+        let candidates = self.pair_candidates(target)?;
+        let (addr, hello) = probe(&candidates)?;
+        let me = self.who();
+        if hello.id == me.id {
+            return Err("That address is this machine.".into());
+        }
+        if hello.pv != PV {
+            return Err(format!(
+                "{} runs a Termic that pairs differently (version {}). Update both to the same version.",
+                hello.name, hello.version
+            ));
+        }
+        let body = serde_json::json!({ "from": me }).to_string();
+        let (status, _) = http(addr, "POST", &format!("{PREFIX}/pair/request"), body.as_bytes(), CALL_TIMEOUT)
+            .map_err(|e| unreachable_msg(&hello.name, &e))?;
+        match status {
+            200 => Ok(clean_name(&hello.name)),
+            404 => Err(format!("{} runs an older Termic. Update it, or open pairing mode there by hand.", hello.name)),
+            429 => Err(format!("Asked {} a moment ago. Its code is on its screen.", hello.name)),
+            503 => Err(format!("{} has sharing turned off.", hello.name)),
+            s => Err(format!("{} refused the request ({s}).", hello.name)),
+        }
+    }
+
     /// Pair with a machine in sight (its id or name) or at an address, using
     /// the code its screen shows in pairing mode. Blocking: two short
     /// requests. Both sides let the other drive (Settings narrows it).
@@ -1168,7 +1263,7 @@ impl Node {
         }
         let not_pairing = || {
             format!(
-                "{0} is not in pairing mode. On {0}, click Pair a computer (Settings > Agent access), then type the code it shows.",
+                "{0} is no longer showing a code. Click Pair again to get a new one.",
                 hello.name
             )
         };
@@ -1864,7 +1959,7 @@ fn read_request(stream: &TcpStream) -> std::io::Result<Result<HttpReq, u16>> {
     Ok(Ok(HttpReq { method, path, has_origin, body }))
 }
 
-fn handle_conn(stream: TcpStream, node: &Node, shutdown: &AtomicBool) -> std::io::Result<()> {
+fn handle_conn(stream: TcpStream, node: &Arc<Node>, shutdown: &AtomicBool) -> std::io::Result<()> {
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let src = stream.peer_addr().map(|a| canonical_ip(a.ip())).unwrap_or(IpAddr::from([0, 0, 0, 0]));
@@ -1895,15 +1990,16 @@ fn canonical_ip(ip: IpAddr) -> IpAddr {
     }
 }
 
-fn route(node: &Node, req: &HttpReq, src: IpAddr) -> (u16, Vec<u8>) {
+fn route(node: &Arc<Node>, req: &HttpReq, src: IpAddr) -> (u16, Vec<u8>) {
     let Some(rest) = req.path.strip_prefix(PREFIX) else { return (404, Vec::new()) };
     match (req.method.as_str(), rest) {
         ("GET", "/hello") => json(200, &node.who()),
+        ("POST", "/pair/request") => node.on_pair_request(&req.body, src),
         ("POST", "/pair/start") => node.on_pair_start(&req.body, src),
         ("POST", "/pair/confirm") => node.on_pair_confirm(&req.body, src),
         ("POST", "/call") => node.on_call(&req.body, src),
         ("POST", "/unpair") => node.on_unpair(&req.body),
-        (_, "/hello" | "/pair/start" | "/pair/confirm" | "/call" | "/unpair") => (405, Vec::new()),
+        (_, "/hello" | "/pair/request" | "/pair/start" | "/pair/confirm" | "/call" | "/unpair") => (405, Vec::new()),
         _ => (404, Vec::new()),
     }
 }
@@ -2101,6 +2197,13 @@ pub(crate) async fn peer_pair(app: tauri::AppHandle, target: String, code: Strin
     tauri::async_runtime::spawn_blocking(move || node.pair(&target, &code)).await.map_err(|e| e.to_string())?
 }
 
+/// Ask another machine to show a pairing code. Returns its name.
+#[tauri::command]
+pub(crate) async fn peer_pair_request(app: tauri::AppHandle, target: String) -> Result<String, String> {
+    let node = need(&app)?;
+    tauri::async_runtime::spawn_blocking(move || node.request_pair(&target)).await.map_err(|e| e.to_string())?
+}
+
 /// Open (fresh code) or close pairing mode.
 #[tauri::command]
 pub(crate) fn peer_pair_mode(app: tauri::AppHandle, open: bool) -> Result<Option<PairModeView>, String> {
@@ -2213,6 +2316,23 @@ mod tests {
     }
 
     #[test]
+    fn clicking_pair_makes_the_other_machine_show_the_code() {
+        let (a, b) = (machine("Studio"), machine("Laptop"));
+        assert!(b.node.pair_mode_view().is_none());
+        // A's person clicks Pair on B: B opens pairing mode on its own and
+        // says who asked, so its screen can show the code for A to type.
+        assert_eq!(a.node.request_pair(&addr(&b)).unwrap(), "Laptop");
+        let shown = b.node.pair_mode_view().expect("B shows a code");
+        assert_eq!(shown.requested_by.as_deref(), Some("Studio"));
+        // A second ask does not swap the code under the first person.
+        a.node.request_pair(&addr(&b)).unwrap();
+        assert_eq!(b.node.pair_mode_view().unwrap().code, shown.code);
+        // A types it, and they are paired.
+        a.node.pair(&addr(&b), &shown.code).unwrap();
+        assert!(b.node.find("Studio").is_ok());
+    }
+
+    #[test]
     fn two_machines_pair_and_both_hold_the_same_key() {
         let (a, b) = (machine("Studio"), machine("Laptop"));
         let code = b.node.open_pair_mode().unwrap().code;
@@ -2246,7 +2366,7 @@ mod tests {
     fn a_machine_not_in_pairing_mode_pairs_with_nobody() {
         let (a, b) = (machine("A"), machine("B"));
         let err = a.node.pair(&addr(&b), "1234").unwrap_err();
-        assert!(err.contains("not in pairing mode"), "{err}");
+        assert!(err.contains("no longer showing a code"), "{err}");
         assert!(a.node.find("B").is_err() && b.node.find("A").is_err());
         assert!(b.ui.pairings.lock().unwrap().is_empty(), "nothing appears on B's screen");
     }
@@ -2274,7 +2394,7 @@ mod tests {
         }
         assert!(d.node.status().pair_mode.is_none(), "closed after three wrong codes");
         let err = c.node.pair(&addr(&d), &code).unwrap_err();
-        assert!(err.contains("not in pairing mode"), "the old code is dead: {err}");
+        assert!(err.contains("no longer showing a code"), "the old code is dead: {err}");
     }
 
     #[test]

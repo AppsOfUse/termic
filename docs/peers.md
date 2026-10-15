@@ -81,6 +81,7 @@ HTTP/1.1, one request per connection, everything under
 | Method + path | Auth | What |
 |---|---|---|
 | `GET /hello` | none | `{id, name, version, proto, pv, port}`: what the advertisement already says |
+| `POST /pair/request` | none, rate-limited per address | opens pairing mode here, naming the asker |
 | `POST /pair/start` | none, and only in pairing mode | step 1 of pairing (below) |
 | `POST /pair/confirm` | sealed with the new key | step 2 |
 | `POST /call` | sealed | run one verb |
@@ -95,11 +96,27 @@ pairing dialog, and no response carries a CORS header.
 
 ## Pairing
 
-**Pairing mode, then a code.** A person opens pairing mode on one machine
-(B): "Pair a computer" in Settings > Agent access shows a fresh four-digit
-code for 5 minutes, and the advert gains `pair=1`, so other machines list it
-as "Ready to pair". On the other machine (A) the person clicks Pair on that
-row (or pairs by address) and types the code. Either machine can be B; both
+**Click Pair, type the code the other screen shows.** Like Bluetooth. On
+machine A the person clicks Pair on a computer under Nearby (or pairs by
+address). A sends `POST /pair/request`; B opens pairing mode ON ITS OWN,
+naming who asked (`pair_mode.requested_by`), and pops up a global dialog
+(`PeerCodeDialog`, any screen) with a fresh four-digit code for 5 minutes and
+a Decline button. A's row turns into "Type the code shown on B", and the
+four digits submit on their own. Nobody opens anything on B first: an
+earlier version made the person on B press "Show pairing code" before the
+other side could pair, which was backwards. The request is unauthenticated
+(nothing is shared yet), so it is limited: once per 5 s per address
+(`REQUEST_COOLDOWN`), and an open mode is reused, never replaced, so a second
+asker cannot swap the code under the first person. The code exists only on
+B's screen, so the consent is still a person reading it; three wrong codes
+still close the mode. The advert gains `pair=1` while it is open.
+
+**A name on this side.** The after-pairing dialog asks "Name it on this
+computer", starting from the name the other machine gives itself, and a
+role chip (Orchestrator / Executor / Worker) fills it in unless one was
+typed. It is LOCAL (`peer_rename`): the Mac stays "MacBook Pro" to itself
+and to every other pair, and is "Orchestrator" to the Windows box, which is
+the name agents there use for it (`--peer`, the MCP `peer` argument). Either machine can be B; both
 can be in pairing mode at once. Leaving the Settings page closes it.
 
 A machine that is NOT in pairing mode answers every pairing request with

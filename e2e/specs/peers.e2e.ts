@@ -24,7 +24,7 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { dataDir } from "../../wdio.conf.js";
 import {
   waitForText,
-  cliBinary, clickPresent, requireTermicApi, setInputValue, snap, waitForAppShell, waitForAttr, waitVisible,
+  cliBinary, clickPresent, requireTermicApi, setInputValue, snap, waitForAppShell, waitForAttr, waitGone, waitVisible,
 } from "../helpers.js";
 
 const PREFIX = "/termic-peer/v1";
@@ -130,6 +130,14 @@ function newFake(name: string): Fake {
 /** The fake types `code` against the app's pairing mode (an INCOMING pairing
  *  on the app's side). Returns what the app answered at each step, and the
  *  key when the app accepted the confirm. */
+/** The fake's person clicked Pair on the app: the app shows a code. */
+async function fakeAsks(app: number, fake: Fake) {
+  const hello = JSON.parse((await req(app, "GET", `${PREFIX}/hello`)).body);
+  return req(app, "POST", `${PREFIX}/pair/request`, {
+    from: { id: fake.id, name: fake.name, version: "0.0.0-e2e", proto: hello.proto, pv: 2, port: fake.port },
+  });
+}
+
 async function fakePairs(app: number, fake: Fake, code: string) {
   const hello = JSON.parse((await req(app, "GET", `${PREFIX}/hello`)).body);
   const a = spake("A", code, fake.id, hello.id);
@@ -266,10 +274,9 @@ describe("LAN pairing", () => {
     expect(await browser.execute(() => document.querySelector('[data-testid="peers-self-address"]')!.textContent))
       .not.toContain(`:${appPort}:`);
     await waitForAttr('[data-testid="peers-paired-empty"]', "data-testid", "peers-paired-empty");
-    // The two halves of pairing, side by side.
-    await waitForAttr('[data-testid="peers-card-show"]', "data-testid", "peers-card-show");
-    await waitForAttr('[data-testid="peers-card-enter"]', "data-testid", "peers-card-enter");
-    await browser.execute(() => document.querySelector('[data-testid="peers-card-show"]')!.scrollIntoView({ block: "center" }));
+    // Pairing is one list: nearby computers, each with a Pair button.
+    await waitVisible('[data-testid="peers-nearby-empty"]');
+    await browser.execute(() => document.querySelector('[data-testid="peers-nearby-empty"]')!.scrollIntoView({ block: "center" }));
     await snap("peers-on.png");
   });
 
@@ -304,14 +311,18 @@ describe("LAN pairing", () => {
     expect(await browser.execute(() => !!document.querySelector('[data-testid="peer-pair-dialog"]'))).toBe(false);
   });
 
-  it("shows a code in pairing mode, and pairs when the other machine types it", async () => {
-    await clickPresent('[data-testid="peers-pair-open"]');
-    await waitVisible('[data-testid="peers-pair-mode"]');
-    const code = await browser.execute(() => document.querySelector('[data-testid="peers-pair-mode"]')!.getAttribute("data-code")!);
+  it("shows a code when the other machine clicks Pair, and pairs when it types it", async () => {
+    // The other machine's person clicked Pair on this one: nothing was
+    // opened here first, and the code pops up wherever the app is.
+    expect((await fakeAsks(appPort, incoming)).status).toBe(200);
+    await waitVisible('[data-testid="peer-code-dialog"]');
+    expect(await browser.execute(() => document.querySelector('[data-testid="peer-code-dialog"]')!.getAttribute("data-peer"))).toBe(incoming.name);
+    const code = await browser.execute(() => document.querySelector('[data-testid="peer-code-dialog"]')!.getAttribute("data-code")!);
     expect(code).toMatch(/^\d{4}$/);
-    expect(await browser.execute(() => document.querySelector('[data-testid="peers-pair-code"]')!.textContent)).toBe(code);
+    expect(await browser.execute(() => document.querySelector('[data-testid="peer-code"]')!.textContent)).toBe(code);
     expect((await status()).pair_mode.code).toBe(code);
-    await snap("peers-pair-mode.png");
+    expect((await status()).pair_mode.requested_by).toBe(incoming.name);
+    await snap("peers-code-dialog.png");
 
     const p = await fakePairs(appPort, incoming, code);
     expect([p.start, p.confirm]).toEqual([200, 200]);
@@ -319,18 +330,25 @@ describe("LAN pairing", () => {
     appId = p.appId;
     proto = p.proto;
     incoming.key = p.key;
-    // The code is spent: pairing mode closed on success.
+    // The code is spent: pairing mode closed on success, and its dialog
+    // gave way to the "paired" one.
     await waitFor("pairing mode closed", status, v => v.pair_mode === null);
+    await waitGone('[data-testid="peer-code-dialog"]');
 
     // The after-pairing dialog: who, what pairing means, what it is for.
     await waitVisible(dialog("incoming"));
     await waitVisible('[data-testid="peer-pair-together"]');
+    // It asks what to call the other computer HERE, starting from its own
+    // name; a role fills that in too, without renaming the machine itself.
+    expect(await browser.execute(() => (document.querySelector('[data-testid="peer-pair-alias"]') as HTMLInputElement).value)).toBe(incoming.name);
     await clickPresent('[data-testid="peer-pair-roles"] [data-role="worker"]');
     const note = await browser.execute(() => (document.querySelector('[data-testid="peer-pair-note"]') as HTMLInputElement).value);
     expect(note).toMatch(/^Worker: /);
+    expect(await browser.execute(() => (document.querySelector('[data-testid="peer-pair-alias"]') as HTMLInputElement).value)).toBe("Worker");
     await snap("peers-paired-dialog.png");
     await clickPresent('[data-testid="peer-pair-done"]');
-    await waitFor("the role is the note", status, v => v.peers.some((x: any) => x.id === incoming.id && x.note === note));
+    await waitFor("the role is the note, and the name here", status,
+      v => v.peers.some((x: any) => x.id === incoming.id && x.note === note && x.name === "Worker" && x.advertised_name === incoming.name));
 
     const row = `[data-testid="peer-row-${incoming.id}"]`;
     await waitForAttr(row, "data-grant", "drive");
@@ -339,18 +357,18 @@ describe("LAN pairing", () => {
   });
 
   it("refuses a wrong code, counts it, and pairs nobody", async () => {
-    await clickPresent('[data-testid="peers-pair-open"]');
+    const guesser = newFake("Guesser");
+    expect((await fakeAsks(appPort, guesser)).status).toBe(200);
     const code = await waitFor("the code is up", status, v => !!v.pair_mode).then(v => v.pair_mode.code as string);
     const wrong = code === "0000" ? "0001" : "0000";
-    const p = await fakePairs(appPort, newFake("Guesser"), wrong);
+    const p = await fakePairs(appPort, guesser, wrong);
     expect([p.start, p.confirm, JSON.parse(p.error).error]).toEqual([200, 403, "wrong_code"]);
     expect((await status()).peers.map((x: any) => x.id)).toEqual([incoming.id]);
-    await waitForText("Wrong codes typed: 1 of 3");
-    // Stop pairing closes it, and the code is dead.
-    await clickPresent('[data-testid="peers-pair-stop"]');
+    await waitForText("Wrong codes: 1 of 3");
+    // Decline closes it, and the code is dead.
+    await clickPresent('[data-testid="peer-code-decline"]');
     await waitFor("pairing mode closed", status, v => v.pair_mode === null);
-    await browser.waitUntil(() => browser.execute(() => !document.querySelector('[data-testid="peers-pair-mode"]')),
-      { timeoutMsg: "the code panel stayed up" });
+    await waitGone('[data-testid="peer-code-dialog"]');
     // The 2 s cooldown a wrong code starts applies to pairing starts only,
     // and nothing after this case starts one against the app.
   });
@@ -454,6 +472,8 @@ describe("LAN pairing", () => {
           const body = raw ? JSON.parse(raw) : {};
           switch (q.url) {
             case `${PREFIX}/hello`: return send(200, who);
+            // Asked to pair: the fake "shows" `remoteCode`.
+            case `${PREFIX}/pair/request`: return send(200, { to: who, expires_at_ms: Date.now() + 300_000 });
             case `${PREFIX}/pair/start`: {
               // The fake is in pairing mode, showing `remoteCode`.
               const b = spake("B", remoteCode, body.from.id, remote.id);
@@ -498,14 +518,17 @@ describe("LAN pairing", () => {
         await clickPresent('[data-testid="peers-address-toggle"]');
       }
       await setInputValue('[data-testid="peers-address-input"]', `127.0.0.1:${remote.port}`);
+      // Pair asks the other machine to show its code, then asks for it here.
+      await clickPresent('[data-testid="peers-address-request"]');
+      await waitVisible('[data-testid="peers-address-code"]');
+      await waitForText(`Type the code shown on ${remote.name}`);
+      await snap("peers-address-code.png");
+      // Four digits submit on their own.
       await setInputValue('[data-testid="peers-address-code"]', "1111");
-      await snap("peers-address-open.png");
-      await clickPresent('[data-testid="peers-address-pair"]');
       await waitForText(`That is not the code ${remote.name} shows`);
       expect((await status()).peers.some((x: any) => x.id === remote.id)).toBe(false);
 
       await setInputValue('[data-testid="peers-address-code"]', remoteCode);
-      await clickPresent('[data-testid="peers-address-pair"]');
       await waitVisible(dialog("outgoing"));
       await snap("peers-outgoing-dialog.png");
       await clickPresent('[data-testid="peer-pair-skip"]');
@@ -557,11 +580,17 @@ describe("LAN pairing", () => {
   // Last, in its own block: mocha runs nested describes AFTER the outer its.
   describe("switching off", () => {
     it("stops listening when sharing is turned off", async () => {
+      const me = (await status()).self_id;
       await clickPresent('[data-testid="peers-toggle"] [role="switch"]');
       await waitForAttr('[data-testid="peers-toggle"]', "data-enabled", "false");
       await waitFor("the listener is gone", status, v => v.port === null);
-      const err = await req(appPort, "GET", `${PREFIX}/hello`).then(r => `status ${r.status}`, e => String(e));
-      expect(err).toMatch(/ECONNREFUSED|status 403/);
+      // Nothing of THIS app answers. Another Termic on the machine sharing
+      // on the same port (a wildcard bind) may: that is not this one.
+      const got = await req(appPort, "GET", `${PREFIX}/hello`).then(
+        r => r.status === 200 && JSON.parse(r.body).id === me ? "this app answered" : "not this app",
+        () => "not this app",
+      );
+      expect(got).toBe("not this app");
     });
   });
 });

@@ -9,7 +9,9 @@ import { cn } from "@/lib/utils";
 export const PEER_ROLES = ["orchestrator", "executor", "worker"] as const;
 
 export function PeerRoleChips({ note, onPick, testid }: {
-  note: string; onPick: (note: string) => void; testid: string;
+  /** `label` is the role's short name ("Orchestrator"), for callers that
+   *  also offer it as the computer's local name. */
+  note: string; onPick: (note: string, label: string) => void; testid: string;
 }) {
   const { t } = useTranslation("settings");
   return (
@@ -23,7 +25,7 @@ export function PeerRoleChips({ note, onPick, testid }: {
             type="button"
             data-role={r}
             aria-pressed={active}
-            onClick={() => onPick(text)}
+            onClick={() => onPick(text, t(`peers.roles.${r}.label`))}
             className={cn(
               "rounded-full border px-2.5 py-0.5 text-[12px]",
               active

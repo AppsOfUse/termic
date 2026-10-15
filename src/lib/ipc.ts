@@ -1297,6 +1297,8 @@ export const peerSetName       = (name: string) => invoke<void>("peer_set_name",
 export const peerPair          = (target: string, code: string) => invoke<PairingView>("peer_pair", { target, code });
 /** Open pairing mode (a fresh code, for 5 minutes) or close it. */
 export const peerPairMode      = (open: boolean) => invoke<PairModeView | null>("peer_pair_mode", { open });
+/** Ask another machine to show a pairing code; resolves to its name. */
+export const peerPairRequest   = (target: string) => invoke<string>("peer_pair_request", { target });
 /** Local alias for a paired machine. Empty clears it. */
 export const peerRename        = (peer: string, name: string) => invoke<void>("peer_rename", { peer, name });
 export const peerSetGrant      = (peer: string, grant: PeerGrant) => invoke<void>("peer_set_grant", { peer, grant });
