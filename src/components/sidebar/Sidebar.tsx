@@ -1530,6 +1530,12 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             // a name is being typed.
             const bottomNewTask = !collapsed && !compact
               && newTaskButtonShown(newTaskButtonMode, taskList.length, projects.length);
+            // Only beside the quiet `+` under tasks. An empty project's dashed
+            // "New task" box is its own thing, and its header `+` stays as it
+            // always was (a hover-only one there also left e2e, which drives
+            // the header `+` on the empty fixture project, with nothing
+            // visible to press).
+            const headerPlusHoverOnly = bottomNewTask && taskList.length > 0;
             return (
               <div
                 key={p.id}
@@ -1716,10 +1722,10 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                                   // sidebar renders one per project.
                                   data-testid={`project-new-task-${p.id}`}
                                   data-guide="new-task"
-                                  data-hover-only={bottomNewTask || undefined}
+                                  data-hover-only={headerPlusHoverOnly || undefined}
                                   className={cn(
                                     "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-bg-3)] data-[state=open]:text-[var(--color-fg)]",
-                                    bottomNewTask && "opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100",
+                                    headerPlusHoverOnly && "opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100",
                                   )}
                                 ><Plus className="h-4 w-4" /></button>
                               </DropdownTrigger>

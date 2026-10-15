@@ -11,8 +11,27 @@
 
 import { scoped } from "@/lib/profileScope";
 
-import type { LauncherVisibility } from "@/store/prefs";
 
+/** Where an entry of the new-task menu shows. auto: top level while used in
+ *  the last 5 days, else under More. shown: always top level. pinned: always
+ *  top level and first. more: always under More. */
+export type LauncherVisibility = "auto" | "shown" | "pinned" | "more";
+const LAUNCHER_VISIBILITIES: readonly LauncherVisibility[] = ["auto", "shown", "pinned", "more"];
+// Pure, so the launcher test does not load the prefs store (which reads
+// the DOM at import).
+export function parseLauncherVisibility(raw: string): Record<string, LauncherVisibility> {
+  try {
+    const v = JSON.parse(raw || "{}");
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, LauncherVisibility> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (LAUNCHER_VISIBILITIES.includes(x as LauncherVisibility)) out[k] = x as LauncherVisibility;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
 /** The industry-standard agents: "Always shown" by default, so listed even
  *  when not installed and never folded into More. */
 export const STANDARD_AGENTS: readonly string[] = ["claude", "codex", "agy"];

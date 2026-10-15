@@ -3,6 +3,7 @@
 // font, but built for future things (themes, terminal opacity, etc.).
 
 import { SEATBELT_AVAILABLE } from "@/lib/platform";
+import { parseLauncherVisibility, type LauncherVisibility } from "@/lib/launcherUsage";
 import { create } from "zustand";
 import type { SandboxSelection } from "@/lib/types";
 import { setDiagnosticsEnabled } from "@/lib/lsp/diagnosticsPref";
@@ -1098,24 +1099,7 @@ export type ScheduledNavMode = "off" | "auto" | "always";
 export function parseScheduledNav(raw: string): ScheduledNavMode {
   return raw === "off" || raw === "auto" ? raw : "always";
 }
-/** Where an entry of the new-task menu shows. auto: top level while used in
- *  the last 5 days, else under More. shown: always top level. pinned: always
- *  top level and first. more: always under More. */
-export type LauncherVisibility = "auto" | "shown" | "pinned" | "more";
-const LAUNCHER_VISIBILITIES: readonly LauncherVisibility[] = ["auto", "shown", "pinned", "more"];
-export function parseLauncherVisibility(raw: string): Record<string, LauncherVisibility> {
-  try {
-    const v = JSON.parse(raw || "{}");
-    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-    const out: Record<string, LauncherVisibility> = {};
-    for (const [k, x] of Object.entries(v)) {
-      if (LAUNCHER_VISIBILITIES.includes(x as LauncherVisibility)) out[k] = x as LauncherVisibility;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
+export type { LauncherVisibility } from "@/lib/launcherUsage";
 export type NewTaskButtonMode = "empty" | "auto" | "always";
 export function parseNewTaskButton(raw: string): NewTaskButtonMode {
   return raw === "empty" || raw === "always" ? raw : "auto";

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { launcherLastUsed, launcherVisibilityOf, pinnedFirst, RECENT_MS, splitLauncher } from "./launcherUsage";
-import { parseLauncherVisibility } from "@/store/prefs";
+import { launcherLastUsed, launcherVisibilityOf, parseLauncherVisibility, pinnedFirst, RECENT_MS, splitLauncher } from "./launcherUsage";
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
