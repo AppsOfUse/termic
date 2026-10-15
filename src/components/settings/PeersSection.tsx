@@ -554,59 +554,62 @@ function PeerRow({ peer, onChanged }: { peer: PeerView; onChanged: () => void })
       ? t("peers.paired.lastSeen", { when: relative(peer.last_seen_ms) })
       : t("peers.paired.neverSeen");
 
+  // One compact card: who and how it is doing on top, what it is for
+  // below. The name and the note are edited in place (inputs drawn as text
+  // until hovered or focused), and the long explanations live in tooltips:
+  // the first version stacked three labelled fields and two hint paragraphs
+  // per paired computer.
+  const inline = "h-8 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-[var(--color-border-soft)] focus:border-[var(--color-accent)]/50 focus:bg-[var(--color-bg)]";
+  const theirs = peer.their_grant === "drive"
+    ? t("peers.grant.drive")
+    : peer.their_grant === "reply" ? t("peers.grant.reply") : t("peers.paired.theirGrantUnknown");
   return (
     <div
       data-testid={`peer-row-${peer.id}`}
       data-online={peer.online ? "true" : "false"}
       data-grant={peer.grant}
       data-revoked={peer.revoked_by_peer ? "true" : "false"}
-      className="flex flex-col gap-3 rounded-lg border border-[var(--color-border-soft)] px-3 py-3"
+      className="flex flex-col gap-1.5 rounded-lg border border-[var(--color-border-soft)] px-3 py-2.5"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className={cn(
-                "inline-block h-2 w-2 shrink-0 rounded-full",
-                peer.online ? "bg-[var(--color-ok)]" : "bg-[var(--color-fg-faint)]",
-              )}
-            />
-            <Input
-              data-testid={`peer-rename-${peer.id}`}
-              aria-label={t("peers.paired.renameLabel")}
-              value={draft}
-              placeholder={peer.advertised_name}
-              maxLength={63}
-              onChange={e => setDraft(e.target.value)}
-              onBlur={() => void saveName()}
-              onKeyDown={e => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") { e.stopPropagation(); setDraft(peer.name); }
-              }}
-              className="h-8 w-64 font-medium"
-            />
-          </div>
-          <div className="mt-1 pl-4 text-[12px] text-[var(--color-fg-faint)]">
-            {seen}
-            {peer.address && <> · <span className="font-mono">{peer.address}</span></>}
-            {peer.version && <> · {t("peers.paired.version", { version: peer.version })}</>}
-            {peer.alias && peer.alias !== peer.advertised_name && (
-              <> · {t("peers.paired.callsItself", { name: peer.advertised_name })}</>
-            )}
-          </div>
-          {!peer.proto_ok && (
-            <div className="mt-1 pl-4 text-[12px] text-[var(--color-warn,inherit)]">{t("peers.versionMismatch")}</div>
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            "inline-block h-2 w-2 shrink-0 rounded-full",
+            peer.online ? "bg-[var(--color-ok)]" : "bg-[var(--color-fg-faint)]",
           )}
-          {peer.revoked_by_peer && (
-            <div data-testid={`peer-revoked-${peer.id}`} className="mt-1 pl-4 text-[12px] text-[var(--color-warn,inherit)]">
-              {t("peers.paired.revoked")}
-            </div>
-          )}
-        </div>
+        />
+        <input
+          data-testid={`peer-rename-${peer.id}`}
+          aria-label={t("peers.paired.renameLabel")}
+          title={t("peers.paired.renameLabel")}
+          value={draft}
+          placeholder={peer.advertised_name}
+          maxLength={63}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={() => void saveName()}
+          onKeyDown={e => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") { e.stopPropagation(); setDraft(peer.name); }
+          }}
+          className={cn(inline, "min-w-0 flex-1 text-[14px] font-medium text-[var(--color-fg)]")}
+        />
+        <Tip content={<span className="block max-w-[320px] whitespace-normal">{peer.grant === "drive" ? t("peers.grant.driveHint") : t("peers.grant.replyHint")}</span>} side="top">
+          <span className="shrink-0 text-[12px] text-[var(--color-fg-faint)]">{t("peers.paired.mayDo")}</span>
+        </Tip>
+        <select
+          data-testid={`peer-grant-${peer.id}`}
+          aria-label={t("peers.paired.mayDo")}
+          value={peer.grant}
+          onChange={e => void setGrant(e.target.value as PeerGrant)}
+          className={cn(selectClass, "h-8 w-36 shrink-0")}
+        >
+          <option value="reply">{t("peers.grant.reply")}</option>
+          <option value="drive">{t("peers.grant.drive")}</option>
+        </select>
         <Button
-          variant="secondary"
-          size="md"
+          variant="ghost"
+          size="sm"
           data-testid={`peer-unpair-${peer.id}`}
           onClick={() => void unpair()}
         >
@@ -614,24 +617,29 @@ function PeerRow({ peer, onChanged }: { peer: PeerView; onChanged: () => void })
         </Button>
       </div>
 
-      <label className="flex flex-col gap-1 pl-4">
-        <span className="text-[12px] font-medium text-[var(--color-fg-dim)]">{t("peers.paired.noteLabel")}</span>
-        <Input
-          data-testid={`peer-note-${peer.id}`}
-          value={note}
-          placeholder={t("peers.paired.notePlaceholder")}
-          maxLength={200}
-          onChange={e => setNote(e.target.value)}
-          onBlur={() => void saveNote()}
-          onKeyDown={e => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") { e.stopPropagation(); setNote(peer.note); }
-          }}
-          className="h-8"
-        />
-        <span className="text-[12px] text-[var(--color-fg-faint)]">{t("peers.paired.noteHint")}</span>
-      </label>
-      <div className="-mt-1 pl-4">
+      <div className="pl-[23px] text-[12px] text-[var(--color-fg-faint)]">
+        {seen}
+        {peer.address && <> · <span className="font-mono">{peer.address}</span></>}
+        {peer.alias && peer.alias !== peer.advertised_name && (
+          <> · {t("peers.paired.callsItself", { name: peer.advertised_name })}</>
+        )}
+        {" · "}
+        <span data-testid={`peer-their-grant-${peer.id}`} data-their-grant={peer.their_grant ?? "unknown"}>
+          {t("peers.paired.letsYou", { grant: theirs })}
+        </span>
+      </div>
+      {!peer.proto_ok && (
+        <div className="pl-[23px] text-[12px] text-[var(--color-warn,inherit)]">{t("peers.versionMismatch")}</div>
+      )}
+      {peer.revoked_by_peer && (
+        <div data-testid={`peer-revoked-${peer.id}`} className="pl-[23px] text-[12px] text-[var(--color-warn,inherit)]">
+          {t("peers.paired.revoked")}
+        </div>
+      )}
+
+      {/* Everything below the name starts where the name's text does (dot 8
+          + gap 8 + the input's border and padding 7). */}
+      <div className="mt-1 flex flex-wrap items-center gap-2 pl-[23px]">
         <PeerRoleChips
           note={note}
           testid={`peer-roles-${peer.id}`}
@@ -641,38 +649,21 @@ function PeerRow({ peer, onChanged }: { peer: PeerView; onChanged: () => void })
           }}
         />
       </div>
-
-      <div className="grid gap-3 pl-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-[12px] font-medium text-[var(--color-fg-dim)]">{t("peers.paired.mayDo")}</span>
-          <select
-            data-testid={`peer-grant-${peer.id}`}
-            value={peer.grant}
-            onChange={e => void setGrant(e.target.value as PeerGrant)}
-            className={selectClass}
-          >
-            <option value="reply">{t("peers.grant.reply")}</option>
-            <option value="drive">{t("peers.grant.drive")}</option>
-          </select>
-          <span className="text-[12px] text-[var(--color-fg-faint)]">
-            {peer.grant === "drive" ? t("peers.grant.driveHint") : t("peers.grant.replyHint")}
-          </span>
-        </label>
-        <div className="flex flex-col gap-1">
-          <span className="text-[12px] font-medium text-[var(--color-fg-dim)]">{t("peers.paired.letsYou")}</span>
-          <span
-            data-testid={`peer-their-grant-${peer.id}`}
-            data-their-grant={peer.their_grant ?? "unknown"}
-            className="pt-2 text-[13px]"
-          >
-            {peer.their_grant === "drive"
-              ? t("peers.grant.drive")
-              : peer.their_grant === "reply"
-                ? t("peers.grant.reply")
-                : t("peers.paired.theirGrantUnknown")}
-          </span>
-        </div>
-      </div>
+      <input
+        data-testid={`peer-note-${peer.id}`}
+        aria-label={t("peers.paired.noteLabel")}
+        title={t("peers.paired.noteHint")}
+        value={note}
+        placeholder={t("peers.paired.notePlaceholder")}
+        maxLength={200}
+        onChange={e => setNote(e.target.value)}
+        onBlur={() => void saveNote()}
+        onKeyDown={e => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") { e.stopPropagation(); setNote(peer.note); }
+        }}
+        className={cn(inline, "ml-[16px] text-[12.5px] text-[var(--color-fg-dim)] placeholder:text-[var(--color-fg-faint)]")}
+      />
     </div>
   );
 }
