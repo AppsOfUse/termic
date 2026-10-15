@@ -1105,8 +1105,12 @@ export const useApp = create<AppState>((set, get) => ({
           if (unreadClearsOnSight(t.unread)) {
             nt = { ...nt, unread: null };
           }
-          // Only the tab on screen counts as seen for a manual mark.
-          if (t.id === activeId && t.markedUnread) nt = { ...nt, markedUnread: false };
+          // A manual mark clears only when its tab COMES on screen: the task
+          // was not active before. Re-activating the task already on
+          // screen (every sidebar tab-row click does, before it picks the
+          // tab) is not a visit, or marking the open tab and clicking away
+          // would clear it on the way out.
+          if (t.id === activeId && t.markedUnread && prev !== id) nt = { ...nt, markedUnread: false };
           const clearable = t.workState === "done"
             || (t.workState === "working" && visitMayClearWorking(s.agentHooksInstalled, t.cli));
           if (t.id === activeId && clearable) {
@@ -1122,7 +1126,7 @@ export const useApp = create<AppState>((set, get) => ({
         });
         return { tabs: { ...s.tabs, [id]: next } };
       });
-      if (tabs.some(t => t.id === activeId && t.type === "terminal" && t.markedUnread)) get().syncDurableTabs(id);
+      if (prev !== id && tabs.some(t => t.id === activeId && t.type === "terminal" && t.markedUnread)) get().syncDurableTabs(id);
     }
   },
 
@@ -2444,7 +2448,12 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setActiveTabId: (taskId, tabId) => {
-    const marked = (get().tabs[taskId] || []).some(t => t.id === tabId && t.type === "terminal" && t.markedUnread);
+    // A manual mark clears when the tab COMES on screen, not when the tab
+    // that is already showing is picked again: marking the open tab must
+    // last until the user leaves it and comes back.
+    const alreadyShown = get().activeTab[taskId] === tabId;
+    const marked = !alreadyShown
+      && (get().tabs[taskId] || []).some(t => t.id === tabId && t.type === "terminal" && t.markedUnread);
     set(s => {
       // Looking at a tab = "I've seen this / I'm dealing with it now."
       // Clear EVERY status flag on focus:
@@ -2471,7 +2480,7 @@ export const useApp = create<AppState>((set, get) => ({
           // Not an attention bell: the agent is still waiting on an answer.
           if (unreadClearsOnSight(t.unread)) patch.unread = null;
           // A tab the user marked unread is read once it is shown again.
-          if (t.markedUnread) patch.markedUnread = false;
+          if (marked) patch.markedUnread = false;
           // "Some of the delegated work came back" is news, and looking at the
           // tab is reading it: drop the partial mark and keep the plain
           // delegated ring, which still says the rest is running.

@@ -468,9 +468,12 @@ entries:
   that reads `taskWorkBadge`: it ranks under attention and done and over
   working, and no pref hides it, since the user set it by hand. It is
   deliberately not `unread`, which is agent news and feeds the OS
-  notification. Showing that tab clears it: `setActiveTabId` on it, or
-  `setActiveTask` when it is the task's active tab. Opening the task on
-  another tab leaves it. It is persisted (`marked_unread`), so it
+  notification. The tab coming on screen clears it: `setActiveTabId` on
+  a tab that was not already showing, or `setActiveTask` on a task that
+  was not active, for its active tab. Picking the tab already on screen
+  again is not a visit (every sidebar row click re-activates its task
+  first), so marking the open tab lasts until you leave it and come back.
+  Opening the task on another tab leaves it. It is persisted (`marked_unread`), so it
   survives a relaunch, and only agent tabs persist at all.
 - **Close** is `requestCloseTab`, so a running agent still asks first.
 

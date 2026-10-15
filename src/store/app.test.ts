@@ -944,6 +944,7 @@ describe("markTabUnread", () => {
   });
 
   it("clears when that tab is shown, on disk too", () => {
+    useApp.getState().setActiveTabId("ws1", "t0");
     useApp.getState().markTabUnread("ws1", "t1");
     useApp.getState().setActiveTabId("ws1", "t1");
     expect(marked("t1")).toBe(false);
@@ -964,6 +965,24 @@ describe("markTabUnread", () => {
     expect(marked("t0")).toBe(false);
     expect(marked("t1")).toBe(true);
     expect(lastPersisted().map(p => !!p.marked_unread)).toEqual([false, true]);
+  });
+
+  it("marking the tab on screen lasts until it is left and shown again", () => {
+    // The sidebar row click: setActiveTask on the task already on screen,
+    // then setActiveTabId on the row. Neither may read the marked tab as seen.
+    useApp.setState(s => ({ activeTab: { ...s.activeTab, ws1: "t0" }, activeTaskId: "ws1" }));
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().setActiveTask("ws1");
+    useApp.getState().setActiveTabId("ws1", "t1");
+    expect(marked("t0")).toBe(true);
+    // Picking the tab that is already showing is not a visit either.
+    useApp.getState().markTabUnread("ws1", "t1");
+    useApp.getState().setActiveTabId("ws1", "t1");
+    expect(marked("t1")).toBe(true);
+    // Coming back is.
+    useApp.getState().setActiveTask("ws1");
+    useApp.getState().setActiveTabId("ws1", "t0");
+    expect(marked("t0")).toBe(false);
   });
 
   it("is not agent news: no unread, so no notification", () => {

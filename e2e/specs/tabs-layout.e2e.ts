@@ -604,6 +604,30 @@ describe("sidebar tab row menu", () => {
     }, { timeout: 10_000, timeoutMsg: "the cleared mark never left the task file" });
   });
 
+  it("Mark as unread on the open tab lasts until it is left and shown again", async () => {
+    const open = await browser.execute((id) => window.__termic!.useApp.getState().activeTab[id], taskId) as string;
+    const other = (await tabIds(taskId)).find((id) => id !== open)!;
+    const openSel = `[data-sidebar-tab-id="${open}"]`;
+    await openTabRowMenu(open);
+    await clickMenuItem("Mark as unread");
+    await waitGone('[data-testid="sidebar-tab-menu"]', 5_000);
+    await browser.waitUntil(async () => (await rowMark(openSel)) === "marked",
+      { timeout: 5_000, timeoutMsg: "the open tab never drew its marked dot" });
+
+    // Leaving through another row: that click re-activates the task first,
+    // which must not read the marked tab as seen on the way out.
+    await clickWhenVisible(`[data-sidebar-tab-id="${other}"]`);
+    await browser.waitUntil(async () =>
+      (await browser.execute((id) => window.__termic!.useApp.getState().activeTab[id], taskId)) === other,
+      { timeout: 5_000, timeoutMsg: "the other tab never became active" });
+    expect(await rowMark(openSel)).toBe("marked");
+
+    // Coming back is the visit that reads it.
+    await clickWhenVisible(openSel);
+    await browser.waitUntil(async () => (await rowMark(openSel)) === null,
+      { timeout: 5_000, timeoutMsg: "the dot stayed after the tab was shown again" });
+  });
+
   it("Close removes the clicked tab and only that one", async () => {
     const before = await tabIds(taskId);
     const shell = await browser.execute((id) =>
