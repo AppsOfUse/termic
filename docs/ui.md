@@ -446,9 +446,13 @@ listener has to be attached first, and rAF is frozen on an occluded window (see
 ## The sidebar's tab rows
 
 Each expanded task lists its main-pane terminal tabs as child rows. Click
-activates, double-click renames, and right-click opens a menu with two
+activates, double-click renames, and right-click opens a menu with four
 entries:
 
+- **New above** is New below with `addTab(..., { beforeTabId })`, so the
+  pick lands in the clicked tab's own slot. The pinned-block rule below
+  holds the same way: an unpinned tab above a pinned one lands after the
+  block.
 - **New below** is the "+" menu (`NewTabMenuItems`) minus the scratchpads,
   which get no row, so "below" would mean nothing for them. The pick goes
   through `addTab(..., { afterTabId })` (`resumeClosedTab` takes the same
@@ -458,6 +462,16 @@ entries:
   ends after the LAST pinned main-strip tab (a split-pane tab keeps its
   array slot and can sit between two pinned ones). The sidebar, the tab strip and `persisted_tabs` all read that one list, so
   the slot holds in all three and across a relaunch.
+- **Mark as unread** sets `TerminalTab.markedUnread` (`markTabUnread`).
+  The row draws an orange dot (`TaskWorkBadge reason="marked"`,
+  `--color-marked`), and so does the folded task row and every rollup
+  that reads `taskWorkBadge`: it ranks under attention and done and over
+  working, and no pref hides it, since the user set it by hand. It is
+  deliberately not `unread`, which is agent news and feeds the OS
+  notification. Showing that tab clears it: `setActiveTabId` on it, or
+  `setActiveTask` when it is the task's active tab. Opening the task on
+  another tab leaves it. It is persisted (`marked_unread`), so it
+  survives a relaunch, and only agent tabs persist at all.
 - **Close** is `requestCloseTab`, so a running agent still asks first.
 
 It is a Radix `DropdownMenu` opened on `contextmenu`, the task row's

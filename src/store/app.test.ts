@@ -877,6 +877,111 @@ describe("addTab afterTabId", () => {
   });
 });
 
+// ── addTab beforeTabId (sidebar tab row "New above") ─────────────────
+
+describe("addTab beforeTabId", () => {
+  const ids = getTabIds;
+  function seed(taskId: string, n: number) {
+    for (let i = 0; i < n; i++) addTab(taskId, makeTermTab({ id: `t${i}` }));
+  }
+
+  it("inserts directly before the anchor", () => {
+    seed("ws1", 3);
+    useApp.getState().addTab("ws1", makeTermTab({ id: "new" }), { beforeTabId: "t1" });
+    expect(ids("ws1")).toEqual(["t0", "new", "t1", "t2"]);
+  });
+
+  it("can put the new tab first", () => {
+    seed("ws1", 2);
+    useApp.getState().addTab("ws1", makeTermTab({ id: "new" }), { beforeTabId: "t0" });
+    expect(ids("ws1")).toEqual(["new", "t0", "t1"]);
+  });
+
+  it("appends when the anchor is gone", () => {
+    seed("ws1", 2);
+    useApp.getState().addTab("ws1", makeTermTab({ id: "new" }), { beforeTabId: "nope" });
+    expect(ids("ws1")).toEqual(["t0", "t1", "new"]);
+  });
+
+  it("keeps an unpinned tab out of the pinned block, above a pinned tab too", () => {
+    addTab("ws1", makeTermTab({ id: "p0", pinned: true }));
+    addTab("ws1", makeTermTab({ id: "p1", pinned: true }));
+    addTab("ws1", makeTermTab({ id: "t0" }));
+    useApp.getState().addTab("ws1", makeTermTab({ id: "new" }), { beforeTabId: "p1" });
+    expect(ids("ws1")).toEqual(["p0", "p1", "new", "t0"]);
+  });
+
+  it("resumeClosedTab honours it too", () => {
+    seed("ws1", 3);
+    useApp.setState(s => ({
+      closedTabs: { ...s.closedTabs, ws1: [{ id: "e1", tabId: "back", title: "Claude", cli: "claude", closedAt: new Date().toISOString() } as never] },
+    }));
+    useApp.getState().resumeClosedTab("ws1", "e1", { beforeTabId: "t1" });
+    expect(ids("ws1")).toEqual(["t0", "back", "t1", "t2"]);
+  });
+});
+
+// ── markTabUnread (sidebar tab row "Mark as unread") ─────────────────
+
+describe("markTabUnread", () => {
+  const marked = (id: string) =>
+    !!(useApp.getState().tabs["ws1"].find(t => t.id === id) as TerminalTab).markedUnread;
+  const lastPersisted = () => {
+    const calls = vi.mocked(ipc.taskSetTabs).mock.calls;
+    return calls[calls.length - 1]?.[1] as PersistedTab[];
+  };
+
+  beforeEach(() => {
+    useApp.setState({ tasks: [makeTask({ id: "ws1" })] } as never);
+    for (const id of ["t0", "t1"]) addTab("ws1", makeTermTab({ id, cli: "claude" }));
+  });
+
+  it("marks the tab and writes the mark to disk", () => {
+    useApp.getState().markTabUnread("ws1", "t1");
+    expect(marked("t1")).toBe(true);
+    expect(marked("t0")).toBe(false);
+    expect(lastPersisted().map(p => !!p.marked_unread)).toEqual([false, true]);
+  });
+
+  it("clears when that tab is shown, on disk too", () => {
+    useApp.getState().markTabUnread("ws1", "t1");
+    useApp.getState().setActiveTabId("ws1", "t1");
+    expect(marked("t1")).toBe(false);
+    expect(lastPersisted().some(p => p.marked_unread)).toBe(false);
+  });
+
+  it("stays when another tab of the task is shown", () => {
+    useApp.getState().markTabUnread("ws1", "t1");
+    useApp.getState().setActiveTabId("ws1", "t0");
+    expect(marked("t1")).toBe(true);
+  });
+
+  it("opening the task clears only the tab it lands on", () => {
+    useApp.getState().markTabUnread("ws1", "t0");
+    useApp.getState().markTabUnread("ws1", "t1");
+    useApp.setState(s => ({ activeTab: { ...s.activeTab, ws1: "t0" }, activeTaskId: null }));
+    useApp.getState().setActiveTask("ws1");
+    expect(marked("t0")).toBe(false);
+    expect(marked("t1")).toBe(true);
+    expect(lastPersisted().map(p => !!p.marked_unread)).toEqual([false, true]);
+  });
+
+  it("is not agent news: no unread, so no notification", () => {
+    useApp.getState().markTabUnread("ws1", "t1");
+    const t = useApp.getState().tabs["ws1"].find(x => x.id === "t1") as TerminalTab;
+    expect(t.unread ?? null).toBeNull();
+  });
+
+  it("an already marked tab is not written again", () => {
+    useApp.getState().markTabUnread("ws1", "t1");
+    vi.mocked(ipc.taskSetTabs).mockClear();
+    const before = useApp.getState().tabs;
+    useApp.getState().markTabUnread("ws1", "t1");
+    expect(useApp.getState().tabs).toBe(before);
+    expect(ipc.taskSetTabs).not.toHaveBeenCalled();
+  });
+});
+
 // ── pin / unpin (issue #183) ──────────────────────────────────────────
 
 describe("pinTab / unpinTab", () => {
@@ -1024,6 +1129,18 @@ describe("ensureDefaultTab — seed / restore / migrate", () => {
 
     const tabs = useApp.getState().tabs["ws1"];
     expect(tabs.map(t => !!t.pinned)).toEqual([true, false]);
+  });
+
+  it("restores a tab marked unread", () => {
+    const persisted: PersistedTab[] = [
+      { id: "t1", cli: "claude", is_default: true },
+      { id: "t2", cli: "codex", marked_unread: true },
+    ];
+    useApp.setState({ tasks: [makeTask({ persisted_tabs: persisted })] });
+    useApp.getState().ensureDefaultTab("ws1", "claude");
+
+    const tabs = useApp.getState().tabs["ws1"];
+    expect(tabs.map(t => !!(t as TerminalTab).markedUnread)).toEqual([false, true]);
   });
 
   it("re-derives the title for tabs the user never renamed", () => {
