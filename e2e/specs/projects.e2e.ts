@@ -2614,11 +2614,15 @@ describe("new task menu puts the project default first", () => {
     }, projectId);
     expect(Math.abs(look.h - rowH)).toBeLessThanOrEqual(1);
     await snap("new-task-button-busy.png");
-    // The header `+` steps aside while the bottom one shows.
-    expect(await $(`[data-testid="project-new-task-${projectId}"]`).isExisting()).toBe(false);
+    // The header `+` stays, hover-only, while the bottom one shows.
+    expect(await browser.execute((id) => {
+      const el = document.querySelector(`[data-testid="project-new-task-${id}"]`) as HTMLElement | null;
+      return el ? { hoverOnly: el.dataset.hoverOnly ?? null, opacity: getComputedStyle(el).opacity } : null;
+    }, projectId)).toEqual({ hoverOnly: "true", opacity: "0" });
     await setMode("empty");
     await browser.waitUntil(async () => (await has()) === "none", { timeoutMsg: "Empty projects still drew it on a busy one" });
-    expect(await $(`[data-testid="project-new-task-${projectId}"]`).isExisting()).toBe(true);
+    expect(await browser.execute((id) =>
+      document.querySelector(`[data-testid="project-new-task-${id}"]`)?.hasAttribute("data-hover-only") ?? null, projectId)).toBe(false);
     await archiveTask(taskId);
   });
 

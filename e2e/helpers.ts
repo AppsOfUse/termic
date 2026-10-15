@@ -301,8 +301,8 @@ export async function waitForAppShell(timeout = 30_000): Promise<void> {
         const p = window.__termic?.usePrefs?.getState();
         if (!p) return false;
         if (p.language !== "en") p.setLanguage("en");
-        // The header `+` hides while the "New task" button under a project's
-        // tasks shows, and specs open the menu from the header. Only empty
+        // The header `+` goes hover-only while the "New task" button under a
+        // project's tasks shows, and specs open the menu from the header. Only empty
         // projects get the bottom button here; the spec for the setting sets
         // its own mode and puts this one back.
         if (p.newTaskButton !== "empty") p.setNewTaskButton("empty");

@@ -1524,9 +1524,10 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
             const projDone = compact && collapsed && !projAttention && taskList.some(w => isWorkDone(w.id));
             const isMulti = (p.type ?? "single") === "multi";
             // The "New task" button under the tasks. While it is on screen
-            // the header's `+` is hidden: two buttons opening the same menu
-            // one row apart. Ignores the armed inline row on purpose, so the
-            // header `+` does not pop in while a name is being typed.
+            // the header's `+` only shows on hover: two always-visible
+            // buttons for one menu one row apart was noise. Ignores the armed
+            // inline row on purpose, so the header `+` does not change while
+            // a name is being typed.
             const bottomNewTask = !collapsed && !compact
               && newTaskButtonShown(newTaskButtonMode, taskList.length, projects.length);
             return (
@@ -1726,8 +1727,9 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                               used to show side by side — less visual noise
                               on the row, clearer affordance (the universal
                               "+" = "create / open something here"). */}
-                          {/* Hidden while the button under the tasks shows (bottomNewTask). */}
-                          {!bottomNewTask && (
+                          {/* Hover-only while the button under the tasks shows
+                              (bottomNewTask): one always-visible `+` per project, and the
+                              header's still a hover away for a long list. */}
                           <DropdownRoot
                             onOpenChange={(o) => setMenuOpenProjectId(o ? p.id : null)}
                           >
@@ -1740,7 +1742,11 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                                   // sidebar renders one per project.
                                   data-testid={`project-new-task-${p.id}`}
                                   data-guide="new-task"
-                                  className="rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-bg-3)] data-[state=open]:text-[var(--color-fg)]"
+                                  data-hover-only={bottomNewTask || undefined}
+                                  className={cn(
+                                    "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-bg-3)] data-[state=open]:text-[var(--color-fg)]",
+                                    bottomNewTask && "opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100",
+                                  )}
                                 ><Plus className="h-4 w-4" /></button>
                               </DropdownTrigger>
                             </Tip>
@@ -1791,7 +1797,6 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                               />
                             </DropdownMenu>
                           </DropdownRoot>
-                          )}
                         </div>
                       </>
                     )}

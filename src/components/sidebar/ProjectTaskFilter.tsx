@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Bell, ListFilter, Search, X } from "lucide-react";
+import { Bell, ListFilter, X } from "lucide-react";
 import { Tip } from "@/components/ui/Tooltip";
 import { useUI } from "@/store/ui";
 import { cn } from "@/lib/utils";
@@ -93,7 +93,12 @@ export function ProjectFilterBar({ projectId, notifCount, focusKey, onClose, onA
   return (
     <div className="ml-3 mr-1 mb-px flex items-center gap-1" data-no-drag>
       <div className="relative flex min-w-0 flex-1 items-center">
-        <Search className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-[var(--color-fg-faint)]" />
+        {/* Drawn like the sidebar's top filter (BoardFilterBar, variant
+            "sidebar"): the same funnel at the same inset, no fill on the
+            sidebar's surface, a soft border, half-strength accent while it
+            filters or has focus. A black slot with a search glass and a
+            full-accent ring read as a different control. */}
+        <ListFilter className={cn("pointer-events-none absolute left-2 h-3.5 w-3.5", text !== "" ? "text-[var(--color-accent)]" : "text-[var(--color-fg-faint)]")} />
         <input
           ref={inputRef}
           value={text}
@@ -110,8 +115,8 @@ export function ProjectFilterBar({ projectId, notifCount, focusKey, onClose, onA
           }}
           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
           className={cn(
-            "h-7 w-full rounded-md border bg-[var(--color-bg)] pl-7 pr-6 text-[12.5px] text-[var(--color-fg)] outline-none placeholder:text-[var(--color-fg-faint)]",
-            text !== "" ? "border-[var(--color-accent)]" : "border-[var(--color-border-soft)] focus:border-[var(--color-accent)]",
+            "h-7 w-full rounded-md border bg-transparent pl-8 pr-6 text-[12.5px] text-[var(--color-fg)] outline-none placeholder:text-[var(--color-fg-faint)]",
+            text !== "" ? "border-[var(--color-accent)]/50" : "border-[var(--color-border-soft)] focus:border-[var(--color-accent)]/50",
           )}
         />
         {text !== "" && (

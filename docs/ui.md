@@ -167,8 +167,8 @@ from where the task appears), or Always (`newTaskButtonShown` in
 (`data-variant="quiet"`, labelled by its tooltip), so it does not read as
 one more task; the row highlights on hover and while its menu is open. The
 dashed "New task" box at full row height is only for the empty project.
-While either one shows, the project header's `+` is hidden (same menu, one
-row apart). The e2e profile pins the pref to Empty projects so specs keep
+While either one shows, the project header's `+` is hover-only (same menu,
+one row apart; still a hover away on a long list). The e2e profile pins the pref to Empty projects so specs keep
 the header `+` on projects with tasks. Consecutive projects are set apart by a
 gap and the project header's light band (`--color-bg-2` at 50%). Tried and
 rejected: whitespace alone (no separation), a full-strength rule (harsh).
