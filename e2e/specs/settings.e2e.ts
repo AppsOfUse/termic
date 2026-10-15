@@ -199,6 +199,10 @@ describe("settings rail", () => {
     ["general", "General", "Repos directory"],
     ["appearance", "Appearance", "Terminal font"],
     ["agents", "Agents & Terminals", "Copy on select"],
+    // Agent access, right under Agents: the CLI, MCP and other computers
+    // (LAN pairing, docs/peers.md) on one page. Its marker is the MCP
+    // master toggle, the tab it opens on.
+    ["cli", "Agent access", "Enable MCP endpoint"],
     ["tasks", "Tasks", "Branch prefix"],
     ["notifications", "Notifications", "Desktop notifications"],
     ["prompts", "Prompts", "Prompts"],
@@ -216,9 +220,6 @@ describe("settings rail", () => {
     // page renders only once Docker sandboxing is enabled, and the fixture
     // profile leaves it off.
     ["docker", "Docker Sandbox", "Enable Docker sandbox"],
-    // Agent access: the CLI, MCP and other computers (LAN pairing,
-    // docs/peers.md) on one page. Its marker is the CLI's master toggle.
-    ["cli", "Agent access", "Enable MCP endpoint"],
   ];
 
   // The Linux AppImage's launcher entry. The e2e binary is normally NOT an

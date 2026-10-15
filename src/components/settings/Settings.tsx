@@ -8,7 +8,7 @@ import { useApp } from "@/store/app";
 import { useUI } from "@/store/ui";
 import { useUpdate } from "@/store/update";
 import { Button } from "@/components/ui/Button";
-import { X, Palette, FolderGit2, Settings as SettingsIcon, Keyboard, Terminal, Layers, Library, ListTodo, Bell, ShieldCheck, SquareTerminal, Container, UsersRound, RefreshCw } from "lucide-react";
+import { X, Palette, FolderGit2, Settings as SettingsIcon, Keyboard, Terminal, Layers, Library, ListTodo, Bell, ShieldCheck, Bot, Container, UsersRound, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppearanceSection } from "./AppearanceSection";
 import { RepositorySection } from "./RepositorySection";
@@ -93,6 +93,12 @@ export function Settings() {
           active={tab === "appearance"} onClick={() => openSettings("appearance")} />
         <RailItem icon={<Terminal className="h-4 w-4" />} label={t("rail.agents")} tabId="agents"
           active={tab === "agents"} onClick={() => openSettings("agents")} />
+        {/* One rail item for every way an agent reaches Termic: the CLI,
+            MCP, and other computers, each a tab of the same page. Right under
+            Agents: it is about what agents can do, which is where people look
+            for it; under the sandbox pages it read as a security setting. */}
+        <RailItem icon={<Bot className="h-4 w-4" />} label={t("rail.cli")} hint={t("rail.cliHint")} tabId="cli"
+          active={tab === "cli" || tab === "mcp" || tab === "peers"} onClick={() => openSettings("mcp")} />
 
         <RailDivider />
 
@@ -116,8 +122,8 @@ export function Settings() {
 
         <RailDivider />
 
-        {/* The perimeter: the two pages that change what the app is allowed to
-            do. The Experimental badge is a badge, not a separate "Experimental"
+        {/* The perimeter: the sandbox pages, which change what an agent's
+            process is allowed to do. The Experimental badge is a badge, not a separate "Experimental"
             page: the CLI is the only feature that qualifies today, and exiling
             the release's headline feature to a Labs page costs more
             discoverability than the label is worth. See docs/ui.md. */}
@@ -125,10 +131,6 @@ export function Settings() {
           active={tab === "sandbox"} onClick={() => openSettings("sandbox")} />
         <RailItem icon={<Container className="h-4 w-4" />} label={t("rail.docker")} badge={t("rail.badgeExp")} tabId="docker"
           active={tab === "docker"} onClick={() => openSettings("docker")} />
-        {/* One rail item for every way an agent reaches Termic: the CLI,
-            MCP, and other computers, each a tab of the same page. */}
-        <RailItem icon={<SquareTerminal className="h-4 w-4" />} label={t("rail.cli")} hint={t("rail.cliHint")} tabId="cli"
-          active={tab === "cli" || tab === "mcp" || tab === "peers"} onClick={() => openSettings("mcp")} />
 
         <div className="mt-5 px-2 pb-1 text-[11.5px] uppercase tracking-wider text-[var(--color-fg-faint)]">
           {t("rail.projects")}
