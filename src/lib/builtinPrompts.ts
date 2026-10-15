@@ -260,10 +260,10 @@ Every finding is BLOCKING (must fix before merge), SUGGESTION (worth considering
 8. **Tests.** (A) For new behaviour in the product's critical flows, look for a test that asserts it specifically; a test that merely passes through the area is not coverage. If none, SUGGESTION to add one. (B) If the diff renames or removes something an existing test depends on (a selector, visible copy, a route, an API or event name, a stored field, a step in a flow, a default or a flag), name the test and the assertion it will likely break, as a SUGGESTION. Only with an actual assertion to point at. Both are nudges, never BLOCKING.
 
 ## Draft
-Compile one draft: blocking first, then suggestions, then nits. Number each section on its own, with its prefix: BL-1, BL-2 for blocking, SUG-1, SUG-2 for suggestions, NIT-1, NIT-2 for nits. Tag each finding with its reviewer.
+Compile one draft: blocking first, then suggestions, then nits. Number each section on its own, with its prefix: BL-1, BL-2 for blocking, SG-1, SG-2 for suggestions, NT-1, NT-2 for nits. Tag each finding with its reviewer.
 
 ## False-positive filter
-Then dispatch one filter sub-agent with the full diff, the PR description and the complete draft, and wait for its verdicts. It reads the source for anything it is unsure of, and for each finding weighs the author's intent, the concrete harm feared, and whether a realistic scenario triggers it. It drops a finding only for a specific reason: already handled in the diff; contradicted by the code or a call site; the pattern is established widely in the codebase; outside the diff's scope; speculative with no evidence; trivial or excluded by the rules above; or a defensive check for a state that cannot occur. It answers \`KEEP <id>\` or \`DROP <id>: <reason>\` for each, by the finding's id (BL-1, SUG-2).
+Then dispatch one filter sub-agent with the full diff, the PR description and the complete draft, and wait for its verdicts. It reads the source for anything it is unsure of, and for each finding weighs the author's intent, the concrete harm feared, and whether a realistic scenario triggers it. It drops a finding only for a specific reason: already handled in the diff; contradicted by the code or a call site; the pattern is established widely in the codebase; outside the diff's scope; speculative with no evidence; trivial or excluded by the rules above; or a defensive check for a state that cannot occur. It answers \`KEEP <id>\` or \`DROP <id>: <reason>\` for each, by the finding's id (BL-1, SG-2).
 
 ## Final output
 Remove the dropped findings. Do not renumber, and do not mention the filter or what it dropped.
@@ -275,10 +275,10 @@ Remove the dropped findings. Do not renumber, and do not mention the filter or w
 - **BL-1** [Reviewer N] <finding>
 
 ### Suggestions
-- **SUG-2** [Reviewer N] <finding>
+- **SG-1** [Reviewer N] <finding>
 
 ### Nits
-- **NIT-1** [Reviewer N] <finding>
+- **NT-1** [Reviewer N] <finding>
 
 ### Clean
 - [Reviewer N] found no issues.

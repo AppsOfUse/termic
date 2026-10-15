@@ -266,8 +266,8 @@ describe("the Deep review built-in", () => {
     expect(p.body).toContain("pull request above");
     expect(p.body).toContain("sub-agent");
     expect(p.body).toContain("False-positive filter");
-    // findings carry their severity in the id: BL-1, SUG-1, NIT-1
-    for (const id of ["**BL-1**", "**SUG-2**", "**NIT-1**"]) expect(p.body).toContain(id);
+    // findings carry their severity in the id: BL-1, SG-1, NT-1
+    for (const id of ["**BL-1**", "**SG-1**", "**NT-1**"]) expect(p.body).toContain(id);
     expect(p.body).not.toMatch(/DR-\d/);
     expect(p.body).toContain("## Deep Review");
     expect(p.body).toContain("do not change any files");
