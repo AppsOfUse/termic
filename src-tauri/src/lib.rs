@@ -25302,6 +25302,48 @@ fn percent_decode_loose(s: &str) -> String {
 }
 
 /// The label of the most recently focused OPEN profile window.
+/// Put a profile's window on screen for work a paired computer started in
+/// it (cli_server `PEER_ORIGIN`): shown if hidden or minimized, built if
+/// closed, the same path as picking the profile from the menu. True when the
+/// window had to be BUILT, so the caller waits for its webview before
+/// talking to it.
+pub(crate) fn reveal_profile_window(app: &AppHandle, label: &str) -> bool {
+    use tauri::Manager;
+    let existing = app.get_webview_window(label);
+    if let Some(w) = &existing {
+        if w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false) {
+            return false;
+        }
+    }
+    let Some(id) = ProfileId::from_window_label(label) else { return false };
+    let built = existing.is_none();
+    if built {
+        cli_server::forget_ready(label);
+    }
+    dlog(&format!("[peers] showing {label}: a paired computer is working there"));
+    let slug = match &id {
+        ProfileId::Slug(s) => Some(s.clone()),
+        ProfileId::Root => profiles_registry().root_slug.clone(),
+    };
+    match slug {
+        Some(slug) => {
+            let _ = profile_open(app.clone(), slug);
+        }
+        // A dormant install: the root window is the only one, and it is
+        // hidden, never destroyed.
+        None => {
+            let _ = on_main_thread(app, move |app| {
+                if let Some(w) = app.get_webview_window(&id.window_label()) {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                }
+                Ok(())
+            });
+        }
+    }
+    built
+}
+
 pub(crate) fn most_recent_profile_label(app: &AppHandle) -> String {
     let reg = profiles_registry();
     // Shown ones: a root the user closed is still a window, and routing a

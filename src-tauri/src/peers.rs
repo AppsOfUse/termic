@@ -1395,7 +1395,11 @@ impl Node {
                             from_task: None,
                             cmd,
                         };
-                        crate::cli_server::dispatch_authenticated(&req, self.host.as_ref(), &mut crate::mcp_server::NoopSink)
+                        // Marked as a paired computer's: whatever it does in a
+                        // profile, that profile's window comes on screen.
+                        crate::cli_server::with_peer_origin(|| {
+                            crate::cli_server::dispatch_authenticated(&req, self.host.as_ref(), &mut crate::mcp_server::NoopSink)
+                        })
                     }
                 }
             }

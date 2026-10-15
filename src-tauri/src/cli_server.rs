@@ -4952,6 +4952,55 @@ impl ReadyLatch {
     }
 }
 
+/// Per WINDOW readiness, beside the app-wide latch: the labels whose RPC
+/// listener has registered. The latch answers "has any webview booted"; a
+/// profile window opened on the spot for a paired computer's request
+/// (`PEER_ORIGIN`) boots seconds after the latch was set, and an event
+/// emitted into it before its listener exists is dropped, not queued.
+fn ready_labels() -> &'static (Mutex<std::collections::HashSet<String>>, Condvar) {
+    static L: OnceLock<(Mutex<std::collections::HashSet<String>>, Condvar)> = OnceLock::new();
+    L.get_or_init(|| (Mutex::new(std::collections::HashSet::new()), Condvar::new()))
+}
+
+/// A window about to be (re)built is not ready, whatever it was before.
+pub(crate) fn forget_ready(label: &str) {
+    ready_labels().0.lock().unwrap().remove(label);
+}
+
+/// Wait until `label`'s webview has registered its RPC listener.
+fn wait_label_ready(label: &str, timeout: Duration) -> bool {
+    let (m, cv) = ready_labels();
+    let deadline = Instant::now() + timeout;
+    let mut set = m.lock().unwrap();
+    while !set.contains(label) {
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        set = cv.wait_timeout(set, deadline - now).unwrap_or_else(|p| p.into_inner()).0;
+    }
+    true
+}
+
+thread_local! {
+    /// Set while a PAIRED COMPUTER's request is being handled (peers.rs).
+    /// Such work must never run where the person cannot see it: before its
+    /// RPC reaches a profile window, that window is opened if it was hidden
+    /// or closed (`crate::reveal_profile_window`). A paired machine named a
+    /// project that lived in a profile whose window was closed, and its task
+    /// ran there unseen; requests are deliberately NOT confined to one
+    /// profile, so this is what keeps them visible.
+    static PEER_ORIGIN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` as the handling of a paired computer's request.
+pub(crate) fn with_peer_origin<R>(f: impl FnOnce() -> R) -> R {
+    PEER_ORIGIN.with(|c| c.set(true));
+    let out = f();
+    PEER_ORIGIN.with(|c| c.set(false));
+    out
+}
+
 fn webview_ready() -> &'static ReadyLatch {
     static READY: OnceLock<ReadyLatch> = OnceLock::new();
     READY.get_or_init(ReadyLatch::new)
@@ -4967,8 +5016,11 @@ const WEBVIEW_READY_TIMEOUT: Duration =
 /// Invoked by src/lib/cliRpc.ts once its `cli-rpc://request` listener
 /// is registered. Idempotent; a webview reload re-invokes it.
 #[tauri::command]
-pub fn cli_rpc_ready() {
+pub fn cli_rpc_ready(window: tauri::Window) {
     webview_ready().set();
+    let (m, cv) = ready_labels();
+    m.lock().unwrap().insert(window.label().to_string());
+    cv.notify_all();
 }
 
 enum RpcMsg {
@@ -5056,6 +5108,10 @@ fn webview_rpc_stream(
     let (tx, rx) = mpsc::channel::<RpcMsg>();
     pending().lock().unwrap().insert(id.clone(), tx);
     let target = rpc_target_label(app, &params);
+    // A paired computer's work is shown, not run in a hidden window.
+    if PEER_ORIGIN.with(|c| c.get()) && crate::reveal_profile_window(app, &target) {
+        let _ = wait_label_ready(&target, WEBVIEW_READY_TIMEOUT);
+    }
     let payload = serde_json::json!({ "id": id, "method": method, "params": params });
     // emit_to, not emit: with one window per profile a broadcast means EVERY
     // profile's webview handles the request and answers it, so the client gets

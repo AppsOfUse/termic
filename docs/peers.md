@@ -356,6 +356,23 @@ fill the note, Done / Skip. Everything is read from
 
 ## Profiles
 
+**A paired computer is not confined to one profile, and its work is never
+hidden.** Its requests resolve projects and tasks across every profile,
+like a local `termic` command without `--profile`. Whatever it does in a
+profile brings that profile's window on screen: shown if hidden or
+minimized, built if closed, the same path as picking the profile from the
+menu (`reveal_profile_window`, triggered by `cli_server::PEER_ORIGIN` just
+before the request's RPC reaches the window). Found when a paired laptop
+named a project that lived in the Personal profile while only the NextTech
+window was open: its task started in a window nobody could see. Confining
+each pair to one profile was considered and left out on purpose; visibility
+is the rule instead.
+
+A window built on the spot is waited for: the app-wide RPC latch is
+already set by then, so `cli_rpc_ready` also records readiness per window
+label, and the RPC waits for that label before emitting (an event emitted
+before a webview's listener exists is dropped, not queued).
+
 Sharing, like the CLI and MCP switches, belongs to the app, not a
 profile: one node per machine, read from the root profile's settings.
 `settings_save` from any profile window writes these to root too, and
