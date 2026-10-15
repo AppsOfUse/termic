@@ -2607,7 +2607,12 @@ describe("new task menu puts the project default first", () => {
     }, projectId);
     expect(look.variant).toBe("quiet");
     expect(look.border).toBe("none");
-    expect(look.h).toBeLessThanOrEqual(20);
+    // The height of the task row above it (--task-row-h).
+    const rowH = await browser.execute((id) => {
+      const rows = document.querySelectorAll(`[data-sidebar-task-project-id="${id}"]`);
+      return (rows[rows.length - 1] as HTMLElement).getBoundingClientRect().height;
+    }, projectId);
+    expect(Math.abs(look.h - rowH)).toBeLessThanOrEqual(1);
     await snap("new-task-button-busy.png");
     // The header `+` steps aside while the bottom one shows.
     expect(await $(`[data-testid="project-new-task-${projectId}"]`).isExisting()).toBe(false);

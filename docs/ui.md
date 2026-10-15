@@ -163,7 +163,7 @@ shows sits BELOW the task rows, where a new task lands. The
 that has tasks shows it too: Empty projects (never), Auto (while there are
 two or fewer projects, the default: one long list puts the header's `+` far
 from where the task appears), or Always (`newTaskButtonShown` in
-`store/prefs.ts`). Under tasks it draws as a lone centered `+` on a thin borderless row
+`store/prefs.ts`). Under tasks it draws as a lone centered `+` on a borderless row the height of a task row (`--task-row-h`)
 (`data-variant="quiet"`, labelled by its tooltip), so it does not read as
 one more task; the row highlights on hover and while its menu is open. The
 dashed "New task" box at full row height is only for the empty project.

@@ -2131,16 +2131,16 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                           data-variant={taskList.length === 0 ? "empty" : "quiet"}
                           // Empty project: a dashed box at the task row's height
                           // (--task-row-h), standing in for the missing row.
-                          // Under tasks: a lone centered `+` on a thin
-                          // borderless row, so it does not read as one more
+                          // Under tasks: a lone centered `+` on a borderless
+                          // row the height of a task row (--task-row-h), so it does not read as one more
                           // task; the row highlights on hover and while open.
                           aria-label={taskList.length === 0 ? undefined : t("ctxNewTask")}
                           title={taskList.length === 0 ? undefined : t("ctxNewTask")}
                           className={taskList.length === 0
                             ? "flex h-[var(--task-row-h)] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--color-border)] bg-transparent px-2 text-[13px] text-[var(--color-fg-dim)] hover:border-[var(--color-accent-soft)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:border-[var(--color-accent-soft)] data-[state=open]:bg-[var(--color-hover)] data-[state=open]:text-[var(--color-fg)]"
-                            : "flex h-5 w-full items-center justify-center rounded-md bg-transparent px-2 text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-hover)] data-[state=open]:text-[var(--color-fg)]"}
+                            : "flex h-[var(--task-row-h)] w-full items-center justify-center rounded-md bg-transparent px-2 text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] data-[state=open]:bg-[var(--color-hover)] data-[state=open]:text-[var(--color-fg)]"}
                         >
-                          <Plus className="h-3.5 w-3.5 shrink-0" />
+                          <Plus className={taskList.length === 0 ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"} />
                           {taskList.length === 0 && <span>{t("ctxNewTask")}</span>}
                         </button>
                       </DropdownTrigger>
