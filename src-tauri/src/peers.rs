@@ -1381,7 +1381,7 @@ impl Node {
                 ),
             ),
             Some(c) => {
-                let cmd = sanitize(&c.request.cmd);
+                let cmd = localize_signature(sanitize(&c.request.cmd), &rec);
                 match permitted(rec.grant, &cmd, &rec.contacts, self.host.as_ref(), &us) {
                     Err(why) => Reply::err(&c.request.id, ErrorCode::Auth, why),
                     Ok(()) => {
@@ -1851,6 +1851,13 @@ struct CallBody {
 // ───────────────────────────── http ──────────────────────────────────
 
 fn bind(addr: IpAddr, preferred: u16) -> Result<TcpListener, String> {
+    // Tests take a port the OS hands out, never the shipped range: a
+    // developer's own Termic sharing on *:23620 answered for a stopped test
+    // machine's 127.0.0.1:23620, and "the peer is off" came back "refused".
+    #[cfg(test)]
+    if preferred == 0 {
+        return TcpListener::bind((addr, 0)).map_err(|e| e.to_string());
+    }
     if preferred != 0 {
         if let Ok(l) = TcpListener::bind((addr, preferred)) {
             return Ok(l);
@@ -2006,6 +2013,59 @@ fn route(node: &Arc<Node>, req: &HttpReq, src: IpAddr) -> (u16, Vec<u8>) {
         (_, "/hello" | "/pair/request" | "/pair/start" | "/pair/confirm" | "/call" | "/unpair") => (405, Vec::new()),
         _ => (404, Vec::new()),
     }
+}
+
+/// A prompt from a paired machine names it the way IT knows itself: its
+/// agent signs `peer:<its own name>` (MCP_INSTRUCTIONS), say
+/// `peer:DESKTOP-DO50EUS`. Here the person gave it a name of their own
+/// ("windows laptop"), the one their agents and Settings use, so the
+/// signature is rewritten to it on arrival. Only the sender's own name, only
+/// after `peer:`, bare or quoted; the rest of the prompt is untouched, and
+/// replying works either way since a selector finds a pair by both names.
+fn localize_signature(cmd: Command, rec: &PeerRecord) -> Command {
+    let Some(alias) = rec.alias.as_deref().map(str::trim).filter(|a| !a.is_empty() && *a != rec.name) else {
+        return cmd;
+    };
+    let fix = |text: &str| -> String {
+        let mut out = text.to_string();
+        for (from, to) in [
+            (format!("peer:\"{}\"", rec.name), format!("peer:\"{alias}\"")),
+            (format!("peer:{}", rec.name), format!("peer:{alias}")),
+        ] {
+            out = replace_ignore_case(&out, &from, &to);
+        }
+        out
+    };
+    let mut cmd = cmd;
+    match &mut cmd {
+        Command::Send { prompt, .. } => *prompt = fix(prompt),
+        Command::New { prompt: Some(p), .. } => *p = fix(p),
+        _ => {}
+    }
+    cmd
+}
+
+/// `text` with every case-insensitive occurrence of `from` replaced.
+fn replace_ignore_case(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_string();
+    }
+    let lower = text.to_lowercase();
+    let needle = from.to_lowercase();
+    // Lowercasing can change byte lengths outside ASCII; then fall back to
+    // the exact match rather than cut a character in half.
+    if lower.len() != text.len() || needle.len() != from.len() {
+        return text.replace(from, to);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(at) = lower[i..].find(&needle) {
+        out.push_str(&text[i..i + at]);
+        out.push_str(to);
+        i += at + needle.len();
+    }
+    out.push_str(&text[i..]);
+    out
 }
 
 fn json<T: Serialize>(status: u16, v: &T) -> (u16, Vec<u8>) {
@@ -2317,6 +2377,31 @@ mod tests {
             cmd,
         };
         a.node.forward(&req, &mut crate::mcp_server::NoopSink)
+    }
+
+    #[test]
+    fn a_prompt_from_a_pair_is_signed_with_the_name_given_here() {
+        let mut rec = new_record(
+            &Who { id: "a".repeat(32), name: "DESKTOP-DO50EUS".into(), version: "1".into(), proto: 1, pv: PV, port: 1 },
+            IpAddr::from([127, 0, 0, 1]),
+            &[0u8; 32],
+            Grant::Drive,
+        );
+        let send = |p: &str| Command::Send {
+            task: Some("t".into()), project: None, prompt: p.into(), prompt_ref: None, resume: false,
+            fresh: false, wait: false, timeout_ms: None, tab: None, now: false, cwd: None,
+        };
+        let text = |c: Command| match c { Command::Send { prompt, .. } => prompt, _ => unreachable!() };
+        // No alias: untouched.
+        let p = "[message from agent:claude task:x id:1 peer:DESKTOP-DO50EUS] hi";
+        assert_eq!(text(localize_signature(send(p), &rec)), p);
+        rec.alias = Some("windows laptop".into());
+        assert_eq!(
+            text(localize_signature(send("[message from agent:claude peer:desktop-do50eus id:1] done -- peer:\"DESKTOP-DO50EUS\""), &rec)),
+            "[message from agent:claude peer:windows laptop id:1] done -- peer:\"windows laptop\""
+        );
+        // Only after `peer:`: the name elsewhere in the text stays.
+        assert_eq!(text(localize_signature(send("built on DESKTOP-DO50EUS"), &rec)), "built on DESKTOP-DO50EUS");
     }
 
     #[test]

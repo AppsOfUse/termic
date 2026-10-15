@@ -116,7 +116,13 @@ computer", starting from the name the other machine gives itself, and a
 role chip (Orchestrator / Worker) fills it in unless one was
 typed. It is LOCAL (`peer_rename`): the Mac stays "MacBook Pro" to itself
 and to every other pair, and is "Orchestrator" to the Windows box, which is
-the name agents there use for it (`--peer`, the MCP `peer` argument). Either machine can be B; both
+the name agents there use for it (`--peer`, the MCP `peer` argument).
+Messages follow it: an agent signs `peer:<its own name>` because that is
+the only name it knows, so a prompt arriving from a pair has that name
+after `peer:` (bare or quoted) rewritten to the local one
+(`localize_signature`). The Windows box's report reaches the Mac signed
+`peer:windows laptop`, not `peer:DESKTOP-DO50EUS`. Replying works with
+either, since a selector finds a pair by both. Either machine can be B; both
 can be in pairing mode at once. Leaving the Settings page closes it.
 
 A machine that is NOT in pairing mode answers every pairing request with
