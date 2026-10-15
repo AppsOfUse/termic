@@ -450,6 +450,8 @@ pub(crate) struct PeerStatus {
     pub port: Option<u16>,
     pub addresses: Vec<String>,
     pub discovery_error: Option<String>,
+    /// The OS refuses discovery's sends (macOS Local Network privacy).
+    pub network_blocked: bool,
     pub bind_error: Option<String>,
     pub platform: &'static str,
     pub peers: Vec<PeerView>,
@@ -768,6 +770,9 @@ impl Node {
             addresses,
             discovery_error: self.discovery_error.lock().unwrap().clone(),
             bind_error: self.bind_error.lock().unwrap().clone(),
+            network_blocked: self.runtime.lock().unwrap().as_ref()
+                .and_then(|r| r.discovery.as_ref().map(|d| d.blocked()))
+                .unwrap_or(false),
             platform: platform(),
             peers,
             nearby,

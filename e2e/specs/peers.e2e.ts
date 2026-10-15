@@ -266,6 +266,11 @@ describe("LAN pairing", () => {
     expect(await browser.execute(() => document.querySelector('[data-testid="peers-self-address"]')!.textContent))
       .not.toContain(`:${appPort}:`);
     await waitForAttr('[data-testid="peers-paired-empty"]', "data-testid", "peers-paired-empty");
+    // The two halves of pairing, side by side.
+    await waitForAttr('[data-testid="peers-card-show"]', "data-testid", "peers-card-show");
+    await waitForAttr('[data-testid="peers-card-enter"]', "data-testid", "peers-card-enter");
+    await browser.execute(() => document.querySelector('[data-testid="peers-card-show"]')!.scrollIntoView({ block: "center" }));
+    await snap("peers-on.png");
   });
 
   it("renames this machine, and the new name is what others see", async () => {
@@ -488,8 +493,13 @@ describe("LAN pairing", () => {
     after(() => { server?.close(); });
 
     it("pairs by address with the code the other machine shows, and refuses a wrong one", async () => {
+      // Folded behind a link: discovery is the normal way in.
+      if (!await browser.execute(() => !!document.querySelector('[data-testid="peers-address-input"]'))) {
+        await clickPresent('[data-testid="peers-address-toggle"]');
+      }
       await setInputValue('[data-testid="peers-address-input"]', `127.0.0.1:${remote.port}`);
       await setInputValue('[data-testid="peers-address-code"]', "1111");
+      await snap("peers-address-open.png");
       await clickPresent('[data-testid="peers-address-pair"]');
       await waitForText(`That is not the code ${remote.name} shows`);
       expect((await status()).peers.some((x: any) => x.id === remote.id)).toBe(false);

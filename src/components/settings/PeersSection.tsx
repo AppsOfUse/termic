@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import {
-  PEER_CHANGED_EVENT, peerPair, peerPairMode, peerRefresh, peerRename, peerSetGrant, peerSetName, peerSetNote, peerStatus, peerUnpair,
+  PEER_CHANGED_EVENT, openPath, peerPair, peerPairMode, peerRefresh, peerRename, peerSetGrant, peerSetName, peerSetNote, peerStatus, peerUnpair,
 } from "@/lib/ipc";
 import type { NearbyView, PeerGrant, PeerStatus, PeerView } from "@/lib/types";
 import { PeerRoleChips } from "./PeerRoles";
@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Block, SectionTitle, Toggle, useBackendSettings } from "./Controls";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/ui/Tooltip";
+import { Info, RefreshCw } from "lucide-react";
 
 /** peer_status, kept fresh by the backend's change event while mounted. */
 function usePeerStatus(): [PeerStatus | null, () => void] {
@@ -89,6 +91,7 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
   const [enabled, setEnabled] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [addressOpen, setAddressOpen] = useState(false);
   const [addressCode, setAddressCode] = useState("");
   const [pairing, setPairing] = useState<string | null>(null);
 
@@ -184,6 +187,10 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
   const left = mode ? Math.max(0, Math.ceil((mode.expires_at_ms - now) / 1000)) : 0;
   const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 
+  // Layout rule for this page: one short line per thing, the long story in a
+  // tooltip. The first version stacked a paragraph under every heading and
+  // read as a wall of text; what a person needs here is "is it on, who is
+  // nearby, pair".
   return (
     <div className="flex flex-col gap-7" data-testid="peers-section">
       <SectionTitle title={t("peers.title")} badge={t("shared.experimental")} />
@@ -192,8 +199,6 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
         <div data-testid="peers-toggle" data-enabled={enabled ? "true" : "false"}>
           <Toggle
             label={t("peers.enable.label")}
-            // Off, the section is one line: what turning it on is for. The
-            // full warning is for when it is on, beside what it exposes.
             hint={enabled ? t("peers.enable.hint") : t("peers.enable.hintOff")}
             value={enabled}
             onChange={saveEnabled}
@@ -203,104 +208,150 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
 
       {enabled && (
         <Block>
-          {mode ? (
-            // Pairing mode has to be unmistakable from across the room: the
-            // person reads this code off this screen at the other computer.
-            <div
-              data-testid="peers-pair-mode"
-              data-code={mode.code}
-              className="rounded-xl border-2 border-[var(--color-accent)] bg-[var(--color-accent-deep)]/15 px-5 py-4"
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2 text-[13px] font-medium text-[var(--color-accent)]">
-                  <span aria-hidden className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--color-accent)]" />
-                  {t("peers.pairMode.title")}
-                </div>
-                <span className="text-[12px] tabular-nums text-[var(--color-fg-dim)]">{t("peers.pairMode.timeLeft", { time: clock })}</span>
-              </div>
-              <div className="mt-3 text-[12px] text-[var(--color-fg-dim)]">{t("peers.pairMode.code")}</div>
-              <div data-testid="peers-pair-code" className="select-text font-mono text-[44px] font-semibold leading-tight tracking-[0.3em] tabular-nums">
-                {mode.code}
-              </div>
-              <p className="mt-1 text-[12.5px] text-[var(--color-fg)]">{t("peers.pairMode.hint", { name: selfName })}</p>
-              {mode.wrong_codes > 0 && (
-                <p data-testid="peers-wrong-codes" className="mt-1 text-[12px] text-[var(--color-warn,inherit)]">
-                  {t("peers.pairMode.wrongCodes", { count: mode.wrong_codes })}
-                </p>
-              )}
-              <div className="mt-3 flex justify-end">
-                <Button variant="secondary" size="md" data-testid="peers-pair-stop" onClick={() => void setMode(false)}>
-                  {t("peers.pairMode.stop")}
+          {/* The one failure that looked like an empty network: the OS
+              refusing every discovery send. Said plainly, with the way out. */}
+          {status?.network_blocked && (
+            <div data-testid="peers-network-blocked" className="mb-4 flex items-center justify-between gap-4 rounded-md border border-[var(--color-warn,var(--color-border))] px-3 py-2 text-[12.5px]">
+              <span>{t(status.platform === "macos" ? "peers.blocked.macos" : "peers.blocked.other")}</span>
+              {status.platform === "macos" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="peers-network-blocked-open"
+                  onClick={() => { void openPath("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork").catch(() => {}); }}
+                >
+                  {t("peers.blocked.open")}
                 </Button>
+              )}
+            </div>
+          )}
+
+          {/* Pairing is always the same two halves: one computer shows a
+              code, the other types it. So the page IS those two halves, side
+              by side, and either computer can take either one. */}
+          <div className="text-[14px] font-medium">{t("peers.pair.title")}</div>
+          <p className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("peers.pair.how")}</p>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div
+              data-testid="peers-card-show"
+              className={cn(
+                "flex flex-col rounded-lg border p-4",
+                mode ? "border-2 border-[var(--color-accent)] bg-[var(--color-accent-deep)]/15" : "border-[var(--color-border-soft)]",
+              )}
+            >
+              <div className="text-[13px] font-medium">{t("peers.pair.showTitle")}</div>
+              {mode ? (
+                <div data-testid="peers-pair-mode" data-code={mode.code} className="mt-2 flex flex-1 flex-col">
+                  <div className="flex items-center justify-between gap-3 text-[12px]">
+                    <span className="flex items-center gap-1.5 font-medium text-[var(--color-accent)]">
+                      <span aria-hidden className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--color-accent)]" />
+                      {t("peers.pairMode.title")}
+                    </span>
+                    <span className="tabular-nums text-[var(--color-fg-dim)]">{t("peers.pairMode.timeLeft", { time: clock })}</span>
+                  </div>
+                  <div data-testid="peers-pair-code" className="mt-1 select-text font-mono text-[40px] font-semibold leading-tight tracking-[0.3em] tabular-nums">
+                    {mode.code}
+                  </div>
+                  <p className="text-[12px] text-[var(--color-fg-dim)]">{t("peers.pairMode.hint", { name: selfName })}</p>
+                  {mode.wrong_codes > 0 && (
+                    <p data-testid="peers-wrong-codes" className="mt-1 text-[12px] text-[var(--color-warn,inherit)]">
+                      {t("peers.pairMode.wrongCodes", { count: mode.wrong_codes })}
+                    </p>
+                  )}
+                  <div className="mt-auto flex justify-end pt-3">
+                    <Button variant="secondary" size="sm" data-testid="peers-pair-stop" onClick={() => void setMode(false)}>
+                      {t("peers.pairMode.stop")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-1 flex flex-1 flex-col">
+                  <p className="text-[12px] text-[var(--color-fg-dim)]">{t("peers.pair.showHint")}</p>
+                  <div className="mt-auto pt-4">
+                    <Button variant="primary" size="md" data-testid="peers-pair-open" onClick={() => void setMode(true)}>
+                      {t("peers.pairMode.open")}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div data-testid="peers-card-enter" className="flex flex-col rounded-lg border border-[var(--color-border-soft)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[13px] font-medium">{t("peers.pair.enterTitle")}</div>
+                <Tip content={t("peers.nearby.refresh")} side="top">
+                  <button
+                    type="button"
+                    aria-label={t("peers.nearby.refresh")}
+                    data-testid="peers-refresh"
+                    onClick={() => { void peerRefresh().catch(() => {}); }}
+                    className="rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </button>
+                </Tip>
+              </div>
+              {nearby.length === 0 ? (
+                <p data-testid="peers-nearby-empty" className="mt-1 flex items-center gap-1.5 text-[12px] text-[var(--color-fg-faint)]">
+                  {t("peers.nearby.empty")}
+                  <Tip content={<span className="block max-w-[340px] whitespace-normal">{t("peers.nearby.emptyTip")}</span>} side="top">
+                    <Info className="h-3.5 w-3.5 hover:text-[var(--color-fg-dim)]" />
+                  </Tip>
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {nearby.map(n => (
+                    <NearbyRow key={n.id} n={n} busy={pairing === n.id} disabled={pairing !== null} onPair={code => pair(n.id, code)} />
+                  ))}
+                </div>
+              )}
+
+              {/* By address: folded, since discovery is the normal way in. */}
+              <div className="mt-auto pt-3">
+                {!addressOpen ? (
+                  <button
+                    type="button"
+                    data-testid="peers-address-toggle"
+                    onClick={() => setAddressOpen(true)}
+                    className={linkClass}
+                  >
+                    {t("peers.address.title")}
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      data-testid="peers-address-input"
+                      aria-label={t("peers.address.label")}
+                      value={address}
+                      placeholder="192.168.1.20"
+                      autoFocus
+                      onChange={e => setAddress(e.target.value)}
+                      className="w-40 font-mono"
+                    />
+                    <Input
+                      data-testid="peers-address-code"
+                      aria-label={t("peers.address.code")}
+                      value={addressCode}
+                      placeholder={t("peers.nearby.codePlaceholder")}
+                      inputMode="numeric"
+                      maxLength={4}
+                      onChange={e => setAddressCode(e.target.value.replace(/\D/g, ""))}
+                      onKeyDown={e => { if (e.key === "Enter") void pairByAddress(); }}
+                      className="w-24 text-center font-mono"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      data-testid="peers-address-pair"
+                      disabled={pairing !== null || address.trim() === "" || addressCode.length !== 4}
+                      onClick={() => void pairByAddress()}
+                    >
+                      {pairing !== null && pairing === address.trim() ? t("peers.nearby.pairing") : t("peers.nearby.pair")}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="flex items-center justify-between gap-6">
-              <p className="text-[12.5px] text-[var(--color-fg-dim)]">{t("peers.pairMode.intro")}</p>
-              <Button variant="primary" size="md" data-testid="peers-pair-open" onClick={() => void setMode(true)}>
-                {t("peers.pairMode.open")}
-              </Button>
-            </div>
-          )}
-        </Block>
-      )}
-
-      {enabled && (
-        <Block>
-          <div className="flex items-center justify-between gap-4">
-            <div className="text-[14px] font-medium">{t("peers.nearby.title")}</div>
-            <button
-              type="button"
-              data-testid="peers-refresh"
-              onClick={() => { void peerRefresh().catch(() => {}); }}
-              className={linkClass}
-            >
-              {t("peers.nearby.refresh")}
-            </button>
-          </div>
-          {nearby.length === 0 ? (
-            <p data-testid="peers-nearby-empty" className="mt-0.5 text-[12.5px] text-[var(--color-fg-faint)]">
-              {t("peers.nearby.empty")}
-            </p>
-          ) : (
-            <div className="mt-3 flex flex-col gap-2">
-              {nearby.map(n => (
-                <NearbyRow key={n.id} n={n} busy={pairing === n.id} disabled={pairing !== null} onPair={code => pair(n.id, code)} />
-              ))}
-            </div>
-          )}
-
-          <div className="mt-5 text-[13px] font-medium">{t("peers.address.title")}</div>
-          <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("peers.address.hint")}</div>
-          <div className="mt-2 flex items-center gap-2">
-            <Input
-              data-testid="peers-address-input"
-              aria-label={t("peers.address.label")}
-              value={address}
-              placeholder="192.168.1.20"
-              onChange={e => setAddress(e.target.value)}
-              className="w-56 font-mono"
-            />
-            <Input
-              data-testid="peers-address-code"
-              aria-label={t("peers.address.code")}
-              value={addressCode}
-              placeholder={t("peers.nearby.codePlaceholder")}
-              inputMode="numeric"
-              maxLength={4}
-              onChange={e => setAddressCode(e.target.value.replace(/\D/g, ""))}
-              onKeyDown={e => { if (e.key === "Enter") void pairByAddress(); }}
-              className="w-32 text-center font-mono"
-            />
-            <Button
-              variant="secondary"
-              size="lg"
-              data-testid="peers-address-pair"
-              disabled={pairing !== null || address.trim() === "" || addressCode.length !== 4}
-              onClick={() => void pairByAddress()}
-            >
-              {pairing !== null && pairing === address.trim() ? t("peers.nearby.pairing") : t("peers.nearby.pair")}
-            </Button>
           </div>
         </Block>
       )}
@@ -310,7 +361,7 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
       {(enabled || peers.length > 0) && <Block>
         <div className="text-[14px] font-medium">{t("peers.paired.title")}</div>
         {peers.length === 0 ? (
-          <p data-testid="peers-paired-empty" className="mt-0.5 text-[12.5px] text-[var(--color-fg-faint)]">
+          <p data-testid="peers-paired-empty" className="mt-1 text-[12.5px] text-[var(--color-fg-faint)]">
             {t("peers.paired.empty")}
           </p>
         ) : (
@@ -321,9 +372,13 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
       </Block>}
 
       {enabled && <Block>
-        <div className="text-[14px] font-medium">{t("peers.self.title")}</div>
-        <div className="mt-0.5 text-[12.5px] text-[var(--color-fg-dim)]">{t("peers.self.hint")}</div>
-        <div className="mt-3 flex items-center gap-2">
+        <div className="flex items-center gap-1.5 text-[14px] font-medium">
+          {t("peers.self.title")}
+          <Tip content={<span className="block max-w-[340px] whitespace-normal">{t("peers.self.hint")}</span>} side="top">
+            <Info className="h-3.5 w-3.5 text-[var(--color-fg-faint)] hover:text-[var(--color-fg-dim)]" />
+          </Tip>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           <Input
             data-testid="peers-self-name"
             aria-label={t("peers.self.nameLabel")}
@@ -341,10 +396,10 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
             }}
             className="w-72"
           />
+          <span data-testid="peers-self-address" className="font-mono text-[12px] text-[var(--color-fg-faint)]">
+            {where ?? t("peers.self.noAddress")}
+          </span>
         </div>
-        <p data-testid="peers-self-address" className="mt-2 text-[12px] text-[var(--color-fg-faint)]">
-          {where ? t("peers.self.reachable", { where }) : t("peers.self.noAddress")}
-        </p>
         {status?.bind_error && (
           <p data-testid="peers-bind-error" className="mt-2 text-[12px] text-[var(--color-warn,inherit)]">
             {status.bind_error}
@@ -355,13 +410,8 @@ export function PeersSection({ onSharingOn }: { onSharingOn?: () => void } = {})
             {t("peers.self.discoveryError", { error: status.discovery_error })}
           </p>
         )}
-        {status?.platform === "macos" && (
-          <p data-testid="peers-macos-hint" className="mt-2 text-[12px] text-[var(--color-fg-dim)]">
-            {t("peers.self.macosHint")}
-          </p>
-        )}
         {status?.platform === "windows" && (
-          <p data-testid="peers-windows-hint" className="mt-2 text-[12px] text-[var(--color-fg-dim)]">
+          <p data-testid="peers-windows-hint" className="mt-2 text-[12px] text-[var(--color-fg-faint)]">
             {t("peers.self.windowsHint")}
           </p>
         )}
@@ -376,12 +426,14 @@ function NearbyRow({ n, busy, disabled, onPair }: {
   n: NearbyView; busy: boolean; disabled: boolean; onPair: (code: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation("settings");
-  const [entering, setEntering] = useState(false);
   const [code, setCode] = useState("");
+  // Only a computer showing a code can be paired with, so only its row asks
+  // for one, and the box is right there: no Pair click to reveal it.
+  const canPair = n.pairing && n.proto_ok;
 
   async function submit(c: string) {
     if (c.length !== 4) return;
-    if (await onPair(c)) setEntering(false);
+    await onPair(c);
     setCode("");
   }
 
@@ -391,70 +443,43 @@ function NearbyRow({ n, busy, disabled, onPair }: {
       data-proto-ok={n.proto_ok ? "true" : "false"}
       data-ready={n.pairing ? "true" : "false"}
       className={cn(
-        "rounded-lg border px-3 py-2.5",
-        n.pairing ? "border-[var(--color-accent)]" : "border-[var(--color-border-soft)]",
+        "flex items-center justify-between gap-3 rounded-md border px-2.5 py-2",
+        canPair ? "border-[var(--color-accent)]" : "border-[var(--color-border-soft)]",
       )}
     >
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-[13.5px] font-medium">{n.name}</span>
-            {n.pairing && (
-              <span data-testid={`nearby-ready-${n.id}`} className="rounded bg-[var(--color-accent)]/15 px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-accent)]">
-                {t("peers.nearby.ready")}
-              </span>
-            )}
-          </div>
-          <div className="text-[12px] text-[var(--color-fg-faint)]">
-            {t("peers.nearby.meta", { address: n.address, version: n.version })}
-          </div>
-          {!n.proto_ok && (
-            <div className="text-[12px] text-[var(--color-warn,inherit)]">{t("peers.versionMismatch")}</div>
-          )}
+      <div className="min-w-0">
+        <div className="truncate text-[13px] font-medium">{n.name}</div>
+        <div className="truncate text-[11.5px] text-[var(--color-fg-faint)]">
+          {!n.proto_ok
+            ? t("peers.versionMismatch")
+            : n.pairing
+              ? <span data-testid={`nearby-ready-${n.id}`} className="text-[var(--color-accent)]">{t("peers.nearby.ready")}</span>
+              : t("peers.nearby.notShowing")}
+          {" · "}{n.address}
         </div>
-        {!entering && (
-          <Button
-            variant={n.pairing ? "primary" : "secondary"}
-            size="md"
-            data-testid={`nearby-pair-${n.id}`}
-            disabled={disabled}
-            onClick={() => setEntering(true)}
-          >
-            {t("peers.nearby.pair")}
-          </Button>
-        )}
       </div>
-      {entering && (
-        <div className="mt-3 flex flex-col gap-1.5">
-          <span className="text-[12px] font-medium text-[var(--color-fg-dim)]">{t("peers.nearby.codeFor", { name: n.name })}</span>
-          <div className="flex items-center gap-2">
-            <Input
-              autoFocus
-              data-testid={`nearby-code-${n.id}`}
-              value={code}
-              placeholder={t("peers.nearby.codePlaceholder")}
-              inputMode="numeric"
-              maxLength={4}
-              disabled={busy}
-              onChange={e => {
-                const c = e.target.value.replace(/\D/g, "");
-                setCode(c);
-                if (c.length === 4) void submit(c);
-              }}
-              onKeyDown={e => {
-                if (e.key === "Enter") void submit(code);
-                if (e.key === "Escape") { e.stopPropagation(); setEntering(false); setCode(""); }
-              }}
-              className="h-10 w-32 text-center font-mono text-[20px] tracking-[0.3em]"
-            />
-            {busy && <span className="text-[12px] text-[var(--color-fg-faint)]">{t("peers.nearby.pairing")}</span>}
-            <button type="button" className={linkClass} onClick={() => { setEntering(false); setCode(""); }}>
-              {t("peers.nearby.cancel")}
-            </button>
-          </div>
-          {!n.pairing && (
-            <span className="text-[12px] text-[var(--color-fg-faint)]">{t("peers.nearby.notReady", { name: n.name })}</span>
-          )}
+      {canPair && (
+        <div className="flex shrink-0 items-center gap-2">
+          {busy && <span className="text-[12px] text-[var(--color-fg-faint)]">{t("peers.nearby.pairing")}</span>}
+          <Input
+            data-testid={`nearby-code-${n.id}`}
+            aria-label={t("peers.nearby.codeFor", { name: n.name })}
+            value={code}
+            placeholder={t("peers.nearby.codePlaceholder")}
+            inputMode="numeric"
+            maxLength={4}
+            disabled={busy || disabled}
+            onChange={e => {
+              const c = e.target.value.replace(/\D/g, "");
+              setCode(c);
+              if (c.length === 4) void submit(c);
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter") void submit(code);
+              if (e.key === "Escape") { e.stopPropagation(); setCode(""); }
+            }}
+            className="w-24 text-center font-mono tracking-[0.2em]"
+          />
         </div>
       )}
     </div>

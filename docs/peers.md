@@ -322,15 +322,36 @@ fill the note, Done / Skip. Everything is read from
   type-checks for Windows but is **untested on real Windows hardware**.
 - **macOS.** Local Network privacy: until the user allows it, every
   multicast send fails (`EHOSTUNREACH`) and nothing arrives, while the
-  bind and the group joins still succeed, so discovery is silently
-  empty; Settings shows a hint. Pair by address works either way.
+  bind and the group joins still succeed. `mdns.rs` counts a round where
+  every send was refused that way as BLOCKED (`peer_status.network_blocked`),
+  and Settings says so with a button to the Local Network pane, instead of
+  an empty Nearby that looks like a quiet network. Each bundle id is its
+  own grant: Termic Beta (`com.simion.termic.beta`) is asked separately,
+  and an ad-hoc signed beta was measured never prompted at all
+  (`DenyMulticast = 1`, `MulticastPreferenceSet = 0` in
+  `/Library/Preferences/com.apple.networkextension.plist`), so its switch
+  in System Settings is the way in. Pair by address works either way.
   `Info.plist` carries `NSLocalNetworkUsageDescription` (mentions
   pairing) and `NSBonjourServices` (`_termic._tcp`). The application
   firewall only prompts when the user turned it on.
 - **Linux.** Same path as macOS (`getifaddrs`); coexists with avahi on
   5353.
 
+## Profiles
+
+Sharing, like the CLI and MCP switches, belongs to the app, not a
+profile: one node per machine, read from the root profile's settings.
+`settings_save` from any profile window writes these to root too, and
+`settings_load` shows root's (`copy_machine_wide` in lib.rs). Before
+that, turning sharing on in a second profile's window started the node
+for the session while root still said off, so `termic peer list`
+printed "sharing off" beside an open port and the next launch came up
+off.
+
 ## Debugging
+
+- `plutil -p /Library/Preferences/com.apple.networkextension.plist`
+  shows each app's Local Network decision (`DenyMulticast`).
 
 - `dns-sd -B _termic._tcp` (macOS) lists every advertising Termic;
   `dns-sd -L <instance> _termic._tcp` shows its TXT.

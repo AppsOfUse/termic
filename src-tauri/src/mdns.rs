@@ -528,6 +528,16 @@ fn interface_addrs() -> Vec<Ipv4Addr> {
 #[cfg(test)]
 static LOOPBACK_ONLY: AtomicBool = AtomicBool::new(false);
 
+/// "No route to host": what a denied macOS Local Network permission answers.
+#[cfg(target_os = "macos")]
+const EHOSTUNREACH: i32 = 65;
+#[cfg(target_os = "linux")]
+const EHOSTUNREACH: i32 = 113;
+#[cfg(windows)]
+const EHOSTUNREACH: i32 = 10065; // WSAEHOSTUNREACH
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+const EHOSTUNREACH: i32 = -1;
+
 fn ifaces() -> Vec<Ipv4Addr> {
     #[cfg(test)]
     if LOOPBACK_ONLY.load(Ordering::SeqCst) {
@@ -554,6 +564,13 @@ struct Shared {
     /// Serialises "pick the interface, send": IP_MULTICAST_IF is socket
     /// state, and the discovery thread and the caller both send.
     send_lock: Mutex<()>,
+    /// Every send of the last round was refused as "no route to host".
+    /// That is macOS Local Network privacy denying this app (a send to the
+    /// group on a real interface has a route by definition), and without
+    /// this it looked exactly like a quiet network: Nearby just stayed
+    /// empty. Measured on a beta build whose permission was never asked:
+    /// `DenyMulticast = 1`, nothing sent, nothing received.
+    blocked: AtomicBool,
     stop: AtomicBool,
     on_change: Arc<dyn Fn() + Send + Sync>,
 }
@@ -565,14 +582,24 @@ impl Shared {
         let _g = self.send_lock.lock().unwrap_or_else(|e| e.into_inner());
         let dest = SocketAddr::V4(SocketAddrV4::new(GROUP, PORT));
         let sock = socket2::SockRef::from(&self.sock);
+        let (mut sent, mut refused) = (false, false);
+        let mut note = |r: std::io::Result<usize>| match r {
+            Ok(_) => sent = true,
+            Err(e) if e.raw_os_error() == Some(EHOSTUNREACH) => refused = true,
+            Err(_) => {}
+        };
         if ifaces.is_empty() {
-            let _ = self.sock.send_to(pkt, dest);
-            return;
-        }
-        for ip in ifaces {
-            if sock.set_multicast_if_v4(ip).is_ok() {
-                let _ = self.sock.send_to(pkt, dest);
+            note(self.sock.send_to(pkt, dest));
+        } else {
+            for ip in ifaces {
+                if sock.set_multicast_if_v4(ip).is_ok() {
+                    note(self.sock.send_to(pkt, dest));
+                }
             }
+        }
+        let blocked = refused && !sent;
+        if self.blocked.swap(blocked, Ordering::SeqCst) != blocked {
+            (self.on_change)();
         }
     }
 
@@ -648,6 +675,7 @@ impl Discovery {
             cv: Condvar::new(),
             sock,
             send_lock: Mutex::new(()),
+            blocked: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             on_change,
         });
@@ -669,6 +697,11 @@ impl Discovery {
 
     pub(crate) fn query_now(&self) {
         self.shared.query();
+    }
+
+    /// True while the OS refuses every multicast send (see `Shared::blocked`).
+    pub(crate) fn blocked(&self) -> bool {
+        self.shared.blocked.load(Ordering::SeqCst)
     }
 
     pub(crate) fn sightings(&self) -> Vec<Sighting> {
@@ -1032,6 +1065,7 @@ mod tests {
             cv: Condvar::new(),
             sock,
             send_lock: Mutex::new(()),
+            blocked: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             on_change: Arc::new(move || {
                 let _ = tx.lock().unwrap().send(());

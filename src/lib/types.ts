@@ -1060,6 +1060,8 @@ export interface PeerStatus {
   port: number | null;
   addresses: string[];
   discovery_error: string | null;
+  /** The OS refuses discovery's sends (macOS Local Network privacy). */
+  network_blocked: boolean;
   bind_error: string | null;
   platform: "macos" | "windows" | "linux";
   peers: PeerView[];

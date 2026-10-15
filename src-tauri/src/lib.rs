@@ -23289,8 +23289,29 @@ fn seeded_defaults() -> Settings {
 fn settings_load(window: tauri::Window) -> Settings {
     // The CALLING WINDOW's profile. Settings are scoped in full
     // (docs/profiles.md), so the Settings dialog in a second profile's window
-    // must read and write that profile's file, not the root's.
-    load_settings_in(&window_profile(&window))
+    // must read and write that profile's file, not the root's. Except the
+    // machine-wide switches, which show the root's: there is one of each.
+    let profile = window_profile(&window);
+    let mut s = load_settings_in(&profile);
+    if profile != ProfileId::Root {
+        copy_machine_wide(&load_settings_inner(), &mut s);
+    }
+    s
+}
+
+/// Settings that belong to the APP, not a profile: there is one CLI socket,
+/// one MCP listener and one sharing node per machine, and every reader of
+/// them goes through [`load_settings_inner`] (the root). Saved from a second
+/// profile's window they used to land in that profile's file only, so the
+/// switch looked on, the listener started for the session, the root still
+/// said off (`termic peer list` printed "sharing off" with the port open)
+/// and the next launch came up off. Load and save both route them to root.
+fn copy_machine_wide(from: &Settings, to: &mut Settings) {
+    to.cli_enabled = from.cli_enabled;
+    to.mcp_enabled = from.mcp_enabled;
+    to.mcp_bind_address = from.mcp_bind_address.clone();
+    to.mcp_port = from.mcp_port;
+    to.lan_sharing_enabled = from.lan_sharing_enabled;
 }
 
 /// Expose the ship-time defaults for the agent registry. Used by the
@@ -23732,6 +23753,14 @@ fn settings_save(app: AppHandle, window: tauri::Window, s: Settings) -> Result<(
     }
     let s = keep_disk_account_fields(&disk, s);
     save_settings_in(&profile, &s)?;
+    if profile != ProfileId::Root {
+        let mut root = load_settings_inner();
+        let before = (root.cli_enabled, root.mcp_enabled, root.mcp_bind_address.clone(), root.mcp_port, root.lan_sharing_enabled);
+        copy_machine_wide(&s, &mut root);
+        if before != (root.cli_enabled, root.mcp_enabled, root.mcp_bind_address.clone(), root.mcp_port, root.lan_sharing_enabled) {
+            save_settings_in(&ProfileId::Root, &root)?;
+        }
+    }
     // Applies live: flipping the toggle in Settings shouldn't need a restart
     // to show/hide the menu-bar item, matching close_action/cli_enabled's
     // "re-read per use" behavior.

@@ -323,10 +323,22 @@ export default {
 
   peers: {
     title: "Other computers",
+    pair: {
+      title: "Pair a computer",
+      how: "One computer shows a code, the other types it. Either one can go first.",
+      showTitle: "Show a code on this computer",
+      showHint: "Then type it on the other computer.",
+      enterTitle: "Enter a code from another computer",
+    },
+    blocked: {
+      macos: "macOS is blocking Termic from your local network, so no computer can be found.",
+      other: "The system is blocking discovery on this network. Pair by address instead.",
+      open: "Open Local Network settings",
+    },
     enable: {
       label: "Share on this network",
-      hintOff: "Pair this Termic with one on another computer, so agents here can start and drive tasks there and the other way round.",
-      hint: "Off by default. On, Termic on other computers on this network can see this one, but nobody can pair with it unless you open pairing mode here. A paired computer can then, depending on what you allow it, send prompts to your agents or drive them, which means running code on this computer. Only turn this on for a network you trust. Turning it on also turns on the MCP endpoint below, which is how your agents reach a paired computer.",
+      hintOff: "Pair with Termic on another computer, so agents can start and drive tasks across both.",
+      hint: "Your other computers can find this one. A paired one can run agents here, so use a network you trust.",
     },
     self: {
       title: "This computer",
@@ -335,8 +347,7 @@ export default {
       reachable: "Reachable at {{where}}",
       noAddress: "No network address yet. Other computers cannot reach this one until it joins a network.",
       discoveryError: "Discovery is not working ({{error}}). Pairing by address still works.",
-      macosHint: "macOS asks whether Termic may find devices on your local network. Allow it, or other computers stay out of sight here (System Settings > Privacy & Security > Local Network). Pairing by address works either way.",
-      windowsHint: "Windows may ask whether to allow Termic on networks: choose Private networks. On a network Windows marks as Public, other computers cannot reach this one.",
+      windowsHint: "Not found by others? Allow Termic on Private networks in Windows Firewall.",
     },
     paired: {
       title: "Paired computers",
@@ -366,10 +377,10 @@ export default {
     },
     pairMode: {
       intro: "To pair, open pairing mode on one computer and type the code it shows into the other. Either computer can be the one showing the code.",
-      open: "Pair a computer",
+      open: "Show pairing code",
       title: "Pairing mode",
       code: "This computer's code",
-      hint: "On the other computer, find {{name}} under Nearby (or pair by address) and type this code.",
+      hint: "Type it on the other computer, next to {{name}}.",
       timeLeft: "Closes in {{time}}",
       stop: "Stop pairing",
       wrongCodes: "Wrong codes typed: {{count}} of 3. Pairing mode closes at 3.",
@@ -383,19 +394,19 @@ export default {
     nearby: {
       title: "Nearby",
       refresh: "Look again",
-      empty: "No other Termic found. A computer appears here once Share on this network is on there too. Some networks block discovery: if so, pair by address.",
+      empty: "No computer found yet.",
+      emptyTip: "A computer appears here once Share on this network is on there too. Some networks block discovery: then pair by address.",
       meta: "{{address}} · Termic {{version}}",
       pair: "Pair",
       pairing: "Pairing…",
-      ready: "Ready to pair",
-      notReady: "Not in pairing mode. Click Pair a computer on {{name}} first.",
+      ready: "Showing a code",
+      notShowing: "Not showing a code",
       codeFor: "Code shown on {{name}}",
       codePlaceholder: "4 digits",
       cancel: "Cancel",
     },
     address: {
       title: "Pair by address",
-      hint: "For a network where discovery does not reach. Type the other computer's address, as Settings, Agent access shows it there, and the code it shows in pairing mode.",
       label: "Address",
       code: "Code",
     },
