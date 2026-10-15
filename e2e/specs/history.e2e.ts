@@ -151,6 +151,21 @@ describe("history project filter", () => {
     // Leave History on the OTHER project so the landing proves More… sets it.
     await clickByText("Dashboard");
     await pressOpen(`[data-testid="project-new-task-${fixtureId}"]`);
+    // Resume lives inside the launcher's More submenu (docs/ui.md "Recent on
+    // top, the rest under More"): open that first.
+    await browser.execute(() => {
+      const more = document.querySelector('[data-testid="launcher-more"]') as HTMLElement | null;
+      if (!more) throw new Error("no More submenu trigger");
+      const opts = { bubbles: true, pointerType: "mouse" } as any;
+      more.dispatchEvent(new PointerEvent("pointerover", opts));
+      more.dispatchEvent(new PointerEvent("pointermove", opts));
+      more.click();
+    });
+    await browser.waitUntil(
+      () => browser.execute(() =>
+        [...document.querySelectorAll('[aria-haspopup="menu"]')].some((e) => e.textContent?.includes("Resume"))),
+      { timeout: 8_000, timeoutMsg: "More never offered Resume" },
+    );
     await browser.execute(() => {
       const t = [...document.querySelectorAll('[aria-haspopup="menu"]')].find((e) =>
         e.textContent?.includes("Resume"),
