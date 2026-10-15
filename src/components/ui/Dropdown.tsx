@@ -1,5 +1,6 @@
 import * as DM from "@radix-ui/react-dropdown-menu";
 import { type ReactNode } from "react";
+import { MENU_LABEL, MENU_ROW } from "./menuStyle";
 import { cn } from "@/lib/utils";
 
 export const DropdownRoot   = DM.Root;
@@ -88,7 +89,7 @@ export function DropdownItem({ children, className, onSelect, disabled, ...data 
         // (title + subtitle), centering the icon vertically against the
         // whole block makes it float between the two lines. Top-align lets
         // it sit next to the title where the eye expects it.
-        "flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5 text-[14px] text-[var(--color-fg)]",
+        "flex cursor-pointer items-start gap-2 text-[var(--color-fg)]", MENU_ROW,
         "outline-none data-[highlighted]:bg-[var(--color-hover)] data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed",
         // Nudge leading icons down to sit at the title's optical center
         // (lucide icons are top-heavy at small sizes).
@@ -117,7 +118,7 @@ export function DropdownSubTrigger({ children, className, ...data }: {
       className={cn(
         // Mirrors DropdownItem, minus the cursor: a submenu trigger opens on
         // hover, it isn't a click target that does something.
-        "flex items-center gap-2 rounded-sm px-2 py-1.5 text-[14px] text-[var(--color-fg)]",
+        "flex items-center gap-2 text-[var(--color-fg)]", MENU_ROW,
         "outline-none data-[highlighted]:bg-[var(--color-hover)] data-[state=open]:bg-[var(--color-hover)]",
         className,
       )}
@@ -153,7 +154,7 @@ export const DropdownSeparator = () => (
   <DM.Separator className="my-1 h-px bg-[var(--color-border-soft)]" />
 );
 export const DropdownLabel = ({ children }: { children: ReactNode }) => (
-  <DM.Label className="px-2 py-1 text-[11.5px] uppercase tracking-wider text-[var(--color-fg-faint)]">
+  <DM.Label className={MENU_LABEL}>
     {children}
   </DM.Label>
 );

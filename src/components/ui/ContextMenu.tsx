@@ -1,5 +1,6 @@
 import * as CM from "@radix-ui/react-context-menu";
 import { type ReactNode } from "react";
+import { MENU_LABEL, MENU_ROW } from "./menuStyle";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -70,7 +71,7 @@ export function ContextMenuItem({ children, className, onSelect, disabled, destr
       onSelect={onSelect}
       disabled={disabled}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[13px]",
+        "flex cursor-pointer items-center gap-2", MENU_ROW,
         "outline-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed",
         destructive
           ? "text-[var(--color-err)] data-[highlighted]:bg-[var(--color-err)] data-[highlighted]:text-white"
@@ -97,7 +98,7 @@ export function ContextMenuSubTrigger({ children, className, disabled }: {
     <CM.SubTrigger
       disabled={disabled}
       className={cn(
-        "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[13px]",
+        "flex cursor-pointer items-center gap-2", MENU_ROW,
         "outline-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed",
         "text-[var(--color-fg)] data-[highlighted]:bg-[var(--color-hover)] data-[state=open]:bg-[var(--color-hover)]",
         "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0",
@@ -131,7 +132,7 @@ export function ContextMenuSubContent({ children, className }: { children: React
   );
 }
 export const ContextMenuLabel = ({ children }: { children: ReactNode }) => (
-  <CM.Label className="px-2 py-1 text-[11.5px] uppercase tracking-wider text-[var(--color-fg-faint)]">
+  <CM.Label className={MENU_LABEL}>
     {children}
   </CM.Label>
 );

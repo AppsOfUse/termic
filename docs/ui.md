@@ -173,6 +173,15 @@ the header `+` on projects with tasks. Consecutive projects are set apart by a
 gap and the project header's light band (`--color-bg-2` at 50%). Tried and
 rejected: whitespace alone (no separation), a full-strength rule (harsh).
 
+## Menu text size is one token
+
+Dropdowns (`ui/Dropdown.tsx`) and right-click menus (`ui/ContextMenu.tsx`)
+take their row and label styles from `ui/menuStyle.ts` (13px rows, 11px
+caps labels). They hard-coded 14px and 13px before, so the View options
+dropdown and a project's right-click menu, opened one after the other,
+read as two different apps. A menu that wants smaller text for a hint
+line sets it on that line, never on the row.
+
 ## The View options menu
 
 The sliders icon on the PROJECTS bar. Three sections, one control style
