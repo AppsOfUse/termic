@@ -170,7 +170,8 @@ dashed "New task" box at full row height is only for the empty project.
 While either one shows, the project header's `+` is hover-only (same menu,
 one row apart; still a hover away on a long list). The e2e profile pins the pref to Empty projects so specs keep
 the header `+` on projects with tasks. Consecutive projects are set apart by a
-gap and the project header's light band (`--color-bg-2` at 50%). Tried and
+2px gap and the project header's light band (the `+` row above, a full
+task row tall, already leaves the air) (`--color-bg-2` at 50%). Tried and
 rejected: whitespace alone (no separation), a full-strength rule (harsh).
 
 ## Menu text size is one token
@@ -196,7 +197,7 @@ flipped in one visit; e2e closes it with Escape after.
 
 ## The project row's task filter
 
-The project header's hover carries a filter icon, left of ⋮
+The project header's hover carries a filter icon, between `+` and ⋮
 (`sidebar/ProjectTaskFilter.tsx`, GH #324). It opens a bar
 on its OWN line under the header, full width: a text input and a bell.
 Inline in the header, the input left a long project name almost no room.

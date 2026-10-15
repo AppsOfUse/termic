@@ -4,7 +4,8 @@ name: Release
 # Parallel platform builds (Mac universal on macos-26, Linux AppImage on
 # ubuntu-latest), both ed25519-signed for the in-app updater. The release
 # job stitches everything into one GitHub Release; downstream jobs bump:
-#   * simion/homebrew-termic     (Casks/termic.rb gets version + mac sha)
+#   * simion/homebrew-tap        (Casks/termic.rb gets version + mac sha)
+#   * simion/homebrew-termic     (same cask, legacy tap kept for old installs)
 #   * simion/termic.dev          (public/updates/{latest,changelog}.json)
 #
 # Brew + AppImage users see the new version automatically; running
@@ -46,7 +47,6 @@ permissions:
 
 env:
   # Hard-coded so PRs from forks can't override.
-  TAP_REPO: simion/homebrew-termic
   WEBSITE_REPO: simion/termic.dev
   WEBSITE_MANIFEST_PATH: public/updates/latest.json
   WEBSITE_CHANGELOG_PATH: public/updates/changelog.json
@@ -805,10 +805,16 @@ jobs:
   bump-tap:
     needs: [build-mac, release]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Hard-coded so PRs from forks can't override. homebrew-termic is
+        # the legacy tap, kept current so `simion/termic/termic` still works.
+        tap: [simion/homebrew-tap, simion/homebrew-termic]
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.TAP_REPO }}
+          repository: ${{ matrix.tap }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
       - name: Bump cask (version + universal sha256)

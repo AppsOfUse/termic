@@ -1534,9 +1534,10 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
               <div
                 key={p.id}
                 data-project-wrap=""
-                // A gap between consecutive projects; each header's band
-                // marks the start, so no rule is needed as well.
-                className={cn("rounded-md", !compact && "[[data-project-wrap]+&]:mt-2")}
+                // A small gap between consecutive projects; each header's
+                // band marks the start. Small because the `+` row above it,
+                // a full task row tall, already leaves the air.
+                className={cn("rounded-md", !compact && "[[data-project-wrap]+&]:mt-0.5")}
               >
                 <ContextMenuRoot>
                 <ContextMenuTrigger className="contents">
@@ -1691,36 +1692,9 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                             why rows are missing. `+` stays visible because
                             it's the headline action. */}
                         <div className="flex items-center gap-0.5">
-                          <ProjectFilterToggle
-                            projectId={p.id}
-                            active={filterOn}
-                            paused={filterPaused}
-                            revealed={menuOpenProjectId === p.id || filterBarOpen || filterPaused}
-                            // Open (or re-focus) the bar; an open bar with
-                            // nothing filtering closes instead.
-                            onToggle={() => {
-                              if (filterBarOpen && !filterOn) closeFilterBar();
-                              else setFilterInputs(prev => ({ ...prev, [p.id]: (prev[p.id] ?? 0) + 1 }));
-                            }}
-                          />
-                          <Tip content={t("projectMenuTip")}>
-                            <button
-                              data-testid={`project-menu-${p.id}`}
-                              className={cn(
-                                "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)]",
-                              )}
-                              // The row's right-click menu IS the project
-                              // menu; open that one at the button rather
-                              // than keeping a second copy of its items.
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const r = e.currentTarget.getBoundingClientRect();
-                                e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {
-                                  bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom,
-                                }));
-                              }}
-                            ><MoreVertical className="h-4 w-4" /></button>
-                          </Tip>
+                          {/* Order: + (create, the headline action), filter, then the
+                              project menu at the far right edge, where every other row in
+                              the sidebar keeps its menu. */}
                           {/* Single `+` trigger → instant dropdown with the
                               two project-level actions. Replaces the two
                               separate icons (FolderGit2 + GitBranchPlus) we
@@ -1797,6 +1771,36 @@ export function Sidebar({ compact: compactProp }: { compact?: boolean } = {}) {
                               />
                             </DropdownMenu>
                           </DropdownRoot>
+                          <ProjectFilterToggle
+                            projectId={p.id}
+                            active={filterOn}
+                            paused={filterPaused}
+                            revealed={menuOpenProjectId === p.id || filterBarOpen || filterPaused}
+                            // Open (or re-focus) the bar; an open bar with
+                            // nothing filtering closes instead.
+                            onToggle={() => {
+                              if (filterBarOpen && !filterOn) closeFilterBar();
+                              else setFilterInputs(prev => ({ ...prev, [p.id]: (prev[p.id] ?? 0) + 1 }));
+                            }}
+                          />
+                          <Tip content={t("projectMenuTip")}>
+                            <button
+                              data-testid={`project-menu-${p.id}`}
+                              className={cn(
+                                "rounded p-1 text-[var(--color-fg-faint)] hover:bg-[var(--color-bg-3)] hover:text-[var(--color-fg)]",
+                              )}
+                              // The row's right-click menu IS the project
+                              // menu; open that one at the button rather
+                              // than keeping a second copy of its items.
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const r = e.currentTarget.getBoundingClientRect();
+                                e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {
+                                  bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom,
+                                }));
+                              }}
+                            ><MoreVertical className="h-4 w-4" /></button>
+                          </Tip>
                         </div>
                       </>
                     )}
