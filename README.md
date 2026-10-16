@@ -13,7 +13,7 @@
 [![Windows (experimental)](https://img.shields.io/badge/Windows-experimental-d97757)](#windows-experimental)
 [![termic.dev](https://img.shields.io/badge/website-termic.dev-d97757)](https://termic.dev)
 
-[**Install**](#install) · [What it does](#what-it-does) · [Sandbox](#sandbox) · [vs. Conductor](#why-use-termic-over-conductor) · [Contributing](./CONTRIBUTING.md)
+[**Install**](#install) · [What it does](#what-it-does) · [Sandbox](#sandbox) · [vs. Conductor](#why-use-termic-over-conductor) · [Contributing](#contributing)
 
 <br />
 
@@ -27,6 +27,12 @@ macOS sandbox cage. It spawns the **real** `claude`, `codex`, `agy` (Antigravity
 `copilot` and `grok` binaries (not the vendor SDKs), so inference rides on the Pro / Max plan you
 already pay for. Spin up four agents on the same branch, broadcast one prompt to
 all of them, watch a reliable work-done indicator tell you the moment each finishes.
+
+> **Contributing: ideas first.** I would love to hear what you would add to
+> Termic. For a new feature, [open an issue](https://github.com/simion/termic/issues/new)
+> and let's discuss it before anyone writes code. To build something, pick an
+> issue labelled [`planned`](https://github.com/simion/termic/issues?q=is%3Aissue+is%3Aopen+label%3Aplanned).
+> [How contributing works](#contributing).
 
 ---
 
@@ -399,6 +405,33 @@ per-token markup. The agent and Anthropic still see the same auth they'd
 see in iTerm.
 
 ---
+
+## Contributing
+
+**Ideas first, code second.** I am genuinely curious what you would add to
+Termic, and your idea is the most valuable thing you can bring. Writing the
+code is optional: spend your own tokens on it if you want to, or leave it to
+me.
+
+- **An idea for a new feature?** [Open an issue](https://github.com/simion/termic/issues/new)
+  with the problem it solves and how you would use it. We talk it through
+  there and decide together whether it fits Termic. Please do this before
+  writing any code.
+- **Want to build something?** Pick an issue labelled
+  [`planned`](https://github.com/simion/termic/issues?q=is%3Aissue+is%3Aopen+label%3Aplanned):
+  those are agreed and ready. Comment `/assign` on it to have it assigned to
+  you, then open the pull request.
+- **Small things go straight to a pull request.** A bug fix, a typo, a small
+  polish to something that already exists: no issue needed.
+- **A large new feature that arrives as a pull request, with no issue
+  agreed first, gets parked.** I will ask you to open the issue so we can
+  discuss it, however good the code is. A feature that does not fit Termic
+  costs your time and tokens and my review, and a conversation first saves
+  both.
+
+Agent-written pull requests are welcome on exactly the same terms. The dev
+setup, the pull request checklist and what does and does not fit the project
+are in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Roadmap
 

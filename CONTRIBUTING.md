@@ -3,6 +3,13 @@
 Thanks for considering it. Termic is a small project with a clear scope —
 contributions that fit the [philosophy](#philosophy) are welcome.
 
+**Ideas first, code second.** A new feature starts as an issue, not a pull
+request: [open one](https://github.com/simion/termic/issues/new), and we
+discuss whether it fits before anyone writes code. To build something, pick
+an issue labelled [`planned`](https://github.com/simion/termic/issues?q=is%3Aissue+is%3Aopen+label%3Aplanned)
+and [claim it](#claiming-an-issue). Small fixes go straight to a pull
+request. The full rule is in the [README](./README.md#contributing).
+
 **Did an agent write it? Also welcome, no caveats** — most of Termic was
 written that way (over half the commits in `git log` carry an agent
 co-author trailer). There is one condition, and it is the same one a
@@ -134,8 +141,11 @@ Screenshots of the actual symptom beat any description.
 
 ### Suggesting features
 
-Issues with `[feature request]` in the title are great. Two things help
-get a feature merged:
+**Every new feature starts here, before any code.** Open an issue with
+`[feature request]` in the title; we discuss it, and if it fits Termic it
+gets the `planned` label and a place on the roadmap. Building it yourself
+is optional: the idea is what matters, and the maintainer can implement it.
+Two things help an idea land:
 
 1. **Concrete use case** — "I want X because workflow Y is painful," not
    "X would be cool."
@@ -144,7 +154,9 @@ get a feature merged:
 
 ### Claiming an issue
 
-Comment `/assign` on the issue to have it assigned to you (a workflow
+Want to implement something? Pick an issue labelled
+[`planned`](https://github.com/simion/termic/issues?q=is%3Aissue+is%3Aopen+label%3Aplanned):
+those are agreed and ready to build. Comment `/assign` on the issue to have it assigned to you (a workflow
 does it — GitHub only lets collaborators be assigned by hand). Comment
 `/unassign` to step back.
 
@@ -226,6 +238,10 @@ Attach them to the PR description. Do not commit them to the repo.
 
 ### Pull requests
 
+0. **A large new feature needs an agreed issue first.** A pull request that
+   adds one with no `planned` issue behind it is parked, and you will be
+   asked to open the issue so it can be discussed, however good the code is.
+   Bug fixes, typos and small polish to existing behaviour need no issue.
 1. **Branch off `main`.** Termic doesn't use long-lived branches.
 2. **One concern per PR.** A bug fix + a refactor + a new feature in one
    PR is a recipe for "we'll need to split this." Split it yourself.
