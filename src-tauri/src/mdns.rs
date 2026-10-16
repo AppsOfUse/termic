@@ -528,6 +528,36 @@ fn interface_addrs() -> Vec<Ipv4Addr> {
 #[cfg(test)]
 static LOOPBACK_ONLY: AtomicBool = AtomicBool::new(false);
 
+/// Ask macOS for Local Network access the way it reliably asks: a Bonjour
+/// browse through the system (`DNSServiceBrowse`) for the service type
+/// Info.plist declares (`NSBonjourServices`: `_termic._tcp`). Our own
+/// multicast sends are not a reliable trigger for the prompt (Apple TN3179):
+/// on a fresh Mac sharing came on, nothing asked, and every send was refused
+/// (`DenyMulticast = 1`, `MulticastPreferenceSet = 0`). Once per process.
+#[cfg(target_os = "macos")]
+pub(crate) fn ask_local_network_access() {
+    use std::os::raw::{c_char, c_int, c_uint, c_void};
+    type Ref = *mut c_void;
+    type Reply = extern "C" fn(Ref, c_uint, c_uint, c_int, *const c_char, *const c_char, *const c_char, *mut c_void);
+    extern "C" {
+        fn DNSServiceBrowse(sd: *mut Ref, flags: c_uint, iface: c_uint, regtype: *const c_char, domain: *const c_char, cb: Reply, ctx: *mut c_void) -> c_int;
+    }
+    extern "C" fn ignore(_: Ref, _: c_uint, _: c_uint, _: c_int, _: *const c_char, _: *const c_char, _: *const c_char, _: *mut c_void) {}
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let mut r: Ref = std::ptr::null_mut();
+        // shortcut: the browse is never processed or released (one idle
+        // mDNSResponder connection per process); its only job is the prompt.
+        let err = unsafe { DNSServiceBrowse(&mut r, 0, 0, c"_termic._tcp".as_ptr(), std::ptr::null(), ignore, std::ptr::null_mut()) };
+        if err != 0 {
+            crate::dlog(&format!("[mdns] DNSServiceBrowse failed ({err}); the Local Network prompt may not appear"));
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn ask_local_network_access() {}
+
 /// "No route to host": what a denied macOS Local Network permission answers.
 #[cfg(target_os = "macos")]
 const EHOSTUNREACH: i32 = 65;

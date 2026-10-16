@@ -706,6 +706,7 @@ impl Node {
         let discovery = if discover {
             let ui = self.ui.clone();
             let advert = self.advert(port);
+            mdns::ask_local_network_access();
             match mdns::Discovery::start(advert, Arc::new(move || ui.changed())) {
                 Ok(d) => {
                     *self.discovery_error.lock().unwrap() = None;

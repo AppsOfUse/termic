@@ -362,6 +362,11 @@ fill the note, Done / Skip. Everything is read from
   (`DenyMulticast = 1`, `MulticastPreferenceSet = 0` in
   `/Library/Preferences/com.apple.networkextension.plist`), so its switch
   in System Settings is the way in. Pair by address works either way.
+  Our raw multicast sends are not a reliable trigger for the permission
+  prompt (Apple TN3179), and a fresh Mac was never asked, so starting
+  discovery also opens one system Bonjour browse for `_termic._tcp`
+  (`mdns::ask_local_network_access`, `DNSServiceBrowse`), the documented
+  trigger.
   `Info.plist` carries `NSLocalNetworkUsageDescription` (mentions
   pairing) and `NSBonjourServices` (`_termic._tcp`). The application
   firewall only prompts when the user turned it on.
