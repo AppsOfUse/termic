@@ -1,6 +1,11 @@
 {
   "versions": [
     {
+      "version": "1.17.1",
+      "date": "2026-10-16",
+      "summary": "macOS now asks for local network access when you turn on sharing."
+    },
+    {
       "version": "1.17.0",
       "date": "2026-10-15",
       "summary": "Pair your computers so agents work across them, and a tidier sidebar and new-task menu."

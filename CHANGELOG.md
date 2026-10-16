@@ -4,6 +4,15 @@ All notable changes to Termic, newest first. This file is the human-authored
 source of truth: the in-app Update card and the /changelog page on termic.dev
 are generated from it. See the `release` skill for how entries are added.
 
+## [1.17.1] - 2026-10-16
+
+macOS now asks for local network access when you turn on sharing.
+
+### Bug fixes
+- Turning on Share on this network (Settings, Agent access) now makes macOS
+  ask for local network access. Before, a Mac that had never been asked
+  stayed blocked without a prompt, and no other computer showed up.
+
 ## [1.17.0] - 2026-10-15
 
 Pair your computers so agents work across them, and a tidier sidebar and new-task menu.
